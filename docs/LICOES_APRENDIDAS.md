@@ -11,7 +11,7 @@ foram substituídos por placeholders (`<PROJECT_ID>`, `<owner>`, `203.0.113.x`, 
 
 Cada lição segue **O que aconteceu na v1 → Lição → Na v2**. As linhas "Na v2" descrevem o código
 deste repositório (`verificado no CI` pelo harness, `não executado em nuvem (v2)`); quando citam
-o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
+o dx03v2, descrevem o repositório dele (o deploy em nuvem é `não executado em nuvem (v2)`).
 
 ## Custos e faturamento
 
@@ -63,25 +63,25 @@ o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
 
 - O que aconteceu na v1: o Ingress apontava para a porta do contêiner (3000) em vez da porta do Service (80), faltava a anotação NEG e havia uma anotação de ManagedCertificate para um recurso que não existia; nenhum forwarding rule era criado.
 - Lição: roteamento por porta de Service e health check explícito; o deploy tem de esperar o LB ficar pronto e falhar se não ficar.
-- Na v2: HTTPRoute `/api` → `api:3000`, `/` → `web:8080`; HealthCheckPolicies `/readyz` e `/healthz`; o deploy espera o Gateway `Programmed` e confere o endereço contra `gateway/address` (dx03v2, `planejado`).
+- Na v2: HTTPRoute `/api` → `api:3000`, `/` → `web:8080`; HealthCheckPolicies `/readyz` e `/healthz`; o deploy espera o Gateway `Programmed` e confere o endereço contra `gateway/address` (dx03v2).
 
 ### 9. Cloud Armor anexado por script, depois do deploy
 
 - O que aconteceu na v1: um passo do workflow do app listava backend services `k8s1-*` por nome e anexava `tx03-waf-policy` a cada um; a política tinha rate limit de 100 req/min e "adaptive protection".
 - Lição: a associação WAF ⇄ backend deve ser declarativa e versionada; limites não podem derrubar o próprio smoke test.
-- Na v2: GCPBackendPolicies `api` e `web` com o `securityPolicy` do contrato, omitidas quando `none` (dx03v2, `planejado`); regras `sqli-v33-stable`/`xss-v33-stable` em `tx03v2-lab-waf`; limite de taxa, se existir, >= 300 req/min (contrato).
+- Na v2: GCPBackendPolicies `api` e `web` com o `securityPolicy` do contrato, omitidas quando `none` (dx03v2); regras `sqli-v33-stable`/`xss-v33-stable` em `tx03v2-lab-waf`; limite de taxa, se existir, >= 300 req/min (contrato).
 
 ### 10. Rede plana dentro do cluster
 
 - O que aconteceu na v1: firewall `allow-internal` liberava TCP/UDP 0-65535 e os manifests começaram sem NetworkPolicy; o banco era alcançado por peering (faixa /16 reservada).
 - Lição: segmentar por destino exato, não por faixa.
-- Na v2: Dataplane V2 (Autopilot); NetworkPolicies do dx03v2 fixadas no contrato (`planejado`): entrada em web/api só de `35.191.0.0/16,130.211.0.0/22`; saída da api só para `db/endpoint-ip`/32:5432; DNS para `169.254.20.10`.
+- Na v2: Dataplane V2 (Autopilot); NetworkPolicies do dx03v2 fixadas no contrato: entrada em web/api só de `35.191.0.0/16,130.211.0.0/22`; saída da api só para `db/endpoint-ip`/32:5432; DNS para `169.254.20.10`.
 
 ### 11. Timeouts e esperas no Autopilot
 
 - O que aconteceu na v1: pods levavam 5-10 min para subir, Helm estourou `context deadline exceeded` em 10 min (passou a 20 min sem `--wait`), e um `kubectl delete pod --all` deixou o app com 0 pods por ~17 h sem alarme.
 - Lição: toda espera com prazo explícito e falha visível.
-- Na v2: o `platform/install.sh` usa `helm --wait=watcher --rollback-on-failure` (15 min) e espera o ClusterSecretStore; o `platform/uninstall.sh` falha alto no timeout (900 s para o namespace e para os NEGs); o deploy do dx03v2 vai esperar ExternalSecrets Ready, rollouts e Gateway (`SMOKE_WAIT_SECONDS` 900, `planejado`).
+- Na v2: o `platform/install.sh` usa `helm --wait=watcher --rollback-on-failure` (15 min) e espera o ClusterSecretStore; o `platform/uninstall.sh` falha alto no timeout (900 s para o namespace e para os NEGs); o deploy do dx03v2 espera ExternalSecrets Ready, rollouts e Gateway (`SMOKE_WAIT_SECONDS` 900; `não executado em nuvem (v2)``).
 
 ## Cloud SQL
 
@@ -107,13 +107,13 @@ o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
 
 - O que aconteceu na v1: o workflow criava `host/port/name/user/password` e o Deployment esperava `database/username` (`CreateContainerConfigError`); antes disso `kubectl create secret --dry-run | kubectl apply` falhava com `error: no objects passed to apply`.
 - Lição: nomes de chaves são contrato, conferido por máquina.
-- Na v2: JSON `username,password,host,port,dbname` no segredo (`terraform/envs/lab/secrets.tf`) e Secret `db-credentials` com `DB_*`, ambos fixados no contrato; o `contract-parameter` confere as 15 chaves do parâmetro, e o lado do app vai ser conferido pelo `contract-app` do dx03v2 (`planejado`).
+- Na v2: JSON `username,password,host,port,dbname` no segredo (`terraform/envs/lab/secrets.tf`) e Secret `db-credentials` com `DB_*`, ambos fixados no contrato; o `contract-parameter` confere as 15 chaves do parâmetro, e o lado do app é conferido pelo `contract-app` do dx03v2 (CI verde lá).
 
 ### 16. TLS sem verificação do servidor
 
 - O que aconteceu na v1: IP privado via peering e `ssl_mode = ENCRYPTED_ONLY`, mas o app conectava sem CA e sem conferir o nome do servidor.
 - Lição: criptografar sem verificar não autentica o banco.
-- Na v2: só Private Service Connect + zona DNS privada e CA compartilhada (o nome DNS da instância no certificado); o dx03v2 vai usar `DB_SSL_MODE=verify-full` com o bundle da região, aceito só se a raiz tiver o SHA-256 do contrato (`planejado`).
+- Na v2: só Private Service Connect + zona DNS privada e CA compartilhada (o nome DNS da instância no certificado); o dx03v2 usa `DB_SSL_MODE=verify-full` com o bundle da região, aceito só se a raiz tiver o SHA-256 do contrato (`não executado em nuvem (v2)`).
 
 ### 17. Backup "production-ready" nunca restaurado
 
@@ -203,7 +203,7 @@ o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
 
 - O que aconteceu na v1: a Application `dx03-app` sincronizava `k8s/application` do repositório de infra em `HEAD` com `prune`/`selfHeal`, mas esse caminho nunca existiu no histórico; o deploy real era o workflow do app (dois "donos" do mesmo namespace); servidor exposto por LoadBalancer com `server.insecure: "true"`.
 - Lição: um único caminho de deploy por namespace.
-- Na v2: fora do escopo da v2; só o deploy do dx03v2 (`planejado`) vai escrever no namespace, limitado pela Role `dx03v2-deployer` (`contract-platform`).
+- Na v2: fora do escopo da v2; só o deploy do dx03v2 escreve no namespace, limitado pela Role `dx03v2-deployer` (`contract-platform`).
 
 ## Aplicação e deploy
 
@@ -211,37 +211,37 @@ o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
 
 - O que aconteceu na v1: primeiro `npm ci` com `EUSAGE` (sem lockfile; Dockerfiles trocados para `npm install`), depois `.gitignore` com `*.json` escondendo `package.json` (`failed to calculate checksum ... '/package.json': not found`); hoje o client fixa `eslint ^8.55` com `eslint-plugin-react-refresh ^0.5.2`, que exige eslint 9, e o `npm ci` falha com `ERESOLVE`.
 - Lição: lockfile versionado, `npm ci` no CI e build do mesmo jeito local e remoto.
-- Na v2: `api/` e `web/` vão ser copiados do dx02v2 (CI verde lá), com versões fixadas e `make verify`/`make build` no container de desenvolvimento (dx03v2, `planejado`).
+- Na v2: `api/` e `web/` vão ser copiados do dx02v2 (CI verde lá), com versões fixadas e `make verify`/`make build` no container de desenvolvimento (dx03v2).
 
 ### 32. `NODE_ENV: "dev"` derruba o backend
 
 - O que aconteceu na v1: o ConfigMap foi de `production` para `dev` só para mudar o rótulo na UI; o config atual aceita apenas `development|test|staging|production` e encerra com `Invalid NODE_ENV "dev"`.
 - Lição: ambiente lógico separado do modo de execução do Node.
-- Na v2: o rótulo de ambiente é `APP_ENV=lab` no app-config (overlay `gcp`), sem reaproveitar `NODE_ENV` (dx03v2, `planejado`).
+- Na v2: o rótulo de ambiente é `APP_ENV=lab` no app-config (overlay `gcp`), sem reaproveitar `NODE_ENV` (dx03v2).
 
 ### 33. Probe que depende de `sed`
 
 - O que aconteceu na v1: a readiness do backend envia `Authorization: Bearer METRICS_TOKEN_PLACEHOLDER` e o Secret tem o mesmo literal; sem o `sed` no deploy, `/health/ready` responde 401 e o pod nunca fica pronto.
 - Lição: probes e health checks sem segredo; segredo só por Secret.
-- Na v2: health checks `/readyz` (api) e `/healthz` (web) no contrato; `ADMIN_TOKEN` só via ExternalSecret `app-secrets` (dx03v2, `planejado`).
+- Na v2: health checks `/readyz` (api) e `/healthz` (web) no contrato; `ADMIN_TOKEN` só via ExternalSecret `app-secrets` (dx03v2).
 
 ### 34. UI lendo campos que a API removeu
 
 - O que aconteceu na v1: `/health` passou a responder só `{status: "alive"}` (os dados foram para `/health/ready`, com token), mas `App.tsx` ainda lê `health.memory.used` e `health.database.*`; é o mesmo `TypeError: Cannot read 'used'` já visto no deploy #42.
 - Lição: API e UI mudam juntas, com teste de ponta a ponta.
-- Na v2: o mesmo app do dx02v2, com testes de integração, smoke 12/12 e e2e no kind lá; `SMOKE_EDGE=gke` vai cobrir o caminho pelo Gateway (dx03v2, `planejado`).
+- Na v2: o mesmo app do dx02v2, com testes de integração, smoke 12/12 e e2e no kind lá; `SMOKE_EDGE=gke` cobre o caminho pelo Gateway (dx03v2).
 
 ### 35. URL da API resolvida no build
 
 - O que aconteceu na v1: `VITE_API_URL=""` não era substituído e o browser chamava `localhost:3000`; a saída foi `window.location.origin`, com um comentário no código citando o IP público.
 - Lição: mesma origem atrás do LB; nada de endereço real no código.
-- Na v2: `/api` e `/` no mesmo HTTPRoute (dx03v2, `planejado`); `policy-identifiers` só aceita placeholders e as faixas documentadas.
+- Na v2: `/api` e `/` no mesmo HTTPRoute (dx03v2); `policy-identifiers` só aceita placeholders e as faixas documentadas.
 
 ### 36. Imagens mutáveis e credenciais em secrets do GitHub
 
 - O que aconteceu na v1: push de `:latest` e `:<sha>`, bases `node:20-alpine`/`nginx:alpine` flutuantes; `DB_PASSWORD` e `DB_HOST` como secrets do GitHub e `kubectl create secret` no workflow; 20 execuções (19 falhas) até o primeiro deploy e 44 deploys até a UI funcionar.
 - Lição: imagem imutável e endereçada pelo commit; o pipeline de deploy não manipula segredos.
-- Na v2: Artifact Registry com tags imutáveis (este repositório); SHA de 40 caracteres (tag existente é reutilizada), `linux/amd64` e gate trivy no deploy do dx03v2 (`planejado`); a conta de deploy não tem nada no Secret Manager (`repository_and_secret_grants`).
+- Na v2: Artifact Registry com tags imutáveis (este repositório); SHA de 40 caracteres (tag existente é reutilizada), `linux/amd64` e gate trivy no dx03v2; a conta de deploy não tem nada no Secret Manager (`repository_and_secret_grants`).
 
 ## Processo e documentação
 
@@ -261,7 +261,7 @@ o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
 
 - O que aconteceu na v1: infra em 11 execuções (10 falhas, ~4 h), app em 20 (19 falhas, ~3 h), Istio com 10+ falhas e um commit por tentativa; as 25 notas do tx03 somavam ~10.000 linhas e foram apagadas depois.
 - Lição: validar localmente antes do push; documentação curta e mantida.
-- Na v2: harness no dev container antes de qualquer push; o deploy do dx03v2 vai ser testado offline com stubs de `gcloud`/`kubectl`/`docker` (`planejado`); README, CHANGELOG, CONTRATO e RUNBOOK no lugar de notas de sessão.
+- Na v2: harness no dev container antes de qualquer push; o deploy do dx03v2 foi testado offline com stubs de `gcloud`/`kubectl`/`docker` (13 cenários); README, CHANGELOG, CONTRATO e RUNBOOK no lugar de notas de sessão.
 
 ## Afirmações das notas que não puderam ser confirmadas
 

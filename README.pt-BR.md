@@ -22,7 +22,7 @@ A família do lab (v2):
 | [`tx02v2`](https://github.com/maringelix/tx02v2) | Azure | infraestrutura (Terraform, AKS, PostgreSQL, camada de plataforma) | veja a matriz de status dele |
 | [`dx02v2`](https://github.com/maringelix/dx02v2) | Azure | aplicação | veja a matriz de status dele |
 | `tx03v2` (este repositório) | GCP | infraestrutura (Terraform, camada de plataforma) | ver matriz de status |
-| `dx03v2` | GCP | aplicação (par deste repositório, a ser construída sobre o `docs/CONTRATO.md`) | `planejado` |
+| [`dx03v2`](https://github.com/maringelix/dx03v2) | GCP | aplicação (par deste repositório, construída sobre o `docs/CONTRATO.md`) | veja a matriz de status dele |
 
 Todo repositório de aplicação roda o mesmo app (o mural de mensagens do dx01v2); só o destino do
 deploy muda, para que a comparação entre as nuvens seja justa.
@@ -64,7 +64,7 @@ flowchart LR
   gke -->|External Secrets, Workload Identity Federation for GKE| sm["Secret Manager"]
   gke -->|pull de imagens| ar["Artifact Registry dx03v2"]
   gha["GitHub Actions (Workload Identity Federation)"] -->|contas de serviço plan / apply| apis["APIs do Google Cloud"]
-  dx["deploy do dx03v2 (planejado)"] -->|contrato no Parameter Manager, push de imagens, RoleBinding| gke
+  dx["deploy do dx03v2 (deploy-gcp)"] -->|contrato no Parameter Manager, push de imagens, RoleBinding| gke
 ```
 
 - `terraform/bootstrap`: as 15 APIs do lab, o bucket do state (versionado, acesso uniforme,
@@ -106,7 +106,7 @@ conta de faturamento pode usar outra moeda: veja o [docs/CUSTOS.md](docs/CUSTOS.
 dedicado, mantenha os alertas do budget (um budget nunca para os gastos) e destrua no mesmo dia.
 
 Siga o [docs/RUNBOOK.md](docs/RUNBOOK.md): bootstrap → variáveis do GitHub do tx03v2 (e do dx03v2) →
-apply → plataforma → deploy do dx03v2 (`planejado`) → smoke test → destroy → checagem de sobras
+apply → plataforma → deploy do dx03v2 (workflow `deploy-gcp` de lá) → smoke test → destroy → checagem de sobras
 (local, como Owner do projeto) → issue `cloud_run_report`.
 
 ## Harness

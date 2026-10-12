@@ -2,8 +2,9 @@
 
 Passo a passo para subir o lab no seu projeto Google Cloud, publicar o app do `dx03v2`, destruir tudo
 e registrar o resultado. Nada disto foi executado em nuvem na v2 (`não executado em nuvem (v2)`):
-você será a primeira evidência. Os tempos abaixo são estimativas, não medições, e o dx03v2 ainda é
-`planejado`.
+você será a primeira evidência. Os tempos abaixo são estimativas, não medições. O deploy do app
+segue o [runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)
+(também `não executado em nuvem (v2)`).
 
 > **Custo**: com os padrões, cerca de US$0,12 por hora em `us-central1` enquanto o free tier da GKE
 > cobre a taxa do cluster, cerca de US$0,22 por hora sem ele. Os maiores itens são a taxa do cluster
@@ -22,7 +23,7 @@ você será a primeira evidência. Os tempos abaixo são estimativas, não medi�
   Administrator ou Billing Account Costs Manager; o Owner do projeto não basta).
 - Ferramentas: Google Cloud CLI (`gcloud`) com o componente `gke-gcloud-auth-plugin`, `jq`, `gh`
   autenticado e as ferramentas do harness com `make tools` (terraform, kubectl, helm). O deploy do
-  dx03v2 também vai precisar de Docker (veja o runbook dele quando existir).
+  dx03v2 a partir de um laptop também precisa de Docker com buildx e Node.js 24 (runbook do dx03v2).
 - Repositórios `tx03v2` e `dx03v2` no GitHub (seus forks ou os originais), públicos e com
   `scripts/repo-guardrails.sh` aplicado (environment `lab` com revisor obrigatório e só `main`;
   `docs/PUBLICACAO.md`). Os sujeitos do Workload Identity Federation aceitam o apply e o deploy só no
@@ -106,7 +107,7 @@ logs o ID e o número do projeto e o sufixo, e trocam esses valores por `<PROJEC
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/000000000000/locations/global/workloadIdentityPools/tx03v2-github/providers/github` | idem |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | `dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com` | idem |
 
-O deploy do dx03v2 (`planejado`) roda no environment `lab` daquele repositório (sujeito
+O workflow `deploy-gcp` do dx03v2 roda no environment `lab` daquele repositório (sujeito
 `repo:<owner>/dx03v2:environment:lab`) e lê o resto do contrato no Parameter Manager.
 
 ## 4. Apply
@@ -168,13 +169,15 @@ kubectl -n dx03v2 get role,rolebinding
 `APP_DEPLOYER_MEMBERS` tem de ser a mesma lista da variável Terraform `app_deployer_members`: o
 Terraform dá os papéis IAM, a plataforma dá a RoleBinding.
 
-## 6. Deploy do app (dx03v2, `planejado`)
+## 6. Deploy do app (dx03v2, `não executado em nuvem (v2)`)
 
-O dx03v2 ainda não existe. Pelo contrato, o workflow de deploy dele lê as 15 chaves de
-`tx03v2-lab-contract`, publica `dx03v2/api` e `dx03v2/web` no Artifact Registry (tag = SHA do commit,
-nunca sobrescrita), cria o ConfigMap `cloudsql-ca` com o bundle da região (só com a raiz do
-contrato), aplica o overlay `gcp-waf` (ou `gcp`, quando `waf/security-policy` é `none`) no namespace
-`dx03v2`, espera os ExternalSecrets, os rollouts e o Gateway `Programmed` com o endereço
+Dispare o workflow `deploy-gcp` do [dx03v2](https://github.com/maringelix/dx03v2) e aprove o
+environment `lab` de lá (ou rode `scripts/deploy-gcp.sh` de um laptop; passo a passo no
+[runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)). O script lê as
+15 chaves de `tx03v2-lab-contract`, publica `dx03v2/api` e `dx03v2/web` no Artifact Registry (tag =
+SHA do commit, nunca sobrescrita), cria o ConfigMap `cloudsql-ca` com o bundle da região (só com a
+raiz do contrato), aplica o overlay `gcp-waf` (ou `gcp`, quando `waf/security-policy` é `none`) no
+namespace `dx03v2`, espera os ExternalSecrets, os rollouts e o Gateway `Programmed` com o endereço
 `gateway/address`, e roda o smoke test pelo load balancer.
 
 Para fazer o deploy de um laptop, coloque `user:<seu e-mail>` em `LAB_APP_DEPLOYER_MEMBERS`, rode o

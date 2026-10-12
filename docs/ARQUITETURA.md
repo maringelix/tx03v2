@@ -13,7 +13,7 @@ flowchart LR
   subgraph gh["GitHub Actions (Workload Identity Federation, sem chaves)"]
     planwf["tx03v2: terraform-plan"] --> planid["tx03v2-gha-plan (leitura)"]
     applywf["tx03v2: apply / platform / destroy (env lab)"] --> applyid["tx03v2-gha-apply"]
-    dxwf["dx03v2: deploy (env lab, planejado)"] --> deployid["dx03v2-gha-deploy"]
+    dxwf["dx03v2: deploy-gcp (env lab)"] --> deployid["dx03v2-gha-deploy"]
   end
   subgraph proj["Projeto dedicado"]
     subgraph boot["bootstrap (state local, aplicado pelo Owner)"]
@@ -146,7 +146,7 @@ de faturamento.
 | `destroy.yml` com aspas não fechadas, escondidas pelo `continue-on-error` | lógica em `scripts/` e `platform/` com shellcheck; destroy com confirmação digitada, uninstall, destroy e leftovers, sem engolir erros | `shellcheck`, `actionlint`, `policy-workflows` |
 | Recursos criados pelo Kubernetes (forwarding rules, backend services, certificados, regras de firewall, discos) sobravam depois do destroy | `platform/uninstall.sh` espera o finalizer do Gateway e os NEGs; `leftovers.sh --retry-for 900` | `terraform-destroy.yml`, `policy-workflows` |
 | Senha do banco em documentos e em secrets do GitHub; senha com símbolos quebrando o pipeline | senha efêmera alfanumérica, write-only no Cloud SQL e no Secret Manager; o ESO entrega ao pod | `policy-terraform`, `data_stores.tftest.hcl` |
-| App: `npm ci` com `ERESOLVE`, `NODE_ENV: "dev"` derrubando o backend, probe com `METRICS_TOKEN_PLACEHOLDER`, UI lendo campos removidos de `/health` | o dx03v2 vai rodar o mesmo app do dx02v2 (CI verde lá), com `APP_ENV=lab` e health checks `/readyz`/`/healthz` sem segredo | `planejado` (dx03v2); `docs/CONTRATO.md` |
+| App: `npm ci` com `ERESOLVE`, `NODE_ENV: "dev"` derrubando o backend, probe com `METRICS_TOKEN_PLACEHOLDER`, UI lendo campos removidos de `/health` | o dx03v2 roda o mesmo app do dx02v2, com `APP_ENV=lab` e health checks `/readyz`/`/healthz` sem segredo | CI do dx03v2 (`static`, `test`, `images`, `e2e`); `docs/CONTRATO.md` |
 | Identificadores e senhas do projeto em notas Markdown | só placeholders, verificado por máquina | `policy-identifiers`, `gitleaks` |
 
 As lições completas, com o que aconteceu, a lição e o que a v2 faz: `docs/LICOES_APRENDIDAS.md`.
