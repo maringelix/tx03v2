@@ -12,9 +12,8 @@ com ele.
 
 ## 2. Estado atual
 
-- Harness completo (`HARNESS_STRICT=1 make verify`, 32 checks) `verificado localmente` num container
-  Linux. O CI (jobs `static` e `test`) ainda não rodou no GitHub; um PR posterior troca esses
-  rótulos para `verificado no CI`.
+- Harness completo (`HARNESS_STRICT=1 make verify`, 32 checks) `verificado no CI` (jobs `static` e
+  `test`) e localmente num container Linux.
 - Bootstrap, apply, plan em PRs, plataforma e destroy: `não executado em nuvem (v2)`.
 - Contrato com o dx03v2: versão 1 (`docs/CONTRATO.md`); o dx03v2 é `planejado`.
 - Exceções do trivy: nenhuma (`.trivyignore.yaml` vazio).
