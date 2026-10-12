@@ -31,12 +31,12 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 
 | Capacidade | Status | Evidência |
 |---|---|---|
-| Formatação, validação, lock files de providers (4 plataformas) | `verificado localmente` | `make static` (`terraform-fmt`, `terraform-validate:*`, `terraform-lockfiles`) |
-| Lint e scan de segurança da IaC (tflint + ruleset google, trivy HIGH/CRITICAL, simples e com as entradas de exemplo, sem ignores) | `verificado localmente` | `make static` (`tflint`, `trivy-config`, `trivy-config-tfvars`, `trivyignore-policy`) |
-| Workflows, scripts, manifests da plataforma e values do Helm (actionlint, shellcheck, kubeconform, helm template do chart do External Secrets fixado por digest e SHA256) | `verificado localmente` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
-| Scan de segredos e políticas do repositório (só identificadores placeholder, actions fixadas, os quatro labels do contrato, regras de Terraform contra as regressões do v1) | `verificado localmente` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
-| Contrato v1 com o dx03v2 (15 chaves do parâmetro do Parameter Manager, namespace, RBAC do deployer, ClusterSecretStore) | `verificado localmente` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
-| Testes unitários do Terraform com provider google mockado (sujeitos do Workload Identity Federation, bucket do state, papéis do plan e do apply, condição IAM = papéis de projeto do lab, budget, GKE Autopilot, rede, Cloud SQL, segredos, Artifact Registry, Cloud Armor, parâmetro do contrato, concessões IAM, validações negativas; 60 casos) | `verificado localmente` | `make test` |
+| Formatação, validação, lock files de providers (4 plataformas) | `verificado no CI` | `make static` (`terraform-fmt`, `terraform-validate:*`, `terraform-lockfiles`) |
+| Lint e scan de segurança da IaC (tflint + ruleset google, trivy HIGH/CRITICAL, simples e com as entradas de exemplo, sem ignores) | `verificado no CI` | `make static` (`tflint`, `trivy-config`, `trivy-config-tfvars`, `trivyignore-policy`) |
+| Workflows, scripts, manifests da plataforma e values do Helm (actionlint, shellcheck, kubeconform, helm template do chart do External Secrets fixado por digest e SHA256) | `verificado no CI` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
+| Scan de segredos e políticas do repositório (só identificadores placeholder, actions fixadas, os quatro labels do contrato, regras de Terraform contra as regressões do v1) | `verificado no CI` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
+| Contrato v1 com o dx03v2 (15 chaves do parâmetro do Parameter Manager, namespace, RBAC do deployer, ClusterSecretStore) | `verificado no CI` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
+| Testes unitários do Terraform com provider google mockado (sujeitos do Workload Identity Federation, bucket do state, papéis do plan e do apply, condição IAM = papéis de projeto do lab, budget, GKE Autopilot, rede, Cloud SQL, segredos, Artifact Registry, Cloud Armor, parâmetro do contrato, concessões IAM, validações negativas; 60 casos) | `verificado no CI` | `make test` |
 | Bootstrap (APIs, bucket do state, pool e provider do Workload Identity Federation, contas de serviço do CI, budget) | `não executado em nuvem (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Apply do lab (VPC + Cloud NAT, GKE Autopilot no canal REGULAR, Cloud SQL PostgreSQL 17 por Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, contrato no Parameter Manager) | `não executado em nuvem (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan em pull requests | `não executado em nuvem (v2)` | `.github/workflows/terraform-plan.yml` |
@@ -45,11 +45,10 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | HTTPS no Gateway | `planejado` | fora do contrato v1 (`docs/CONTRATO.md`) |
 | Configurações do repositório como código (ruleset, environment `lab`) | `planejado` | `scripts/repo-guardrails.sh`, `docs/PUBLICACAO.md` |
 
-As linhas `verificado localmente` (`HARNESS_STRICT=1 make verify`, 32 checks) passam num container
-Linux. O CI (`ci.yml`, jobs `static` e `test`, em todo pull request, em todo push para a `main` e toda
-semana) roda os mesmos alvos, mas ainda não rodou no GitHub; um PR posterior troca essas linhas para
-`verificado no CI`. Uma linha de nuvem só muda com uma issue `cloud_run_report` (data, região,
-commits, custo, sobras).
+As linhas `verificado no CI` (`HARNESS_STRICT=1 make verify`, 32 checks) rodam no CI (`ci.yml`, jobs
+`static` e `test`, em todo pull request, em todo push para a `main` e toda semana) e passam
+localmente num container Linux. Uma linha de nuvem só muda com uma issue `cloud_run_report` (data,
+região, commits, custo, sobras).
 
 ## Arquitetura
 

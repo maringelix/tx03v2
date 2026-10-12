@@ -31,12 +31,12 @@ changes, so the comparison between clouds stays fair.
 
 | Capability | Status | Evidence |
 |---|---|---|
-| Formatting, validation, provider lock files (4 platforms) | `verified locally` | `make static` (`terraform-fmt`, `terraform-validate:*`, `terraform-lockfiles`) |
-| Lint and IaC security scan (tflint + google ruleset, trivy HIGH/CRITICAL, plain and with the example inputs, no ignores) | `verified locally` | `make static` (`tflint`, `trivy-config`, `trivy-config-tfvars`, `trivyignore-policy`) |
-| Workflows, scripts, platform manifests and Helm values (actionlint, shellcheck, kubeconform, helm template of the External Secrets chart pinned by digest and SHA256) | `verified locally` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
-| Secret scan and repository policies (placeholder identifiers only, pinned actions, the four contract labels, Terraform rules against the v1 regressions) | `verified locally` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
-| Contract v1 with dx03v2 (15 keys of the Parameter Manager parameter, namespace, deployer RBAC, ClusterSecretStore) | `verified locally` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
-| Terraform unit tests with a mocked google provider (Workload Identity Federation subjects, state bucket, plan and apply roles, IAM condition = lab project roles, budget, GKE Autopilot, network, Cloud SQL, secrets, Artifact Registry, Cloud Armor, contract parameter, IAM grants, negative validations; 60 runs) | `verified locally` | `make test` |
+| Formatting, validation, provider lock files (4 platforms) | `verified in CI` | `make static` (`terraform-fmt`, `terraform-validate:*`, `terraform-lockfiles`) |
+| Lint and IaC security scan (tflint + google ruleset, trivy HIGH/CRITICAL, plain and with the example inputs, no ignores) | `verified in CI` | `make static` (`tflint`, `trivy-config`, `trivy-config-tfvars`, `trivyignore-policy`) |
+| Workflows, scripts, platform manifests and Helm values (actionlint, shellcheck, kubeconform, helm template of the External Secrets chart pinned by digest and SHA256) | `verified in CI` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
+| Secret scan and repository policies (placeholder identifiers only, pinned actions, the four contract labels, Terraform rules against the v1 regressions) | `verified in CI` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
+| Contract v1 with dx03v2 (15 keys of the Parameter Manager parameter, namespace, deployer RBAC, ClusterSecretStore) | `verified in CI` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
+| Terraform unit tests with a mocked google provider (Workload Identity Federation subjects, state bucket, plan and apply roles, IAM condition = lab project roles, budget, GKE Autopilot, network, Cloud SQL, secrets, Artifact Registry, Cloud Armor, contract parameter, IAM grants, negative validations; 60 runs) | `verified in CI` | `make test` |
 | Bootstrap (APIs, state bucket, Workload Identity Federation pool and provider, CI service accounts, budget) | `not run in the cloud (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Lab apply (VPC + Cloud NAT, GKE Autopilot on the REGULAR channel, Cloud SQL PostgreSQL 17 through Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, Parameter Manager contract) | `not run in the cloud (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan on pull requests | `not run in the cloud (v2)` | `.github/workflows/terraform-plan.yml` |
@@ -45,10 +45,10 @@ changes, so the comparison between clouds stays fair.
 | HTTPS on the Gateway | `planned` | outside contract v1 (`docs/CONTRATO.md`) |
 | Repository settings as code (ruleset, environment `lab`) | `planned` | `scripts/repo-guardrails.sh`, `docs/PUBLICACAO.md` |
 
-`verified locally` rows (`HARNESS_STRICT=1 make verify`, 32 checks) pass in a Linux container. The CI
-(`ci.yml`, jobs `static` and `test`, on every pull request, every push to `main` and weekly) runs the
-same targets but has not run on GitHub yet; a later PR flips these rows to `verified in CI`. A cloud
-row changes only with a `cloud_run_report` issue (date, region, commits, cost, leftovers).
+`verified in CI` rows (`HARNESS_STRICT=1 make verify`, 32 checks) run in the CI (`ci.yml`, jobs
+`static` and `test`, on every pull request, every push to `main` and weekly) and pass locally in a
+Linux container. A cloud row changes only with a `cloud_run_report` issue (date, region, commits,
+cost, leftovers).
 
 ## Architecture
 

@@ -10,7 +10,7 @@ foram substituídos por placeholders (`<PROJECT_ID>`, `<owner>`, `203.0.113.x`, 
 `<sufixo>`); nenhuma senha, token ou ID de execução foi copiado.
 
 Cada lição segue **O que aconteceu na v1 → Lição → Na v2**. As linhas "Na v2" descrevem o código
-deste repositório (`verificado localmente` pelo harness, `não executado em nuvem (v2)`); quando citam
+deste repositório (`verificado no CI` pelo harness, `não executado em nuvem (v2)`); quando citam
 o dx03v2, descrevem o desenho fixado no contrato, ainda `planejado`.
 
 ## Custos e faturamento

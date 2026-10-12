@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The CI (`static`, `test`) ran green on GitHub: the README status matrix now says `verified in CI`
+  for the harness rows (AGENTS.md, docs/SUSTENTACAO.md and docs/LICOES_APRENDIDAS.md follow).
+
 ### Added
 
 - First version of the GCP lab (v2 of the Google Cloud infrastructure), built from scratch with the

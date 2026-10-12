@@ -11,9 +11,8 @@ is the source of truth. The full rule list (pt-BR) is [docs/GUARDRAILS.md](docs/
 - It must stay healthy without any cloud account: every claim is backed by the local harness or
   carries a status label (`verified in CI`, `verified locally`, `not run in the cloud (v2)`, `planned`).
 - Current status: the harness (`HARNESS_STRICT=1 make verify`, 32 checks) passes locally in a Linux
-  container; the CI (jobs `static`, `test`) has not run on GitHub yet, so those rows say
-  `verified locally`. **Nothing of v2 has run in Google Cloud** (bootstrap, apply, plan, platform and
-  destroy are `not run in the cloud (v2)`).
+  container and in CI (jobs `static`, `test`). **Nothing of v2 has run in Google Cloud** (bootstrap,
+  apply, plan, platform and destroy are `not run in the cloud (v2)`).
 - The interface with `dx03v2` is [docs/CONTRATO.md](docs/CONTRATO.md) (contract v1, owned here).
 
 ## 2. Non-negotiable rules
