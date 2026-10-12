@@ -22,7 +22,7 @@ The lab family (v2):
 | [`tx02v2`](https://github.com/maringelix/tx02v2) | Azure | infrastructure (Terraform, AKS, PostgreSQL, platform layer) | see its status matrix |
 | [`dx02v2`](https://github.com/maringelix/dx02v2) | Azure | application | see its status matrix |
 | `tx03v2` (this repo) | GCP | infrastructure (Terraform, platform layer) | see status matrix |
-| `dx03v2` | GCP | application (sibling of this repo, to be built against `docs/CONTRATO.md`) | `planned` |
+| [`dx03v2`](https://github.com/maringelix/dx03v2) | GCP | application (sibling of this repo, built against `docs/CONTRATO.md`) | see its status matrix |
 
 Every application repository runs the same app (the dx01v2 message board); only the deploy target
 changes, so the comparison between clouds stays fair.
@@ -64,7 +64,7 @@ flowchart LR
   gke -->|External Secrets, Workload Identity Federation for GKE| sm["Secret Manager"]
   gke -->|image pulls| ar["Artifact Registry dx03v2"]
   gha["GitHub Actions (Workload Identity Federation)"] -->|plan / apply service accounts| apis["Google Cloud APIs"]
-  dx["dx03v2 deploy (planned)"] -->|Parameter Manager contract, image push, RoleBinding| gke
+  dx["dx03v2 deploy (deploy-gcp)"] -->|Parameter Manager contract, image push, RoleBinding| gke
 ```
 
 - `terraform/bootstrap`: the 15 APIs of the lab, the state bucket (versioned, uniform access,
@@ -106,7 +106,7 @@ currency: see [docs/CUSTOS.md](docs/CUSTOS.md). Use a dedicated project, keep th
 budget never stops spending) and destroy on the same day.
 
 Follow [docs/RUNBOOK.md](docs/RUNBOOK.md): bootstrap → GitHub variables of tx03v2 (and of dx03v2) →
-apply → platform → deploy dx03v2 (`planned`) → smoke test → destroy → leftover check (locally, as the
+apply → platform → deploy dx03v2 (its `deploy-gcp` workflow) → smoke test → destroy → leftover check (locally, as the
 project Owner) → `cloud_run_report` issue.
 
 ## Harness

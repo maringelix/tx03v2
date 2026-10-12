@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows
 
 - The CI (`static`, `test`) ran green on GitHub: the README status matrix now says `verified in CI`
   for the harness rows (AGENTS.md, docs/SUSTENTACAO.md and docs/LICOES_APRENDIDAS.md follow).
+- `dx03v2` exists and is public (CI green there): the README family tables link it, and AGENTS.md,
+  docs/RUNBOOK.md (section 6 points to its `deploy-gcp` workflow and runbook), docs/SUSTENTACAO.md,
+  docs/ARQUITETURA.md and docs/LICOES_APRENDIDAS.md stop calling it `planned`; its deploy stays
+  `not run in the cloud (v2)`.
 
 ### Added
 

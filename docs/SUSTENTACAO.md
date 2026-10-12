@@ -7,7 +7,7 @@ procedimentos passo a passo. Datas e versões verificadas em 2026-10-11.
 
 Cobre o código (Terraform, scripts, workflows), as ferramentas do harness, as versões de plataforma
 (GKE, PostgreSQL no Cloud SQL, External Secrets, Google Cloud CLI, Gateway API) e as rodadas
-opcionais em nuvem. Não cobre o app (ver `dx03v2`, `planejado`), mas lista o que precisa mudar junto
+opcionais em nuvem. Não cobre o app (ver o `dx03v2`), mas lista o que precisa mudar junto
 com ele.
 
 ## 2. Estado atual
@@ -15,7 +15,8 @@ com ele.
 - Harness completo (`HARNESS_STRICT=1 make verify`, 32 checks) `verificado no CI` (jobs `static` e
   `test`) e localmente num container Linux.
 - Bootstrap, apply, plan em PRs, plataforma e destroy: `não executado em nuvem (v2)`.
-- Contrato com o dx03v2: versão 1 (`docs/CONTRATO.md`); o dx03v2 é `planejado`.
+- Contrato com o dx03v2: versão 1 (`docs/CONTRATO.md`); o dx03v2 confere a parte dele no próprio
+  harness (CI verde lá) e o deploy dele é `não executado em nuvem (v2)`.
 - Exceções do trivy: nenhuma (`.trivyignore.yaml` vazio).
 
 ## 3. Rotinas
