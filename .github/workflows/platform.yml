@@ -1,0 +1,86 @@
+# Installs (or removes) the platform layer on the lab cluster: External Secrets Operator and
+# platform/manifests (namespace dx03v2, deployer RBAC, ClusterSecretStore). The GKE Gateway
+# controller is managed by Google. CLOUD-MUTATING: dispatch manually after terraform-apply. Runs as
+# tx03v2-gha-apply (roles/container.admin) through the IAM-only DNS endpoint of the cluster, so
+# GitHub-hosted runners need no IP allowlist. Not run in the cloud yet (v2).
+name: platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: install or uninstall
+        type: choice
+        options:
+          - install
+          - uninstall
+        default: install
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tx03v2-lab-cloud
+  cancel-in-progress: false
+
+jobs:
+  platform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: lab
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      APP_DEPLOYER_MEMBERS: ${{ vars.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
+    steps:
+      - name: Check repository variables
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_APPLY_SERVICE_ACCOUNT }}
+        run: |
+          problems=()
+          [[ "$GCP_PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || problems+=("GCP_PROJECT_ID must be the project ID given to the bootstrap")
+          [[ "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || problems+=("GCP_REGION must be the region given to the bootstrap, e.g. us-central1")
+          [[ "$GCP_WORKLOAD_IDENTITY_PROVIDER" =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/tx03v2-github/providers/github$ ]] || problems+=("GCP_WORKLOAD_IDENTITY_PROVIDER must be the bootstrap output workload_identity_provider")
+          [[ "$GCP_SERVICE_ACCOUNT" == "tx03v2-gha-apply@$GCP_PROJECT_ID.iam.gserviceaccount.com" ]] || problems+=("GCP_APPLY_SERVICE_ACCOUNT must be the bootstrap output apply_service_account")
+          [[ "$APP_DEPLOYER_MEMBERS" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. []")
+          if ((${#problems[@]} > 0)); then
+            printf '::error::Repository variable problem: %s\n' "${problems[@]}"
+            echo "::error::Settings > Secrets and variables > Actions > Variables; names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            exit 1
+          fi
+          # Identifiers never reach the logs of a public repository.
+          number="${GCP_WORKLOAD_IDENTITY_PROVIDER#projects/}"
+          for v in "$GCP_PROJECT_ID" "${number%%/*}"; do
+            echo "::add-mask::$v"
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_APPLY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: '588.0.0'
+          install_components: gke-gcloud-auth-plugin
+
+      - name: Install kubectl and helm (pinned, SHA256-verified)
+        run: bash scripts/install-tools.sh kubectl helm
+
+      - name: Run platform/${{ inputs.action }}.sh
+        env:
+          ACTION: ${{ inputs.action }}
+        run: |
+          case "$ACTION" in
+            install) bash platform/install.sh ;;
+            uninstall) bash platform/uninstall.sh ;;
+            *) echo "::error::unknown action: $ACTION"; exit 1 ;;
+          esac

@@ -1,0 +1,82 @@
+name: Cloud run report
+description: I ran this lab in my own Google Cloud project. Share what happened so the status matrix stays honest.
+title: "cloud run: <date> <region>"
+labels:
+  - cloud-run
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow docs/RUNBOOK.md. Redact the project ID and number, the billing account, service account
+        e-mails, the name suffix, IPs and e-mails (use `tx03v2-lab-example`, `000000000000`, `<SUFFIX>`).
+        A report counts as evidence only with the commit SHAs and the leftover check result.
+  - type: input
+    id: date
+    attributes:
+      label: Date (UTC)
+      placeholder: "2026-10-11"
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Google Cloud region
+      placeholder: us-central1
+    validations:
+      required: true
+  - type: dropdown
+    id: offer
+    attributes:
+      label: Billing account
+      options:
+        - Free Trial credits
+        - Paid account
+        - Other (explain below)
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and commit
+      description: tx03v2 and dx03v2 commit SHAs, Terraform version, GKE version, enable_waf, db_tier, chart versions if changed.
+    validations:
+      required: true
+  - type: checkboxes
+    id: steps
+    attributes:
+      label: Steps executed
+      options:
+        - label: bootstrap (local apply)
+        - label: terraform-apply workflow (or local apply of terraform/envs/lab)
+        - label: platform workflow (install)
+        - label: dx03v2 deploy workflow
+        - label: smoke test of the app through the GKE Gateway (global external Application Load Balancer)
+        - label: terraform-destroy workflow (or local destroy)
+        - label: scripts/leftovers.sh (in the workflow and locally as the project Owner)
+        - label: bootstrap teardown
+  - type: input
+    id: duration
+    attributes:
+      label: Total duration (apply to destroy)
+      placeholder: 2h15m
+    validations:
+      required: true
+  - type: input
+    id: cost
+    attributes:
+      label: Observed cost (Cloud Billing reports, billing currency)
+      placeholder: "3.10 USD"
+    validations:
+      required: true
+  - type: textarea
+    id: problems
+    attributes:
+      label: Problems and workarounds
+      description: Errors, retries, quota or billing restrictions, manual fixes (redacted logs welcome).
+  - type: textarea
+    id: leftovers
+    attributes:
+      label: Leftovers after destroy
+      description: Output of `scripts/leftovers.sh` (redacted) and anything you had to delete by hand.
+    validations:
+      required: true

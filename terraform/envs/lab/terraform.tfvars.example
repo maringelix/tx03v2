@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars (git-ignored) for local runs. CI uses TF_VAR_* repository variables
+# instead (docs/RUNBOOK.md). Placeholder values only.
+project_id = "tx03v2-lab-example"
+region     = "us-central1"
+
+# Bootstrap output deploy_service_account (e-mail of dx03v2-gha-deploy).
+deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
+
+# Extra deployers (optional): they get the roles of dx03v2-gha-deploy and, through
+# platform/install.sh, a subject in the dx03v2-deployers RoleBinding.
+app_deployer_members = ["user:you@example.com"]
+
+# Lab-friendly defaults (change only if you know the cost impact, see docs/CUSTOS.md):
+# enable_waf        = true
+# db_tier           = "db-g1-small"
+# nodes_subnet_cidr = "10.30.0.0/20"
+# pods_cidr         = "10.32.0.0/16"
+# services_cidr     = "10.33.0.0/20"

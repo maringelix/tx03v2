@@ -1,0 +1,59 @@
+# RBAC of the dx03v2 deployer (contract v1). GKE IAM has no per-cluster scope: dx03v2-gha-deploy
+# and the app_deployer_members get only roles/container.clusterViewer on the project (credentials
+# and the DNS endpoint, no Kubernetes object access), so this binding (subject User = the Google
+# identity e-mail) is their only access, and only in the dx03v2 namespace.
+# Secrets are read-only: External Secrets Operator writes them, the deployer never does.
+# platform/render-manifests.sh replaces the placeholder line under `subjects:` with one
+# `kind: User` subject per e-mail.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dx03v2-deployer
+  namespace: dx03v2
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Traffic policies of the GKE Gateway controller (HealthCheckPolicy, GCPBackendPolicy).
+  - apiGroups: ["networking.gke.io"]
+    resources: ["healthcheckpolicies", "gcpbackendpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dx03v2-deployers
+  namespace: dx03v2
+subjects:
+__DEPLOYER_SUBJECTS__
+roleRef:
+  kind: Role
+  name: dx03v2-deployer
+  apiGroup: rbac.authorization.k8s.io

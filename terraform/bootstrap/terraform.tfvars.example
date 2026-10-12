@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (git-ignored). Placeholder values only.
+
+# Required: the dedicated project (created by you, billing linked) and its billing account
+# (gcloud billing projects describe <project> --format='value(billingAccountName)').
+project_id      = "tx03v2-lab-example"
+billing_account = "000000-000000-000000"
+
+region       = "us-central1"
+github_owner = "maringelix"
+
+# Monthly budget in the currency of the billing account. The billing account administrators always
+# get the alerts; add e-mails for extra notification channels.
+budget_amount       = 10
+budget_alert_emails = ["you@example.com"]

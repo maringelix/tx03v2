@@ -1,0 +1,1182 @@
+#!/usr/bin/env bash
+# tx03v2 harness: every check lives here. `make` targets and every CI job only call this script.
+# Usage: scripts/harness.sh <stage>...   stages: static, test, all (= static test), list
+#   HARNESS_STRICT=1   (set in CI) turns every SKIP into a FAIL
+#   HARNESS_VERBOSE=1  also prints the output of passing checks
+#   HARNESS_WORK_DIR   scratch dir for Terraform data, logs and caches (default: $TMPDIR/tx03v2-harness)
+#   HARNESS_ONLY       extended regex: run only the matching checks (local debugging; never in CI)
+# Prints "PASS|FAIL|SKIP <check> (<secs>s)" per check and a summary; exits 1 on any FAIL.
+set -euo pipefail
+
+# shellcheck source=scripts/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=scripts/lib/tools.sh
+source "$REPO_ROOT/scripts/lib/tools.sh"
+
+export PATH="$REPO_ROOT/.tools/bin:$PATH"
+export TFLINT_PLUGIN_DIR="$REPO_ROOT/.tools/tflint-plugins"
+export TF_IN_AUTOMATION=1 TF_INPUT=0 CHECKPOINT_DISABLE=1
+export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-$HOME/.terraform.d/plugin-cache}"
+
+HARNESS_STRICT="${HARNESS_STRICT:-0}"
+HARNESS_VERBOSE="${HARNESS_VERBOSE:-0}"
+HARNESS_WORK_DIR="${HARNESS_WORK_DIR:-${TMPDIR:-/tmp}/tx03v2-harness}"
+HARNESS_ONLY="${HARNESS_ONLY:-}"
+
+# Kubernetes minor of the lab: default of the GKE REGULAR release channel (1.36.4-gke.1391002,
+# GKE release notes 2026-10-08). The cluster follows the channel; docs/CONTRATO.md states the minor.
+GKE_KUBERNETES_MINOR="1.36"
+# Pinned schema sources of kubeconform (same pins as tx01v2/tx02v2; update procedure:
+# docs/SUSTENTACAO.md).
+K8S_SCHEMA_KUBERNETES_VERSION="1.36.0"
+K8S_SCHEMA_REF="5f1fa4f7908afc9b6641c62d282a4a22437626e1" # yannh/kubernetes-json-schema
+# datreeio/CRDs-catalog at 2026-06-02: its next revision of external-secrets.io/clustersecretstore_v1.json
+# (b7e2015, 2026-10-08) cannot be compiled by kubeconform ("could not find schema"); see docs/HARNESS.md.
+CRD_SCHEMA_REF="f3e4382095909ac60000da025f323ba44d4c738a"
+# Scanner ignores must be reviewed at least every ~7 months.
+TRIVYIGNORE_MAX_DAYS=214
+
+# Placeholder inputs used to render platform/manifests (never real identifiers).
+RENDER_PROJECT_ID="tx03v2-lab-example"
+RENDER_DEPLOYERS=(dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com you@example.com)
+# The only project IDs and project number that may appear in the repository (placeholders).
+PLACEHOLDER_PROJECTS_RE='^(tx03v2-lab-example|other-lab-project|example-tenant-project)$'
+
+# Contract v1 (docs/CONTRATO.md): the keys of the Parameter Manager parameter tx03v2-lab-contract
+# that dx03v2 and platform/install.sh read.
+CONTRACT_KEYS=(
+  project-id region cluster-name network-name nodes-subnet-cidr db/endpoint-ip lb-source-ranges
+  artifact-registry/repository db/secret-name app/admin-token-secret-name eso/cluster-secret-store
+  gateway/address-name gateway/address waf/security-policy deploy/service-account
+)
+# Sources of the traffic and health checks of the global external Application Load Balancer for
+# zonal NEGs (Google Cloud load balancing docs, verified 2026-10-11): the only public ranges allowed
+# in the repository.
+LB_SOURCE_RANGES="35.191.0.0/16,130.211.0.0/22"
+# Contract v1: rules of the Role dx03v2-deployer, one "apiGroup|resource|verbs" per resource
+# (verbs sorted).
+ROLE_CRUD="create,delete,get,list,patch,update,watch"
+ROLE_READ="get,list,watch"
+CONTRACT_ROLE_RULES=(
+  "apps|deployments|$ROLE_CRUD" "apps|replicasets|$ROLE_READ"
+  "|services|$ROLE_CRUD" "|configmaps|$ROLE_CRUD" "|serviceaccounts|$ROLE_CRUD"
+  "|pods|$ROLE_READ" "|pods/log|$ROLE_READ" "|events|$ROLE_READ" "|endpoints|$ROLE_READ" "|secrets|$ROLE_READ"
+  "networking.k8s.io|networkpolicies|$ROLE_CRUD"
+  "gateway.networking.k8s.io|gateways|$ROLE_CRUD" "gateway.networking.k8s.io|httproutes|$ROLE_CRUD"
+  "networking.gke.io|healthcheckpolicies|$ROLE_CRUD" "networking.gke.io|gcpbackendpolicies|$ROLE_CRUD"
+  "autoscaling|horizontalpodautoscalers|$ROLE_CRUD" "policy|poddisruptionbudgets|$ROLE_CRUD"
+  "external-secrets.io|externalsecrets|$ROLE_CRUD"
+)
+
+REQUIRED_FILES=(
+  README.md README.pt-BR.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md CHANGELOG.md LICENSE
+  .editorconfig .gitattributes .gitignore .pre-commit-config.yaml Makefile .tflint.hcl .trivyignore.yaml
+  .devcontainer/devcontainer.json
+  .github/CODEOWNERS .github/dependabot.yml .github/pull_request_template.md
+  .github/ISSUE_TEMPLATE/config.yml .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/cloud_run_report.yml
+  .github/workflows/ci.yml .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml
+  .github/workflows/platform.yml .github/workflows/terraform-destroy.yml .github/rulesets/main.json
+  docs/SUSTENTACAO.md docs/GUARDRAILS.md docs/HARNESS.md docs/CONTRATO.md docs/RUNBOOK.md
+  docs/ARQUITETURA.md docs/PUBLICACAO.md docs/CUSTOS.md docs/LICOES_APRENDIDAS.md
+  tools/versions.env tools/checksums.txt
+  scripts/install-tools.sh scripts/update-tool-checksums.sh scripts/harness.sh scripts/repo-guardrails.sh scripts/leftovers.sh
+  scripts/lib/common.sh scripts/lib/tools.sh scripts/lib/gcp.sh
+  platform/install.sh platform/uninstall.sh platform/render-manifests.sh platform/versions.env
+  platform/values/external-secrets.yaml
+  terraform/bootstrap/.terraform.lock.hcl terraform/envs/lab/.terraform.lock.hcl
+  terraform/bootstrap/terraform.tfvars.example terraform/envs/lab/terraform.tfvars.example
+  terraform/envs/lab/backend.hcl.example terraform/tests/mocks/google.tfmock.hcl
+  terraform/modules/project-roles/main.tf
+)
+
+# ---------------------------------------------------------------------------------------------
+# Check registry and helpers
+# ---------------------------------------------------------------------------------------------
+
+declare -a CHECK_STAGE=() CHECK_NAME=() CHECK_CMD=()
+register() {
+  CHECK_STAGE+=("$1")
+  CHECK_NAME+=("$2")
+  CHECK_CMD+=("$3")
+}
+
+strict() { [[ "$HARNESS_STRICT" == 1 ]]; }
+
+# skip REASON -> ends the current check as SKIP (FAIL in strict mode). Only for missing preconditions.
+# Exit code 77 (the automake SKIP convention) never collides with the tools' own codes.
+SKIP_CODE=77
+skip() {
+  printf 'SKIP_REASON: %s\n' "$*"
+  exit "$SKIP_CODE"
+}
+
+need() {
+  local c
+  for c in "$@"; do
+    command -v "$c" >/dev/null 2>&1 || skip "'$c' not found (run: make tools)"
+  done
+}
+
+# visible_files -> files git would track (tracked + untracked, minus .gitignore), one per line.
+visible_files() {
+  git ls-files --cached --others --exclude-standard
+}
+
+# tf_files -> every Terraform configuration file (no tests, no provider caches), sorted.
+tf_files() {
+  find terraform -name '*.tf' -not -path '*/.terraform/*' | sort
+}
+
+# matches GREP_ARGS... -> grep, where "no match" (status 1) is not an error but status >= 2 is.
+matches() {
+  local status=0
+  grep "$@" || status=$?
+  ((status <= 1)) || {
+    echo "grep failed with status $status" >&2
+    return "$status"
+  }
+}
+
+# is_placeholder_guid GUID -> success for a GUID made of one repeated hex digit (0000..., dddd...).
+is_placeholder_guid() {
+  local s="${1//-/}"
+  [[ ${#s} == 32 && -z "${s//"${s:0:1}"/}" ]]
+}
+
+# forbid REGEX MESSAGE GLOB PATH... -> fails when the extended regex matches in the files named
+# GLOB ('*' for all) under PATH (recursive).
+forbid() {
+  local re=$1 msg=$2 glob=$3 out status=0
+  shift 3
+  out="$(grep -rnIE --include="$glob" -e "$re" -- "$@")" || status=$?
+  ((status <= 1)) || {
+    echo "grep failed with status $status"
+    return 1
+  }
+  if [[ -n "$out" ]]; then
+    printf 'forbidden: %s\n%s\n' "$msg" "$out"
+    return 1
+  fi
+}
+
+date_plus_days() {
+  date -u -d "+$1 days" +%F 2>/dev/null || date -u -v+"$1"d +%F
+}
+
+# platform_versions -> fills the associative array PV with platform/versions.env (not executed).
+declare -A PV=()
+platform_versions() {
+  local key value
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[A-Z0-9_]+$ ]] && PV[$key]="$value"
+  done < <(grep -E '^[A-Z0-9_]+=' platform/versions.env)
+}
+
+tf_init() {
+  local dir=$1
+  local -a args=(-backend=false -input=false -no-color)
+  mkdir -p "$TF_PLUGIN_CACHE_DIR"
+  export TF_DATA_DIR="$HARNESS_WORK_DIR/terraform/${dir//\//_}"
+  # Root configurations must resolve providers from their committed lock file only.
+  [[ -f "$dir/.terraform.lock.hcl" && "$dir" != terraform/modules/* ]] && args+=(-lockfile=readonly)
+  terraform -chdir="$dir" init "${args[@]}"
+}
+
+# render_platform -> platform/manifests rendered with the placeholder inputs.
+render_platform() {
+  local IFS=,
+  bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[*]}"
+}
+
+# kubectl_local FILE GO_TEMPLATE -> evaluates the template on every object of FILE without any
+# cluster (kubectl annotate --local parses the YAML; nothing is sent anywhere).
+kubectl_local() {
+  KUBECONFIG=/dev/null kubectl annotate --local -f "$1" harness.tx03v2/parsed=true --overwrite -o go-template="$2"
+}
+
+installed_version() {
+  local out=""
+  case "$1" in
+    terraform) out="$(terraform version 2>/dev/null)" || out="" ;;
+    tflint) out="$(tflint --version 2>/dev/null)" || out="" ;;
+    trivy) out="$(trivy --version 2>/dev/null)" || out="" ;;
+    actionlint) out="$(actionlint -version 2>/dev/null)" || out="" ;;
+    shellcheck) out="$(shellcheck --version 2>/dev/null)" || out="" ;;
+    kubeconform) out="$(kubeconform -v 2>/dev/null)" || out="" ;;
+    gitleaks) out="$(gitleaks version 2>/dev/null)" || out="" ;;
+    kubectl) out="$(kubectl version --client 2>/dev/null)" || out="" ;;
+    helm) out="$(helm version --short 2>/dev/null)" || out="" ;;
+  esac
+  [[ "$out" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------------
+# Checks (each runs in its own subshell from the repository root)
+# ---------------------------------------------------------------------------------------------
+
+check_tool_versions() {
+  local t want got
+  local -a missing=() mismatch=()
+  load_versions
+  for t in "${TOOLS_ALL[@]}"; do
+    want="$(tool_version "$t")"
+    if tool_is_plugin "$t"; then
+      if [[ -x "$(tool_installed_path "$t" "$want" "$REPO_ROOT/.tools")" ]]; then
+        printf '%-24s %s (plugin)\n' "$t" "$want"
+      else
+        missing+=("$t")
+      fi
+      continue
+    fi
+    if ! command -v "$t" >/dev/null 2>&1; then
+      missing+=("$t")
+      continue
+    fi
+    got="$(installed_version "$t")"
+    printf '%-24s want %-8s got %-8s %s\n' "$t" "$want" "${got:-?}" "$(command -v "$t")"
+    [[ "$got" == "$want" ]] || mismatch+=("$t")
+  done
+  ((${#missing[@]} == 0)) || skip "missing tools: ${missing[*]} (run: make tools)"
+  if ((${#mismatch[@]} > 0)); then
+    strict && {
+      echo "versions differ from tools/versions.env: ${mismatch[*]}"
+      return 1
+    }
+    skip "versions differ from tools/versions.env: ${mismatch[*]} (run: make tools)"
+  fi
+}
+
+check_repo_structure() {
+  local f d rc=0 image out
+  local -a untracked=()
+  for f in "${REQUIRED_FILES[@]}"; do
+    [[ -f "$f" ]] || {
+      echo "missing required file: $f"
+      rc=1
+    }
+  done
+  if [[ -f CLAUDE.md ]]; then
+    [[ "$(sed -n 1p CLAUDE.md)" == "@AGENTS.md" ]] || {
+      echo "CLAUDE.md: the first line must be @AGENTS.md"
+      rc=1
+    }
+    (($(grep -c . CLAUDE.md) == 2)) || {
+      echo "CLAUDE.md: must contain exactly @AGENTS.md and one sentence"
+      rc=1
+    }
+  fi
+  if [[ -f README.md ]] && (($(wc -l <README.md) > 250)); then
+    echo "README.md: more than 250 lines"
+    rc=1
+  fi
+  for f in README.md README.pt-BR.md; do
+    [[ -f "$f" ]] || continue
+    forbid 'production-grade|production-ready|enterprise|best-in-class|world-class' "self-ratings in $f" '*' "$f" || rc=1
+    # v1 repositories are private or archived: never link them (tx01v2-style names end in v2).
+    forbid 'github\.com/maringelix/(tx|dx)0[0-9]([^0-9v]|$)' "links to v1 repositories in $f" '*' "$f" || rc=1
+    grep -qP 'x' <<<"x" 2>/dev/null || skip "grep -P (PCRE) is not available"
+    out="$(LC_ALL=C.UTF-8 matches -nP '[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B50}\x{2705}]' "$f")" || return 1
+    [[ -z "$out" ]] || {
+      printf '%s: emojis are not allowed:\n%s\n' "$f" "$out"
+      rc=1
+    }
+  done
+  if [[ -f README.md ]] && ! grep -qF 'not run in the cloud (v2)' README.md; then
+    echo "README.md: the status matrix must use the label 'not run in the cloud (v2)'"
+    rc=1
+  fi
+  if [[ -f README.pt-BR.md ]] && ! grep -qF 'não executado em nuvem (v2)' README.pt-BR.md; then
+    echo "README.pt-BR.md: the status matrix must use the label 'não executado em nuvem (v2)'"
+    rc=1
+  fi
+  for d in terraform/modules/*/; do
+    grep -q 'required_providers' "${d}versions.tf" 2>/dev/null || {
+      echo "${d}versions.tf: missing required_providers"
+      rc=1
+    }
+  done
+  if [[ -f .devcontainer/devcontainer.json ]]; then
+    image="$(grep -E '^[[:space:]]*"image":' .devcontainer/devcontainer.json || :)"
+    [[ "$image" =~ @sha256:[0-9a-f]{64}\" ]] || {
+      echo ".devcontainer/devcontainer.json: the base image must be pinned by digest (@sha256:...)"
+      rc=1
+    }
+    grep -qE '"postCreateCommand":[[:space:]]*"make tools"' .devcontainer/devcontainer.json || {
+      echo ".devcontainer/devcontainer.json: postCreateCommand must be \"make tools\""
+      rc=1
+    }
+  fi
+  need git
+  while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    if grep -q $'\r' "$f"; then
+      echo "CRLF line endings (LF required): $f"
+      rc=1
+    fi
+  done < <(visible_files)
+  # Entry-point scripts must keep the executable bit in git (commits from Windows can drop it).
+  while IFS= read -r f; do
+    if [[ -z "$(git ls-files -- "$f")" ]]; then
+      untracked+=("$f")
+    elif [[ "$(git ls-files -s -- "$f" | awk '{ print $1 }')" != 100755 ]]; then
+      echo "not executable in the git index (git update-index --chmod=+x $f): $f"
+      rc=1
+    fi
+  done < <(visible_files | grep -E '^(scripts|platform)/[^/]+\.sh$' | sort)
+  if ((${#untracked[@]} > 0)); then
+    echo "note: not tracked yet, add them with the executable bit: git add --chmod=+x ${untracked[*]}"
+  fi
+  return "$rc"
+}
+
+check_terraform_fmt() {
+  need terraform
+  terraform fmt -check -recursive -diff -no-color terraform
+}
+
+check_terraform_validate() {
+  need terraform
+  tf_init "$1"
+  terraform -chdir="$1" validate -no-color
+}
+
+check_terraform_lockfiles() {
+  local f rc=0
+  for f in terraform/bootstrap/.terraform.lock.hcl terraform/envs/lab/.terraform.lock.hcl; do
+    awk -v file="$f" '
+      /^provider "/ { name = $2; h1 = 0; next }
+      /"h1:/ { h1++ }
+      /^}/ && name != "" { printf "%s %s: %d platform hashes (h1)\n", file, name, h1; if (h1 < 4) bad = 1; name = "" }
+      END { exit bad }
+    ' "$f" || {
+      echo "$f: every provider needs h1 hashes for linux_amd64, linux_arm64, darwin_arm64 and windows_amd64"
+      echo "fix: terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_arm64 -platform=windows_amd64"
+      rc=1
+    }
+  done
+  return "$rc"
+}
+
+check_version_consistency() {
+  local rc=0 v k8s_doc eso actions gcloud
+  load_versions
+  platform_versions
+  v="$(awk '/^plugin "google"/ { a = 1 } a && /^[[:space:]]*version[[:space:]]*=/ { gsub(/[" ]/, ""); sub(/^version=/, ""); print; exit }' .tflint.hcl)"
+  [[ "$v" == "$TFLINT_RULESET_GOOGLE_VERSION" ]] || {
+    echo ".tflint.hcl uses tflint-ruleset-google $v but tools/versions.env pins $TFLINT_RULESET_GOOGLE_VERSION"
+    rc=1
+  }
+  v="$(sed -n 's/.*rev: [0-9a-f]\{40\} # frozen: v\([0-9.]*\)$/\1/p' <(grep -A1 'gitleaks/gitleaks' .pre-commit-config.yaml))"
+  [[ "$v" == "$GITLEAKS_VERSION" ]] || {
+    echo ".pre-commit-config.yaml pins the gitleaks hook at '${v:-?}' but tools/versions.env pins $GITLEAKS_VERSION"
+    rc=1
+  }
+  eso="${PV[ESO_CHART_VERSION]:-}"
+  (($(grep -cE "tag: v${eso//./\\.}@sha256:[0-9a-f]{64}$" platform/values/external-secrets.yaml) == 3)) || {
+    echo "platform/values/external-secrets.yaml must pin the three images to v${eso:-?} by digest"
+    rc=1
+  }
+  (($(grep -h 'required_version' terraform/*/versions.tf terraform/*/*/versions.tf | sort -u | wc -l) == 1)) || {
+    echo "every versions.tf must use the same required_version"
+    rc=1
+  }
+  (($(grep -h -A1 'source  = "hashicorp/google"' terraform/*/versions.tf terraform/*/*/versions.tf | grep version | sort -u | wc -l) == 1)) || {
+    echo "every versions.tf must use the same hashicorp/google constraint"
+    rc=1
+  }
+  [[ "$(grep -A1 'hashicorp/google"' terraform/bootstrap/.terraform.lock.hcl | grep version)" == "$(grep -A1 'hashicorp/google"' terraform/envs/lab/.terraform.lock.hcl | grep version)" ]] || {
+    echo "bootstrap and envs/lab must lock the same hashicorp/google version"
+    rc=1
+  }
+  # kubeconform validates the platform manifests for the Kubernetes minor of the release channel.
+  [[ "$K8S_SCHEMA_KUBERNETES_VERSION" == "$GKE_KUBERNETES_MINOR."* ]] || {
+    echo "the lab runs Kubernetes $GKE_KUBERNETES_MINOR (REGULAR channel) but kubeconform validates against $K8S_SCHEMA_KUBERNETES_VERSION"
+    rc=1
+  }
+  if [[ -f docs/CONTRATO.md ]]; then
+    k8s_doc="$(grep -oE 'Kubernetes [0-9]+\.[0-9]+' docs/CONTRATO.md | sort -u)"
+    [[ "$k8s_doc" == "Kubernetes $GKE_KUBERNETES_MINOR" ]] || {
+      echo "docs/CONTRATO.md must state Kubernetes $GKE_KUBERNETES_MINOR (and no other minor); found: ${k8s_doc:-none}"
+      rc=1
+    }
+  fi
+  # The cloud workflows install the same gcloud version (setup-gcloud `version:`), the one of
+  # tools/versions.env.
+  gcloud="$(grep -h -A6 'google-github-actions/setup-gcloud@' .github/workflows/*.yml | sed -nE "s/^[[:space:]]+version: '?([0-9.]+)'?[[:space:]]*$/\1/p" | sort -u)"
+  [[ "$gcloud" == "${GCLOUD_VERSION:-}" ]] || {
+    echo "setup-gcloud must install gcloud ${GCLOUD_VERSION:-?} (tools/versions.env) in every workflow; found: ${gcloud:-none}"
+    rc=1
+  }
+  # One SHA per action across every workflow (Dependabot bumps them together).
+  actions="$(awk '
+    match($0, /uses: [A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+@[0-9a-f]+/) {
+      s = substr($0, RSTART + 6, RLENGTH - 6); split(s, p, "@")
+      if (!((p[1], p[2]) in seen)) { seen[p[1], p[2]] = 1; n[p[1]]++; l[p[1]] = l[p[1]] " " p[2] }
+    }
+    END { for (a in n) if (n[a] > 1) print a ":" l[a] }
+  ' .github/workflows/*.yml)"
+  [[ -z "$actions" ]] || {
+    printf 'the same action is pinned to different commits:\n%s\n' "$actions"
+    rc=1
+  }
+  return "$rc"
+}
+
+# Block-aware rules over every *.tf (terraform fmt layout: top-level blocks open at column 0,
+# their arguments are indented by exactly two spaces). Prints one "file:line: message" per violation.
+policy_terraform_blocks() {
+  awk '
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    function value(s) {
+      sub(/^[^=]*=[[:space:]]*/, "", s)
+      if (s ~ /^"/) { match(s, /^"[^"]*"/); return substr(s, RSTART, RLENGTH) }
+      sub(/[[:space:]].*$/, "", s)
+      return s
+    }
+    function err(line, msg) { printf "%s:%d: %s\n", file, line, msg; bad = 1 }
+    function arg(n) { return (n in args) ? args[n] : "" }
+    function reset() {
+      inblock = 0; kind = ""; btype = ""; bname = ""; top = ""; nts = 0; collecting = 0
+      ignore_all = 0; backend = ""; nbargs = 0
+      split("", args); split("", argline); split("", ignored); split("", bargs)
+    }
+    function end_block(   i, a, id) {
+      id = btype "." bname
+      if (kind == "resource") {
+        for (a in args)
+          if (a ~ /^(password|root_password|secret_data|secret_string|client_secret|private_key)$/)
+            err(argline[a], id " sets " a " in plain text: use the write-only " a "_wo with an ephemeral value")
+        if (btype ~ /^random_(password|string)$/) err(bline, id ": generated secrets must be ephemeral resources (a random_password resource stores its result in state)")
+        if (btype == "google_service_account_key") err(bline, id ": no service account keys, ever (Workload Identity Federation only)")
+        if (btype ~ /^google_.*_iam_(binding|policy)$/) err(bline, id ": authoritative IAM (" btype ") can remove grants made by others; use the *_iam_member resources")
+        if (btype ~ /^google_(organization|folder)_/) err(bline, id ": nothing above the project (the lab is one dedicated project)")
+        if (btype == "google_container_node_pool") err(bline, id ": Autopilot manages the nodes (no node pools)")
+        if (btype == "google_container_cluster") {
+          if (arg("enable_autopilot") != "true") err(bline, id ": the lab cluster is Autopilot (enable_autopilot = true)")
+          if (("enable_legacy_abac" in args) && arg("enable_legacy_abac") != "false") err(argline["enable_legacy_abac"], id ": legacy ABAC stays off")
+          if ("min_master_version" in args) err(argline["min_master_version"], id ": the release channel decides the version (no min_master_version)")
+        }
+        if (btype == "google_storage_bucket") {
+          if (arg("uniform_bucket_level_access") != "true") err(bline, id ": buckets use uniform bucket-level access (IAM only, no ACLs)")
+          if (arg("public_access_prevention") != "\"enforced\"") err(bline, id ": buckets enforce public access prevention")
+          if (arg("force_destroy") == "true") err(argline["force_destroy"], id ": force_destroy would delete every state version with the bucket")
+        }
+        if (btype == "google_project_service" && arg("disable_on_destroy") != "false") err(bline, id ": APIs are never disabled on destroy (disable_on_destroy = false)")
+        for (i = 1; i <= nts; i++)
+          if (!ignore_all && !(tsattr[i] in ignored))
+            err(tsline[i], id ": timestamp()/plantimestamp() in " tsattr[i] " without lifecycle { ignore_changes = [" tsattr[i] "] } (perpetual diff)")
+      } else {
+        for (i = 1; i <= nts; i++) err(tsline[i], "timestamp()/plantimestamp() outside a resource with lifecycle.ignore_changes (perpetual diff)")
+      }
+      if (kind == "provider" && bname == "google") {
+        for (a in args)
+          if (a ~ /^(credentials|access_token|impersonate_service_account|impersonate_service_account_delegates)$/)
+            err(argline[a], "provider google: " a " must not be set in code (credentials come from ADC / google-github-actions/auth)")
+        if (arg("add_terraform_attribution_label") != "false") err(bline, "provider google: set add_terraform_attribution_label = false (exactly the four contract labels)")
+      }
+      if (kind == "provider" && bname ~ /^(kubernetes|helm|google-beta)$/) err(bline, "provider " bname ": not allowed (platform/install.sh talks to Kubernetes; only the GA google provider)")
+      if (kind == "terraform" && backend != "") {
+        if (backend != "gcs") err(bline, "backend " backend ": the lab state lives in the GCS bucket of terraform/bootstrap")
+        if (nbargs > 0) err(bline, "backend gcs: no arguments in code (bucket and prefix come from backend.hcl; credentials never in code)")
+      }
+      reset()
+    }
+    FNR == 1 { if (inblock) end_block(); reset(); file = FILENAME }
+    !inblock && /^[a-z_]+([[:space:]]+"[^"]*")*[[:space:]]*\{/ {
+      kind = $1; btype = ""; bname = ""
+      if (kind == "resource" || kind == "data" || kind == "ephemeral") { btype = $2; bname = $3; gsub(/"/, "", btype); gsub(/"/, "", bname) }
+      else if (kind == "provider" || kind == "module" || kind == "check" || kind == "variable" || kind == "output") { btype = kind; bname = $2; gsub(/"/, "", bname) }
+      else btype = kind
+      bline = FNR; inblock = 1
+      if ($0 ~ /\{[[:space:]]*\}[[:space:]]*$/) end_block()
+      next
+    }
+    inblock && /^\}/ { end_block(); next }
+    inblock {
+      line = $0
+      if (line ~ /^[[:space:]]*#/) next
+      if (line ~ /^  [a-z_0-9]+[[:space:]]*=/) {
+        n = line; sub(/^  /, "", n); sub(/[[:space:]]*=.*$/, "", n)
+        args[n] = value(line); argline[n] = FNR; top = n
+      } else if (line ~ /^  dynamic[[:space:]]+"[a-z_0-9]+"/) {
+        n = line; sub(/^  dynamic[[:space:]]+"/, "", n); sub(/".*$/, "", n); top = n
+      } else if (line ~ /^  [a-z_0-9]+([[:space:]]+"[^"]*")*[[:space:]]*\{/) {
+        n = line; sub(/^  /, "", n); split(n, w, /[[:space:]]+/); top = w[1]
+        if (kind == "terraform" && top == "backend") {
+          backend = w[2]; gsub(/"/, "", backend)
+          if (line ~ /\{[[:space:]]*\}[[:space:]]*$/) top = ""
+        }
+      }
+      if (kind == "terraform" && top == "backend" && line ~ /^    [a-z_0-9]+[[:space:]]*=/) nbargs++
+      if (top == "lifecycle" && line ~ /ignore_changes[[:space:]]*=/) { collecting = 1; ic = "" }
+      if (collecting) {
+        ic = ic " " line
+        if (line ~ /\]/ || line ~ /=[[:space:]]*all[[:space:]]*$/) {
+          collecting = 0
+          if (ic ~ /=[[:space:]]*all[[:space:]]*$/) ignore_all = 1
+          sub(/^[^\[]*\[/, "", ic); sub(/\].*$/, "", ic)
+          cnt = split(ic, items, /,/)
+          for (i = 1; i <= cnt; i++) { it = trim(items[i]); sub(/[\[.].*$/, "", it); if (it != "") ignored[it] = 1 }
+        }
+      }
+      if (line ~ /(^|[^A-Za-z0-9_])(plan)?timestamp\(/) { nts++; tsline[nts] = FNR; tsattr[nts] = top }
+    }
+    END { if (inblock) end_block(); exit bad }
+  ' "$@"
+}
+
+check_policy_terraform() {
+  local rc=0 out
+  local -a files=()
+  mapfile -t files < <(tf_files)
+  ((${#files[@]} > 0)) || {
+    echo "no Terraform files found"
+    return 1
+  }
+  if ! out="$(policy_terraform_blocks "${files[@]}")"; then
+    printf 'forbidden by the Terraform policy:\n%s\n' "$out"
+    rc=1
+  fi
+  forbid 'provider[[:space:]]+"(kubernetes|helm|google-beta)"|hashicorp/(kubernetes|helm|google-beta)' \
+    "no kubernetes, helm or google-beta providers (platform/install.sh talks to Kubernetes; GA google provider only)" '*.tf' terraform || rc=1
+  forbid '^[^#]*"roles/owner"' "roles/owner is never granted (the IAM condition of tx03v2-gha-apply excludes it)" '*.tf' terraform || rc=1
+  forbid '^[^#]*principalSet://' "no principalSet grants: one roles/iam.workloadIdentityUser per exact subject" '*.tf' terraform || rc=1
+  forbid '^[^#]*(allUsers|allAuthenticatedUsers)' "nothing is public to allUsers/allAuthenticatedUsers" '*.tf' terraform || rc=1
+  forbid '^[^#]*0\.0\.0\.0/0' "no 0.0.0.0/0 (firewalls, authorized networks)" '*.tf' terraform || rc=1
+  forbid '^[^#]*(ipv4_enabled|enable_k8s_tokens_via_dns|enable_k8s_certs_via_dns)[[:space:]]*=[[:space:]]*true|^[^#]*(enable_private_nodes|enable_private_endpoint)[[:space:]]*=[[:space:]]*false|^[^#]*authorized_networks[[:space:]]*\{' \
+    "Cloud SQL has no public IP, the nodes and the control plane IP endpoint stay private, the DNS endpoint is IAM-only" '*.tf' terraform || rc=1
+  return "$rc"
+}
+
+# The google provider adds default_labels to every resource that takes labels, so each root sets
+# exactly the four contract labels there (and no attribution label); modules declare no provider.
+check_policy_labels() {
+  local rc=0 f got want
+  # shellcheck disable=SC2016 # literal Terraform interpolation
+  want='"environment"=local.environment|"managed-by"="terraform"|"project"=local.project|"repository"="${lower(var.github_owner)}_${local.project}"'
+  for f in terraform/bootstrap/providers.tf terraform/envs/lab/providers.tf; do
+    got="$(awk '
+      /^provider "google"/ { p = 1 }
+      p && /^  default_labels[[:space:]]*=[[:space:]]*\{/ { d = 1; next }
+      p && d && /^  \}/ { d = 0 }
+      p && d { line = $0; gsub(/[[:space:]]/, "", line); if (line != "") print line }
+      p && /^\}/ { p = 0 }
+    ' "$f" | sort | paste -sd'|' -)"
+    if [[ "$got" == "$want" ]]; then
+      echo "$f: default_labels = the four contract labels"
+    else
+      printf '%s: provider google must set default_labels to exactly the contract labels:\n  want %s\n  got  %s\n' "$f" "$want" "${got:-none}"
+      rc=1
+    fi
+    grep -qE '^  add_terraform_attribution_label[[:space:]]*=[[:space:]]*false$' "$f" || {
+      echo "$f: provider google must set add_terraform_attribution_label = false"
+      rc=1
+    }
+  done
+  for f in terraform/bootstrap/main.tf terraform/envs/lab/main.tf; do
+    if ! grep -qE '^  project[[:space:]]*=[[:space:]]*"tx03v2"$' "$f" || ! grep -qE '^  environment[[:space:]]*=[[:space:]]*"lab"$' "$f"; then
+      echo "$f: local.project must be \"tx03v2\" and local.environment \"lab\" (contract labels and names)"
+      rc=1
+    fi
+  done
+  forbid '^provider[[:space:]]+"' "modules must not configure providers (the roots set default_labels)" '*.tf' terraform/modules || rc=1
+  return "$rc"
+}
+
+check_policy_identifiers() {
+  local rc=0 out f
+  local -a files=()
+  need git
+  grep -qP 'x' <<<"x" 2>/dev/null || skip "grep -P (PCRE) is not available"
+  # Regular files only (a symlinked .tools or a deleted tracked file is not content to scan).
+  mapfile -t files < <(visible_files | grep -vE '(^|/)(\.terraform\.lock\.hcl|checksums\.txt)$' |
+    while IFS= read -r f; do if [[ -f "$f" && ! -L "$f" ]]; then printf '%s\n' "$f"; fi; done)
+  ((${#files[@]} > 0)) || return 0
+  # Project numbers (12 digits) and billing accounts are placeholders.
+  out="$(matches -noP '(?<![0-9A-Za-z-])[0-9]{12}(?![0-9A-Za-z-])' "${files[@]}" | matches -v ':000000000000$')"
+  [[ -z "$out" ]] || {
+    printf '12-digit project numbers must be the placeholder 000000000000:\n%s\n' "$out"
+    rc=1
+  }
+  out="$(matches -noP '(?<![0-9A-Za-z])[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}(?![0-9A-Za-z])' "${files[@]}" | matches -v ':000000-000000-000000$')"
+  [[ -z "$out" ]] || {
+    printf 'billing account IDs must be the placeholder 000000-000000-000000:\n%s\n' "$out"
+    rc=1
+  }
+  # Project IDs: in resource paths, service account e-mails and workload pools only the placeholders.
+  out="$(matches -noP '(?<=projects/)[a-z][a-z0-9-]{4,28}[a-z0-9](?=/)|(?<=@)[a-z][a-z0-9-]{4,28}[a-z0-9](?=\.iam\.gserviceaccount\.com)|[a-z][a-z0-9-]{4,28}[a-z0-9](?=\.svc\.id\.goog)' "${files[@]}" |
+    while IFS= read -r line; do
+      [[ "${line##*:}" =~ $PLACEHOLDER_PROJECTS_RE ]] || printf '%s\n' "$line"
+    done)"
+  [[ -z "$out" ]] || {
+    printf 'project IDs must be placeholders (tx03v2-lab-example; other-lab-project and example-tenant-project in tests):\n%s\n' "$out"
+    rc=1
+  }
+  out="$(matches -noP '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' "${files[@]}" |
+    matches -vP '@((?i:example\.(com|org|net))|users\.noreply\.github\.com|(tx03v2-lab-example|other-lab-project)\.iam\.gserviceaccount\.com)$')"
+  [[ -z "$out" ]] || {
+    printf 'e-mail addresses must use example.com or the placeholder project service accounts:\n%s\n' "$out"
+    rc=1
+  }
+  # Public addresses: only the documented Google load balancer and health check ranges.
+  out="$(matches -noP '(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])' "${files[@]}" |
+    matches -vP ':(10\.|127\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|0\.0\.0\.0$|35\.191\.0\.0$|130\.211\.0\.0$)')"
+  [[ -z "$out" ]] || {
+    printf 'IP addresses must be private, documentation ranges (RFC 1918 / RFC 5737) or the two load balancer ranges (%s):\n%s\n' "$LB_SOURCE_RANGES" "$out"
+    rc=1
+  }
+  # GUIDs (budget names, tenant-style IDs) only as placeholders made of one repeated hex digit.
+  out="$(matches -noP '(?<![0-9A-Za-z-])[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}(?![0-9A-Za-z-])' "${files[@]}" |
+    while IFS= read -r line; do
+      is_placeholder_guid "${line##*:}" || printf '%s\n' "$line"
+    done)"
+  [[ -z "$out" ]] || {
+    printf 'GUIDs must be placeholders (00000000-0000-0000-0000-000000000000):\n%s\n' "$out"
+    rc=1
+  }
+  return "$rc"
+}
+
+check_tflint() {
+  need tflint
+  [[ -d "$TFLINT_PLUGIN_DIR/github.com/terraform-linters/tflint-ruleset-google" ]] || skip "tflint-ruleset-google is not installed (run: make tools)"
+  (cd terraform && tflint --recursive --config "$REPO_ROOT/.tflint.hcl" --format compact --no-color)
+}
+
+trivy_config() {
+  trivy config --quiet --skip-check-update --exit-code 1 --severity HIGH,CRITICAL \
+    --cache-dir "$HARNESS_WORK_DIR/trivy-cache" --ignorefile .trivyignore.yaml \
+    --skip-dirs .tools --skip-dirs .cache --skip-dirs '**/.terraform' "$@"
+}
+
+check_trivy_config() {
+  need trivy
+  trivy_config .
+}
+
+# Same scan with the example inputs: trivy applies them to the terraform/envs/lab root, so
+# variable-dependent checks (for example the authorized IP ranges) see real values.
+check_trivy_config_tfvars() {
+  need trivy
+  trivy_config --tf-vars terraform/envs/lab/terraform.tfvars.example .
+}
+
+check_trivyignore_policy() {
+  local today max
+  today="$(date -u +%F)"
+  max="$(date_plus_days "$TRIVYIGNORE_MAX_DAYS")"
+  awk -v today="$today" -v max="$max" '
+    function flush() {
+      if (id != "") {
+        n++
+        if (!st) { print "entry " id ": missing a non-empty statement"; bad = 1 }
+        if (expiry !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) { print "entry " id ": expired_at must be YYYY-MM-DD"; bad = 1 }
+        else if (expiry < today) { print "entry " id ": expired on " expiry " (review or remove it)"; bad = 1 }
+        else if (expiry > max) { print "entry " id ": expired_at " expiry " is after " max " (at most ~7 months ahead)"; bad = 1 }
+        else { print "entry " id ": ok until " expiry }
+      }
+      id = ""; st = 0; expiry = ""
+    }
+    /^[[:space:]]*-[[:space:]]+id:/ { flush(); id = $NF; next }
+    /^[[:space:]]+statement:[[:space:]]*[^[:space:]]/ { st = 1 }
+    /^[[:space:]]+expired_at:/ { expiry = $NF; gsub(/["\047]/, "", expiry) }
+    END { flush(); printf "%d ignore entries checked\n", n; exit bad }
+  ' .trivyignore.yaml
+}
+
+check_actionlint() {
+  need actionlint shellcheck
+  actionlint -shellcheck "$(command -v shellcheck)"
+}
+
+check_policy_workflows() {
+  local f rc=0 out ctx
+  local -a files=()
+  shopt -s nullglob
+  files=(.github/workflows/*.yml .github/workflows/*.yaml)
+  ((${#files[@]} > 0)) || {
+    echo "no workflows found"
+    return 1
+  }
+  for f in "${files[@]}"; do
+    out="$(awk -v file="$f" -v cloud="$([[ "$f" == */ci.yml ]] && echo 0 || echo 1)" '
+      function err(m) { printf "%s:%d: %s\n", file, NR, m; bad = 1 }
+      function close_auth() {
+        in_auth = 0
+        if (!(aw && as)) { printf "%s:%d: google-github-actions/auth needs workload_identity_provider and service_account from vars.* (Workload Identity Federation only)\n", file, auth_line; bad = 1 }
+      }
+      in_auth && (/^      - / || /^  [A-Za-z0-9_-]+:[[:space:]]*$/ || /^[^[:space:]]/) { close_auth() }
+      /^permissions:/ { top_perm = 1; in_top_perm = 1; next }
+      in_top_perm && /^  contents: read[[:space:]]*$/ { top_read = 1; next }
+      in_top_perm && /^  [a-z-]+:/ { err("top-level permissions must be exactly contents: read (raise per job): " $0) }
+      in_top_perm && /^[^[:space:]]/ { in_top_perm = 0 }
+      /^concurrency:/ { concurrency = 1 }
+      /^on:/ { in_on = 1; next }
+      in_on && /^[^[:space:]]/ { in_on = 0 }
+      in_on && /^  [a-z_]+:/ { ev = $1; sub(/:$/, "", ev); events[ev] = 1 }
+      /^jobs:/ { in_jobs = 1; next }
+      in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job = $1; sub(/:$/, "", job); jobs[job] = 1; first_step[job] = ""; next }
+      in_jobs && /^    timeout-minutes:/ { timeout[job] = 1 }
+      in_jobs && /^    runs-on: ubuntu-24\.04[[:space:]]*$/ { runs[job] = 1 }
+      in_jobs && /^    environment: lab[[:space:]]*$/ { envlab[job] = 1 }
+      in_jobs && /^    if: / { guard[job] = $0 }
+      in_jobs && /^      id-token: write/ { oidc[job] = 1 }
+      in_jobs && /^      - / && first_step[job] == "" { first_step[job] = $0 }
+      /^[[:space:]-]*uses:/ {
+        ref = $0; sub(/^[[:space:]-]*uses:[[:space:]]*/, "", ref)
+        if (ref ~ /^\.\//) next
+        if (ref !~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+@[0-9a-f]+[[:space:]]+#[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$/) {
+          err("pin actions to a full commit SHA with a trailing # vX.Y.Z comment: " ref)
+        } else {
+          sha = ref; sub(/^[^@]*@/, "", sha); sub(/[[:space:]].*$/, "", sha)
+          if (length(sha) != 40) err("the commit SHA must have 40 characters: " ref)
+        }
+        if (ref ~ /^actions\/checkout@/) checkouts++
+        if (ref ~ /^google-github-actions\/auth@/) { gauth++; in_auth = 1; auth_line = NR; aw = 0; as = 0 }
+        next
+      }
+      in_auth && /^[[:space:]]+workload_identity_provider: [$][{][{] vars[.]GCP_WORKLOAD_IDENTITY_PROVIDER [}][}][[:space:]]*$/ { aw = 1 }
+      in_auth && /^[[:space:]]+service_account: [$][{][{] vars[.]GCP_[A-Z_]+_SERVICE_ACCOUNT [}][}][[:space:]]*$/ { as = 1 }
+      /persist-credentials: false/ { persist++ }
+      /credentials_json:|secrets\.(GCP|GOOGLE)|GOOGLE_CREDENTIALS|GOOGLE_APPLICATION_CREDENTIALS:|GOOGLE_OAUTH_ACCESS_TOKEN:/ { err("Workload Identity Federation only: no service account keys, credential files or tokens in the workflow") }
+      /continue-on-error:[[:space:]]*true/ { err("continue-on-error: true is forbidden") }
+      /\|\|[[:space:]]*(true|echo|:)([[:space:]]|$)/ { err("never swallow errors (|| true, || echo, || :)") }
+      /aquasecurity\/(trivy-action|setup-trivy)/ { err("trivy-action/setup-trivy are forbidden; trivy comes from scripts/install-tools.sh") }
+      /(^|[^A-Za-z])sed[[:space:]].*\.tf([^A-Za-z]|$)/ { err("never edit Terraform files with sed") }
+      /(^|[^A-Za-z])gsutil[[:space:]]+rm|gcloud[[:space:]]+storage[[:space:]]+rm|force-unlock/ { err("never delete state or lock objects from a workflow (v1 lesson; force-unlock is a manual decision)") }
+      /^[[:space:]]+(- )?run: terraform .* plan( |$)/ { plans++; if ($0 ~ / -lock=false( |$)/) nolock++ }
+      /^[^#]*terraform .*(apply|destroy).*-lock=false/ { err("apply and destroy must keep the state lock") }
+      END {
+        if (in_auth) close_auth()
+        if (!top_perm || !top_read) { printf "%s: top-level permissions must be exactly contents: read\n", file; bad = 1 }
+        if (!concurrency) { printf "%s: a top-level concurrency group is required\n", file; bad = 1 }
+        for (j in jobs) {
+          if (!timeout[j]) { printf "%s: job %s has no timeout-minutes\n", file, j; bad = 1 }
+          if (!runs[j]) { printf "%s: job %s must use runs-on: ubuntu-24.04\n", file, j; bad = 1 }
+          if (cloud) {
+            if (first_step[j] !~ /^      - name: Check /) { printf "%s: job %s: the first step must be \"Check ...\" (validate vars.* before anything else)\n", file, j; bad = 1 }
+            if (oidc[j] && !envlab[j] && guard[j] !~ /vars\.GCP_PLAN_SERVICE_ACCOUNT != \047\047/) { printf "%s: job %s requests id-token: write without environment: lab\n", file, j; bad = 1 }
+            if (!envlab[j] && !(guard[j] ~ /vars\.GCP_PLAN_SERVICE_ACCOUNT != \047\047/ && guard[j] ~ /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)) {
+              printf "%s: job %s: cloud jobs run in environment lab, or (plan only) behind the vars + same-repository guard\n", file, j; bad = 1
+            }
+          }
+        }
+        if (cloud) {
+          for (e in events) if (e != "workflow_dispatch" && !(e == "pull_request" && file ~ /terraform-plan\.yml$/)) { printf "%s: cloud workflows are workflow_dispatch only (a PR plan is the only exception), found: %s\n", file, e; bad = 1 }
+          if (!gauth) { printf "%s: cloud workflows authenticate with google-github-actions/auth (Workload Identity Federation)\n", file; bad = 1 }
+        }
+        if (file ~ /terraform-plan\.yml$/ && (!plans || nolock != plans)) { printf "%s: every terraform plan step runs with -lock=false (the plan identity can only read the state)\n", file; bad = 1 }
+        if (checkouts != persist) { printf "%s: every actions/checkout needs persist-credentials: false\n", file; bad = 1 }
+        exit bad
+      }' "$f")" || {
+      printf '%s\n' "$out"
+      rc=1
+    }
+  done
+  if grep -n 'id-token: write' .github/workflows/ci.yml; then
+    echo "ci.yml must never request id-token: write (Workload Identity Federation is for cloud workflows only)"
+    rc=1
+  fi
+  for ctx in static test; do
+    grep -qE "^  ${ctx}:[[:space:]]*$" .github/workflows/ci.yml || {
+      echo "ci.yml must keep the stable job id '$ctx' (required status check)"
+      rc=1
+    }
+    grep -qF "\"context\": \"$ctx\"" .github/rulesets/main.json || {
+      echo ".github/rulesets/main.json must require the status check '$ctx'"
+      rc=1
+    }
+  done
+  f=.github/workflows/terraform-destroy.yml
+  if [[ -f "$f" ]]; then
+    # shellcheck disable=SC2016 # a literal $CONFIRM of the workflow script
+    grep -qE '^[[:space:]]+if \[\[ "\$CONFIRM" != "destroy tx03v2-lab" \]\]; then$' "$f" || {
+      echo "$f: the first step must refuse anything but the typed confirmation 'destroy tx03v2-lab'"
+      rc=1
+    }
+    grep -qE '^[[:space:]]+run: bash scripts/leftovers\.sh' "$f" || {
+      echo "$f: the destroy must end with scripts/leftovers.sh"
+      rc=1
+    }
+    grep -qE 'bash platform/uninstall\.sh' "$f" || {
+      echo "$f: the destroy must run platform/uninstall.sh while the cluster exists (the Gateway load balancer is outside the state)"
+      rc=1
+    }
+  fi
+  return "$rc"
+}
+
+check_shellcheck() {
+  local -a files=()
+  need shellcheck
+  mapfile -t files < <(find scripts platform -type f -name '*.sh' | sort)
+  printf 'shellcheck: %s\n' "${files[@]}"
+  shellcheck --external-sources --severity=style "${files[@]}"
+}
+
+check_kubeconform() {
+  local rendered="$HARNESS_WORK_DIR/platform-manifests.yaml"
+  need kubeconform
+  mkdir -p "$HARNESS_WORK_DIR/kubeconform-cache"
+  render_platform >"$rendered"
+  kubeconform -strict -summary -output text \
+    -kubernetes-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
+    -cache "$HARNESS_WORK_DIR/kubeconform-cache" \
+    -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/$K8S_SCHEMA_REF/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
+    -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRD_SCHEMA_REF/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+    "$rendered"
+}
+
+# The platform layer of contract v1, parsed from the rendered manifests (kubectl, no cluster):
+# exact objects, Pod Security labels, Role rules, RoleBinding subjects, ClusterSecretStore;
+# plus the Helm values and the pins of platform/versions.env.
+# shellcheck disable=SC2016 # Go templates of kubectl, not shell expansions
+check_contract_platform() {
+  local rc=0 rendered="$HARNESS_WORK_DIR/contract-platform.yaml" got want email key
+  need kubectl
+  mkdir -p "$HARNESS_WORK_DIR"
+  render_platform >"$rendered"
+  got="$(kubectl_local "$rendered" '{{.apiVersion}} {{.kind}}/{{.metadata.name}}{{if .metadata.namespace}} ns={{.metadata.namespace}}{{end}}{{"\n"}}' | sort)"
+  want="$(printf '%s\n' "external-secrets.io/v1 ClusterSecretStore/gcp-secret-manager" "rbac.authorization.k8s.io/v1 Role/dx03v2-deployer ns=dx03v2" \
+    "rbac.authorization.k8s.io/v1 RoleBinding/dx03v2-deployers ns=dx03v2" "v1 Namespace/dx03v2" | sort)"
+  [[ "$got" == "$want" ]] || {
+    printf 'platform/manifests must render exactly these objects (docs/CONTRATO.md):\n%s\ngot:\n%s\n' "$want" "$got"
+    rc=1
+  }
+  got="$(kubectl_local "$rendered" '{{if eq .kind "Namespace"}}{{range $k, $v := .metadata.labels}}{{$k}}={{$v}}{{"\n"}}{{end}}{{end}}')"
+  [[ "$got" == $'pod-security.kubernetes.io/enforce=restricted\npod-security.kubernetes.io/enforce-version=latest' ]] || {
+    printf 'namespace dx03v2 must carry exactly the Pod Security labels enforce=restricted, enforce-version=latest; got:\n%s\n' "$got"
+    rc=1
+  }
+  got="$(kubectl_local "$rendered" '{{if eq .kind "Role"}}{{range .rules}}{{$r := .}}{{range $r.apiGroups}}{{$g := .}}{{range $r.resources}}{{$g}}|{{.}}|{{range $r.verbs}}{{.}} {{end}}{{"\n"}}{{end}}{{end}}{{if or $r.resourceNames $r.nonResourceURLs}}restricted-rule{{"\n"}}{{end}}{{end}}{{end}}' |
+    awk -F'|' 'NF == 3 { n = split($3, v, " "); s = ""; for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++) if (v[j] < v[i]) { t = v[i]; v[i] = v[j]; v[j] = t }
+      for (i = 1; i <= n; i++) s = s (i > 1 ? "," : "") v[i]; print $1 "|" $2 "|" s; next } { print }' | sort)"
+  want="$(printf '%s\n' "${CONTRACT_ROLE_RULES[@]}" | sort)"
+  [[ "$got" == "$want" ]] || {
+    echo "Role dx03v2-deployer differs from contract v1 (lines: apiGroup|resource|verbs):"
+    diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^</  contract:/p; s/^>/  rendered:/p'
+    rc=1
+  }
+  got="$(kubectl_local "$rendered" '{{if eq .kind "RoleBinding"}}roleRef {{.roleRef.apiGroup}} {{.roleRef.kind}} {{.roleRef.name}}{{"\n"}}{{range .subjects}}{{.kind}} {{.name}} {{.apiGroup}}{{"\n"}}{{end}}{{end}}')"
+  want="roleRef rbac.authorization.k8s.io Role dx03v2-deployer"
+  for email in "${RENDER_DEPLOYERS[@]}"; do
+    want+=$'\n'"User $email rbac.authorization.k8s.io"
+  done
+  [[ "$got" == "$want" ]] || {
+    printf 'RoleBinding dx03v2-deployers must bind Role dx03v2-deployer to one User per e-mail, in order:\n%s\ngot:\n%s\n' "$want" "$got"
+    rc=1
+  }
+  # Repeated e-mails (deploy/service-account also in app_deployer_members) render once.
+  got="$(bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[0]},${RENDER_DEPLOYERS[1]},${RENDER_DEPLOYERS[0]}" | grep -c '^  - kind: User$')"
+  ((got == ${#RENDER_DEPLOYERS[@]})) || {
+    echo "render-manifests.sh must render each deployer e-mail once (got $got subjects)"
+    rc=1
+  }
+  got="$(kubectl_local "$rendered" '{{if eq .kind "ClusterSecretStore"}}{{range $k, $v := .spec.provider}}{{$k}} {{end}}| {{.spec.provider.gcpsm.projectID}} | {{if .spec.provider.gcpsm.auth}}auth{{else}}no-auth{{end}} |{{range .spec.conditions}}{{range .namespaces}} {{.}}{{end}}{{range .namespaceSelector}} selector{{end}}{{range .namespaceRegexes}} regex{{end}}{{end}}{{end}}')"
+  [[ "$got" == "gcpsm | $RENDER_PROJECT_ID | no-auth | dx03v2" ]] || {
+    echo "ClusterSecretStore gcp-secret-manager must use provider gcpsm with the contract projectID, no auth block"
+    echo "(the identity of the ESO controller ServiceAccount) and be usable only from namespace dx03v2; got: $got"
+    rc=1
+  }
+  # The renderer refuses inputs that are not a project ID or a lowercase e-mail.
+  for key in "Tx03v2-Lab" "lab" ""; do
+    if bash platform/render-manifests.sh "$key" "${RENDER_DEPLOYERS[0]}" >/dev/null 2>&1; then
+      echo "render-manifests.sh accepted the project ID '$key'"
+      rc=1
+    fi
+  done
+  for key in "user:you@example.com" "You@Example.com" "dx03v2-gha-deploy" ""; do
+    if bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "$key" >/dev/null 2>&1; then
+      echo "render-manifests.sh accepted the deployer e-mail '$key'"
+      rc=1
+    fi
+  done
+  # Helm values (rendered by helm-template) and pins.
+  grep -qE '^  name: external-secrets$' platform/values/external-secrets.yaml || {
+    echo "ESO: the service account must be external-secrets (contract principal .../ns/external-secrets/sa/external-secrets)"
+    rc=1
+  }
+  if grep -vE '^[[:space:]]*#' platform/values/external-secrets.yaml | grep -qE 'iam\.gke\.io/gcp-service-account|azure\.workload\.identity'; then
+    echo "ESO: no Google service account annotation (the Kubernetes ServiceAccount itself is the IAM principal)"
+    rc=1
+  fi
+  platform_versions
+  [[ "${PV[ESO_CHART_VERSION]:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    echo "platform/versions.env: ESO_CHART_VERSION is missing or malformed"
+    rc=1
+  }
+  for key in ESO_CHART_DIGEST ESO_CHART_SHA256; do
+    [[ "${PV[$key]:-}" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "platform/versions.env: $key must be a SHA256 (64 hex characters)"
+      rc=1
+    }
+  done
+  [[ "${PV[ESO_CHART_OCI]:-}" == "oci://ghcr.io/external-secrets/charts/external-secrets" ]] || {
+    echo "platform/versions.env: ESO_CHART_OCI must be the official OCI chart of External Secrets"
+    rc=1
+  }
+  return "$rc"
+}
+
+# The contract keys the lab publishes in the Parameter Manager parameter
+# (terraform/envs/lab/contract.tf) are exactly the 15 keys of contract v1 (CONTRACT_KEYS, the list
+# dx03v2 reads), with the fixed values of the contract.
+check_contract_parameter() {
+  local rc=0 got want key
+  got="$(awk '/^  contract_keys = \{/ { inside = 1; next } inside && /^  \}/ { inside = 0 } inside && /^    "[^"]+"[[:space:]]*=/ { k = $1; gsub(/"/, "", k); print k }' terraform/envs/lab/contract.tf | sort)"
+  want="$(printf '%s\n' "${CONTRACT_KEYS[@]}" | sort)"
+  if [[ "$got" == "$want" ]]; then
+    echo "terraform/envs/lab/contract.tf: the ${#CONTRACT_KEYS[@]} contract keys"
+  else
+    echo "terraform/envs/lab/contract.tf must define exactly the ${#CONTRACT_KEYS[@]} keys of contract v1:"
+    diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^</  missing:/p; s/^>/  unexpected:/p'
+    rc=1
+  fi
+  grep -qE '^    "eso/cluster-secret-store"[[:space:]]*=[[:space:]]*"gcp-secret-manager"$' terraform/envs/lab/contract.tf || {
+    echo "contract key eso/cluster-secret-store must be the literal gcp-secret-manager"
+    rc=1
+  }
+  grep -qF "\"lb-source-ranges\"             = \"$LB_SOURCE_RANGES\"" terraform/envs/lab/contract.tf || {
+    echo "contract key lb-source-ranges must be the literal $LB_SOURCE_RANGES"
+    rc=1
+  }
+  # shellcheck disable=SC2016 # literal Terraform interpolation
+  grep -qE '^  name[[:space:]]*=[[:space:]]*"\$\{local\.name\}-contract"$' terraform/envs/lab/main.tf || {
+    echo "terraform/envs/lab/main.tf: the contract parameter must be \${local.name}-contract (tx03v2-lab-contract)"
+    rc=1
+  }
+  # shellcheck disable=SC2016 # literal shell expansions of scripts/lib/gcp.sh
+  if ! grep -qE '^CONTRACT_PARAMETER="\$\{CONTRACT_PARAMETER:-\$LAB_NAME-contract\}"$' scripts/lib/gcp.sh ||
+    ! grep -qE '^LAB_NAME="\$\{LAB_NAME:-tx03v2-lab\}"$' scripts/lib/gcp.sh; then
+    echo "scripts/lib/gcp.sh must read the parameter tx03v2-lab-contract"
+    rc=1
+  fi
+  if [[ -f docs/CONTRATO.md ]]; then
+    for key in "${CONTRACT_KEYS[@]}"; do
+      grep -qE "^\| \`$key\` \|" docs/CONTRATO.md || {
+        echo "docs/CONTRATO.md: contract key \`$key\` is not in the parameter table"
+        rc=1
+      }
+    done
+  else
+    echo "docs/CONTRATO.md is missing (repo-structure fails): checked contract.tf only"
+  fi
+  return "$rc"
+}
+
+# Pulls the pinned ESO chart by tag and manifest digest (no cluster needed), checks the archive
+# SHA256 of platform/versions.env (what platform/install.sh refuses otherwise) and renders it with
+# platform/values/external-secrets.yaml.
+check_helm_template() {
+  local rc=0 eso charts tgz want e
+  need helm
+  platform_versions
+  export HELM_CACHE_HOME="$HARNESS_WORK_DIR/helm/cache" HELM_CONFIG_HOME="$HARNESS_WORK_DIR/helm/config" HELM_DATA_HOME="$HARNESS_WORK_DIR/helm/data"
+  charts="$HARNESS_WORK_DIR/charts"
+  rm -rf "$charts"
+  mkdir -p "$charts"
+  helm pull "${PV[ESO_CHART_OCI]}:${PV[ESO_CHART_VERSION]}@sha256:${PV[ESO_CHART_DIGEST]}" --destination "$charts"
+  tgz="$(find "$charts" -maxdepth 1 -name 'external-secrets*.tgz' -print -quit)"
+  [[ -n "$tgz" && -f "$tgz" ]] || {
+    echo "helm pull did not produce the external-secrets chart archive"
+    return 1
+  }
+  [[ "$(sha256_of "$tgz")" == "${PV[ESO_CHART_SHA256]}" ]] || {
+    echo "the external-secrets chart ${PV[ESO_CHART_VERSION]} has SHA256 $(sha256_of "$tgz"), platform/versions.env records ${PV[ESO_CHART_SHA256]}"
+    return 1
+  }
+  eso="$(helm template external-secrets "$tgz" --namespace external-secrets --values platform/values/external-secrets.yaml)"
+  want="$(sed -n 's/^  tag: //p' platform/values/external-secrets.yaml)"
+  (($(grep -cF "image: ghcr.io/external-secrets/external-secrets:$want" <<<"$eso") == 3)) || {
+    echo "external-secrets chart: the controller, webhook and cert controller must all use the pinned digest"
+    rc=1
+  }
+  local -a expect=(
+    "serviceAccountName: external-secrets"
+    "name: clustersecretstores.external-secrets.io"
+    "name: externalsecrets.external-secrets.io"
+    "kind: CustomResourceDefinition"
+  )
+  for e in "${expect[@]}"; do
+    grep -qF -- "$e" <<<"$eso" || {
+      echo "external-secrets chart: missing '$e'"
+      rc=1
+    }
+  done
+  # Only the ServiceAccount object of the controller (the CRD descriptions mention the annotation).
+  if awk '/^---/ { sa = 0; found = 0 } /^kind: ServiceAccount$/ { sa = 1 }
+    sa && /^  name: external-secrets$/ { found = 1 }
+    found && /iam\.gke\.io\/gcp-service-account/ { bad = 1 } END { exit !bad }' <<<"$eso"; then
+    echo "external-secrets chart: the service account must not point to a Google service account"
+    rc=1
+  fi
+  # Autopilot bills requests and rewrites pods without them: every container states its requests.
+  (($(grep -cE '^ {12}requests:$' <<<"$eso") >= 3)) || {
+    echo "external-secrets chart: the controller, webhook and cert controller must all set resource requests (Autopilot)"
+    rc=1
+  }
+  echo "rendered external-secrets ${PV[ESO_CHART_VERSION]} (digest and SHA256 verified, $(wc -l <<<"$eso") lines)"
+  return "$rc"
+}
+
+check_gitleaks() {
+  need gitleaks git
+  if git rev-parse --verify -q HEAD >/dev/null; then
+    echo "repository has commits: scanning the full history (gitleaks git)"
+    gitleaks git --no-banner --redact --log-level warn .
+  else
+    echo "no commits yet: scanning the working tree (gitleaks dir)"
+    gitleaks dir --no-banner --redact --log-level warn .
+  fi
+}
+
+check_terraform_test() {
+  need terraform
+  tf_init "$1"
+  terraform -chdir="$1" test -no-color
+}
+
+register_checks() {
+  local d
+  register static tool-versions check_tool_versions
+  register static repo-structure check_repo_structure
+  register static version-consistency check_version_consistency
+  register static policy-terraform check_policy_terraform
+  register static policy-labels check_policy_labels
+  register static policy-identifiers check_policy_identifiers
+  register static policy-workflows check_policy_workflows
+  register static trivyignore-policy check_trivyignore_policy
+  register static contract-platform check_contract_platform
+  register static contract-parameter check_contract_parameter
+  register static terraform-fmt check_terraform_fmt
+  register static terraform-lockfiles check_terraform_lockfiles
+  for d in terraform/bootstrap terraform/envs/lab "$REPO_ROOT"/terraform/modules/*/; do
+    d="${d#"$REPO_ROOT"/}"
+    d="${d%/}"
+    register static "terraform-validate:${d#terraform/}" "check_terraform_validate $d"
+  done
+  register static tflint check_tflint
+  register static trivy-config check_trivy_config
+  register static trivy-config-tfvars check_trivy_config_tfvars
+  register static actionlint check_actionlint
+  register static shellcheck check_shellcheck
+  register static kubeconform check_kubeconform
+  register static helm-template check_helm_template
+  register static gitleaks check_gitleaks
+  register test tool-versions check_tool_versions
+  register test terraform-test:bootstrap "check_terraform_test terraform/bootstrap"
+  register test terraform-test:envs/lab "check_terraform_test terraform/envs/lab"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------------------------
+
+PASS_COUNT=0
+FAIL_COUNT=0
+SKIP_COUNT=0
+declare -a FAILED=()
+
+run_check() {
+  local name=$1 cmd=$2 log rc start secs status reason="" lines
+  local -a parts=()
+  read -ra parts <<<"$cmd"
+  log="$HARNESS_WORK_DIR/logs/${name//[^A-Za-z0-9._-]/_}.log"
+  start=$SECONDS
+  set +e
+  (
+    set -euo pipefail
+    cd "$REPO_ROOT"
+    "${parts[@]}"
+  ) >"$log" 2>&1
+  rc=$?
+  set -e
+  secs=$((SECONDS - start))
+  case "$rc" in
+    0) status=PASS ;;
+    "$SKIP_CODE")
+      reason="$(sed -n 's/^SKIP_REASON: //p' "$log" | tail -n 1)"
+      if strict; then
+        status=FAIL
+        reason="$reason (SKIP is not allowed with HARNESS_STRICT=1)"
+      else
+        status=SKIP
+      fi
+      ;;
+    *) status=FAIL ;;
+  esac
+  printf '%s %s (%ss)%s\n' "$status" "$name" "$secs" "${reason:+ - $reason}"
+  case "$status" in
+    PASS) PASS_COUNT=$((PASS_COUNT + 1)) ;;
+    SKIP) SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+    FAIL)
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      FAILED+=("$name")
+      ;;
+  esac
+  if [[ "$status" == FAIL || "$HARNESS_VERBOSE" == 1 ]]; then
+    lines="$(wc -l <"$log")"
+    if ((lines > 400)); then
+      echo "    ... last 400 of $lines lines (full log: $log)"
+    fi
+    tail -n 400 "$log" | sed 's/^/    /'
+  fi
+}
+
+list_checks() {
+  local i
+  echo "stages:"
+  echo "  static  policies, contract, fmt, validate, lock files, tflint, trivy, actionlint, shellcheck, kubeconform, helm template, gitleaks"
+  echo "  test    terraform test (mock google provider) for terraform/bootstrap and terraform/envs/lab"
+  echo "  all     static + test"
+  echo "checks:"
+  for i in "${!CHECK_NAME[@]}"; do
+    printf '  %-7s %s\n' "${CHECK_STAGE[$i]}" "${CHECK_NAME[$i]}"
+  done
+}
+
+usage() {
+  echo "usage: $0 <stage>...   (stages: static, test, all, list)" >&2
+  exit 2
+}
+
+main() {
+  local arg stage i start_all=$SECONDS
+  local -a stages=()
+  declare -A seen=()
+  (($# > 0)) || usage
+  register_checks
+  for arg in "$@"; do
+    case "$arg" in
+      static | test) stages+=("$arg") ;;
+      all) stages+=(static test) ;;
+      list)
+        list_checks
+        return 0
+        ;;
+      *) usage ;;
+    esac
+  done
+  mkdir -p "$HARNESS_WORK_DIR/logs"
+  echo "harness: stages=${stages[*]} strict=$HARNESS_STRICT work_dir=$HARNESS_WORK_DIR${HARNESS_ONLY:+ only=$HARNESS_ONLY}"
+  for stage in "${stages[@]}"; do
+    for i in "${!CHECK_NAME[@]}"; do
+      [[ "${CHECK_STAGE[$i]}" == "$stage" && -z "${seen[${CHECK_NAME[$i]}]:-}" ]] || continue
+      [[ -z "$HARNESS_ONLY" || "${CHECK_NAME[$i]}" =~ $HARNESS_ONLY ]] || continue
+      seen[${CHECK_NAME[$i]}]=1
+      run_check "${CHECK_NAME[$i]}" "${CHECK_CMD[$i]}"
+    done
+  done
+  echo "summary: $((PASS_COUNT + FAIL_COUNT + SKIP_COUNT)) checks, $PASS_COUNT PASS, $FAIL_COUNT FAIL, $SKIP_COUNT SKIP ($((SECONDS - start_all))s, strict=$HARNESS_STRICT)"
+  if ((PASS_COUNT + FAIL_COUNT + SKIP_COUNT == 0)); then
+    echo "no check matched HARNESS_ONLY='$HARNESS_ONLY'"
+    return 1
+  fi
+  if ((FAIL_COUNT > 0)); then
+    echo "failed: ${FAILED[*]}"
+    return 1
+  fi
+}
+
+main "$@"

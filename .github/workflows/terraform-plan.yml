@@ -1,0 +1,106 @@
+# Read-only plan of terraform/envs/lab as the service account tx03v2-gha-plan (Workload Identity
+# Federation subjects: pull_request and refs/heads/main of tx03v2; no environment). Runs only when
+# GCP_PLAN_SERVICE_ACCOUNT is configured and the PR comes from this repository: forks never get
+# Google Cloud credentials. Plans use -lock=false (the plan identity can only read the state). The
+# project ID, the project number and the name suffix are masked in the logs and replaced in the job
+# summary and the artifact (they are public in a public repository).
+name: terraform-plan
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    if: vars.GCP_PLAN_SERVICE_ACCOUNT != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_IN_AUTOMATION: "1"
+      TF_INPUT: "0"
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_github_owner: ${{ github.repository_owner }}
+      TF_VAR_deploy_service_account: ${{ vars.LAB_DEPLOY_SERVICE_ACCOUNT }}
+      TF_VAR_app_deployer_members: ${{ vars.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
+      TF_VAR_enable_waf: ${{ vars.LAB_ENABLE_WAF || 'true' }}
+      TF_VAR_db_tier: ${{ vars.LAB_DB_TIER || 'db-g1-small' }}
+    steps:
+      - name: Check repository variables
+        run: |
+          problems=()
+          [[ "$GCP_PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || problems+=("GCP_PROJECT_ID must be the project ID given to the bootstrap")
+          [[ "$TF_VAR_region" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || problems+=("GCP_REGION must be the region given to the bootstrap, e.g. us-central1")
+          [[ "$GCP_WORKLOAD_IDENTITY_PROVIDER" =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/tx03v2-github/providers/github$ ]] || problems+=("GCP_WORKLOAD_IDENTITY_PROVIDER must be the bootstrap output workload_identity_provider")
+          [[ "$GCP_SERVICE_ACCOUNT" == "tx03v2-gha-plan@$GCP_PROJECT_ID.iam.gserviceaccount.com" ]] || problems+=("GCP_PLAN_SERVICE_ACCOUNT must be the bootstrap output plan_service_account")
+          [[ "$TF_VAR_deploy_service_account" == "dx03v2-gha-deploy@$GCP_PROJECT_ID.iam.gserviceaccount.com" ]] || problems+=("LAB_DEPLOY_SERVICE_ACCOUNT must be the bootstrap output deploy_service_account")
+          suffix="$(printf '%s' "$GCP_PROJECT_ID" | sha1sum | cut -c1-8)"
+          [[ "$TF_STATE_BUCKET" == "tx03v2-tfstate-$suffix" ]] || problems+=("TF_STATE_BUCKET must be the bootstrap output state_bucket_name")
+          [[ "$TF_VAR_app_deployer_members" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. [\"user:you@example.com\"]")
+          if ((${#problems[@]} > 0)); then
+            printf '::error::Repository variable problem: %s\n' "${problems[@]}"
+            echo "::error::Settings > Secrets and variables > Actions > Variables; names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            exit 1
+          fi
+          # Identifiers never reach the logs of a public repository.
+          number="${GCP_WORKLOAD_IDENTITY_PROVIDER#projects/}"
+          for v in "$GCP_PROJECT_ID" "${number%%/*}" "$suffix"; do
+            echo "::add-mask::$v"
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
+
+      - name: Install terraform (pinned, SHA256-verified)
+        run: |
+          bash scripts/install-tools.sh terraform
+          echo "$GITHUB_WORKSPACE/.tools/bin" >> "$GITHUB_PATH"
+
+      - name: terraform init
+        run: terraform -chdir=terraform/envs/lab init -input=false -lockfile=readonly -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="prefix=envs/lab"
+
+      - name: terraform plan (read-only, -lock=false)
+        run: terraform -chdir=terraform/envs/lab plan -lock=false -input=false -no-color -out=tfplan
+
+      - name: Plan text to the job summary (identifiers replaced)
+        run: |
+          number="${GCP_WORKLOAD_IDENTITY_PROVIDER#projects/}"
+          number="${number%%/*}"
+          suffix="$(printf '%s' "$GCP_PROJECT_ID" | sha1sum | cut -c1-8)"
+          terraform -chdir=terraform/envs/lab show -no-color tfplan |
+            sed -e "s/$GCP_PROJECT_ID/<PROJECT_ID>/g" -e "s/$number/<PROJECT_NUMBER>/g" -e "s/$suffix/<SUFFIX>/g" > plan.txt
+          {
+            echo "## terraform plan: terraform/envs/lab"
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: terraform-plan-lab
+          path: plan.txt
+          retention-days: 7
+          if-no-files-found: error
