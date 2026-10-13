@@ -49,6 +49,37 @@ Camadas: `terraform/bootstrap` (uma vez, por um humano Owner do projeto) → `te
 `project-roles`) → `platform/` (Helm e manifests, nunca pelo Terraform) → app do `dx03v2`
 (`planejado`). O contrato entre as camadas está em `docs/CONTRATO.md`.
 
+## Lab local
+
+A mesma arquitetura emulada no Docker (`terraform/envs/local` + `platform/local`), com a plataforma
+completa do v1 por cima; é o lab local do `tx01v2` com os nomes do `tx03v2` e os gêmeos Google Cloud.
+Detalhes, sondas e limites: `docs/LAB_LOCAL.md` (rodada de ponta a ponta `planejado` aqui).
+
+```mermaid
+flowchart LR
+  dev["sua máquina / runner do CI"] -->|terraform apply| net
+  subgraph net["rede Docker tx03v2-local 10.252.0.0/24"]
+    reg["registry (Artifact Registry)"]
+    db[("PostgreSQL 17, só TLS (Cloud SQL)")]
+    s3["Versity S3 Gateway, API S3 (Cloud Storage)"]
+    git["Soft Serve (origem do GitOps)"]
+    lb["cloud-provider-kind (load balancer do Gateway da GKE)"]
+    subgraph kind["kind tx03v2-local 1.36 (GKE Autopilot)"]
+      gw["Gateway istio + cert-manager lab-ca"]
+      mesh["Istio ambient: ztunnel, mTLS STRICT"]
+      obs["Prometheus, Alertmanager, Grafana, Loki, Alloy"]
+      ops["Argo CD, Gatekeeper, Trivy Operator, Velero, Chaos Mesh"]
+      eso["ESO local-secrets (Secret Manager)"]
+      app["namespace dx03v2"]
+    end
+  end
+  lb --> gw --> app
+  app -->|TLS verify-full| db
+  ops -->|backups| s3
+  ops -->|sync| git
+  kind -->|pull| reg
+```
+
 ## Decisões (ADRs curtos)
 
 | # | Decisão | Motivo | Alternativa descartada |
@@ -82,6 +113,13 @@ Camadas: `terraform/bootstrap` (uma vez, por um humano Owner do projeto) → `te
 | 27 | Logs da GKE `SYSTEM_COMPONENTS` + `WORKLOADS`, sem stack de observabilidade no cluster | a franquia de 50 GiB por projeto do Cloud Logging cobre um lab; Prometheus, Grafana, Istio e ArgoCD custavam mais que o app no v1 (lição 5) | kube-prometheus-stack |
 | 28 | Budget no bootstrap, sem `currency_code` | o valor fica na moeda da conta de faturamento; alertas de 50/90/100 % do gasto e 100 % da previsão para os administradores da conta e os e-mails opcionais; o budget só avisa | budget só em documentação (v1) |
 | 29 | `deletion_protection = false` no cluster e na instância | toda rodada termina com destroy; os dados do lab são descartáveis | proteção ligada (o destroy exigiria um apply antes) |
+| 30 | Lab local com Terraform + provider Docker e kind por CLI (`terraform_data` + `local-exec`) | o mesmo fluxo apply/destroy da nuvem, sem conta; o provider `tehcyx/kind` embute uma versão antiga do kind; o state local guarda credenciais descartáveis desta máquina (`random_password` e backend `local` só em `terraform/envs/local`) | emuladores do Google Cloud (os emuladores do gcloud cobrem Pub/Sub, Datastore, Firestore, Bigtable e Spanner; nada para GKE, Cloud SQL ou Secret Manager); minikube |
+| 31 | Istio ambient no lab local | mTLS e autorização por identidade sem sidecar; roda no kind (no v1 o Autopilot recusou o `NET_ADMIN` do sidecar e do ztunnel, lição 7) | sidecar (mais memória por pod); Linkerd |
+| 32 | GitOps com Argo CD lendo um servidor git do lab | um único dono do namespace do app; o push usa a chave do state, a leitura é anônima; o Argo CD fica só ClusterIP | Flux; apontar para o GitHub (exigiria credenciais e internet no caminho do deploy) |
+| 33 | Gatekeeper com políticas próprias testadas no `gator` | as regras do v1 (tx01 e o `:latest` do tx03), em `deny`, com casos que provam aceitação e recusa | gatekeeper-library inteira (mais regras do que o lab explica); Policy Controller da GKE (não avaliado); Kyverno |
+| 34 | Alertmanager → `alert-sink` dentro do cluster | entrega de alerta provada sem credencial externa | Slack/e-mail reais |
+| 35 | Velero no emulador de objetos (API S3), backup por recursos, sem snapshots | o ensaio de restore roda em minutos e sem nuvem (o v1 nunca restaurou nada, lição 17); o emulador fala S3, então o plugin AWS do Velero só existe no lab local (no Google Cloud seria o plugin GCP num bucket do Cloud Storage, `planejado`) | `pg_dump` sozinho; snapshots CSI; um emulador da API do Cloud Storage (não avaliado; o lab reaproveita o emulador do `tx01v2`) |
+| 36 | Perfis `core`/`observability`/`operations`/`full`; rede `10.252.0.0/24` e registry em `localhost:5003` | máquinas com pouca memória validam uma camada por vez; o CI roda `full`; rede e porta diferentes das do `tx01v2` (`10.250.0.0/24`, `5001`) e do `tx02v2` (`10.251.0.0/24`, `5002`) evitam colisão entre os labs | um único perfil; os mesmos endereços em todos os pares |
 
 ### O que fica fora do state
 
@@ -134,7 +172,7 @@ de faturamento.
 
 | Problema no v1 (tx03/dx03) | Decisão no v2 | Evidência |
 |---|---|---|
-| O `ci.yml` só listava arquivos com `ls` e imprimia "Repository is valid!" | harness com 32 checks, `HARNESS_STRICT=1` (zero SKIP) e `terraform test` com provider mockado | `make verify`, `docs/HARNESS.md` |
+| O `ci.yml` só listava arquivos com `ls` e imprimia "Repository is valid!" | harness com 38 checks (com o lab local), `HARNESS_STRICT=1` (zero SKIP) e `terraform test` com provider mockado | `make verify`, `docs/HARNESS.md` |
 | O `terraform-plan.yml` escutava PRs em `main`, mas o branch padrão era `master`: nenhum PR teve plan | branch `main` com ruleset versionado; o sujeito do plan cobre `pull_request` e `refs/heads/main` | `.github/rulesets/main.json`, `identities.tftest.hcl` |
 | Lock do state apagado (`gsutil rm .../default.tflock`) com `continue-on-error` antes de todo apply | nenhum passo apaga lock; plan com `-lock=false` e só leitura no bucket; `force-unlock` é decisão manual | `policy-workflows` (recusa `gsutil rm`, `gcloud storage rm`, `force-unlock`, `continue-on-error`) |
 | Pool e provider de Workload Identity Federation criados à mão, com condição aberta ao dono inteiro e `principalSet` por repositório | pool `tx03v2-github` no bootstrap, condição dono + 2 repositórios, um vínculo por sujeito exato | `identities.tftest.hcl`; `policy-terraform` (recusa `principalSet://`) |

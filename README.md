@@ -44,11 +44,23 @@ changes, so the comparison between clouds stays fair.
 | Destroy + leftover check | `not run in the cloud (v2)` | `.github/workflows/terraform-destroy.yml`, `scripts/leftovers.sh` |
 | HTTPS on the Gateway | `planned` | outside contract v1 (`docs/CONTRATO.md`) |
 | Repository settings as code (ruleset, environment `lab`) | `planned` | `scripts/repo-guardrails.sh`, `docs/PUBLICACAO.md` |
+| **Local lab, static checks**: `terraform/envs/local` plan tests (private network, labels, loopback-only registry, TLS-only database, digests, negative validations; 10 runs), 15 local charts by SHA256 rendering digests and ClusterIP only, Gatekeeper policies against their gator cases | `verified locally` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
+| **Local lab** (Terraform on Docker): kind cluster + emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (S3 API emulator), load balancer, git server; destroy + leftover check | `verified locally` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
+| Service mesh: Istio 1.31 ambient, mTLS `STRICT`, identity-based `AuthorizationPolicy` | `verified locally` | `make e2e` (`platform/local/check.sh`: allowed, other identity and plaintext probes) |
+| Gateway API on Istio behind the emulated load balancer, HTTPS with cert-manager (lab CA), HTTP → HTTPS | `verified locally` | `make e2e` |
+| External Secrets (ClusterSecretStore `local-secrets`), metrics-server | `verified locally` | `make e2e` |
+| Observability: Prometheus, Alertmanager (synthetic alert delivered), Grafana (ClusterIP), Loki + Alloy | `verified locally` | `make e2e` |
+| GitOps with Argo CD 3.5 (commit → sync → self-heal from the lab git server) | `verified locally` | `make e2e` |
+| Policy as code in the cluster: Gatekeeper 3.23 in `deny` (allowed registries, pinned images, resources, probes, labels, NodePort) | `verified locally` | `make e2e` |
+| In-cluster scanning: Trivy Operator (vulnerability and configuration reports) | `verified locally` | `make e2e` |
+| Backup and restore drill: Velero to the object storage emulator (namespace deleted, restored with its data) | `verified locally` | `make e2e` |
+| Chaos engineering with a hypothesis: Chaos Mesh pod-kill, availability measured | `verified locally` | `make e2e` |
+| The same add-ons on GKE | `planned` | the local platform shows the target; the cloud platform layer installs only ESO (several of these add-ons need privileges Autopilot refuses, `docs/LAB_LOCAL.md`) |
 
-`verified in CI` rows (`HARNESS_STRICT=1 make verify`, 32 checks) run in the CI (`ci.yml`, jobs
-`static` and `test`, on every pull request, every push to `main` and weekly) and pass locally in a
-Linux container. A cloud row changes only with a `cloud_run_report` issue (date, region, commits,
-cost, leftovers).
+`verified in CI` rows (`HARNESS_STRICT=1 make verify`) run in the CI (`ci.yml`, jobs `static` and
+`test`, on every pull request, every push to `main` and weekly) and pass locally in a Linux
+container. A cloud row changes only with a `cloud_run_report` issue (date, region, commits, cost,
+leftovers). The local lab rows will also run in the CI job `e2e`.
 
 ## Architecture
 
@@ -94,6 +106,36 @@ make help
 On Windows or macOS, open the folder in the devcontainer (`.devcontainer/devcontainer.json`); it
 runs `make tools` for you. Nothing here touches Google Cloud.
 
+### The whole lab on your machine (free)
+
+The v1 lab ran its platform (mesh, monitoring, GitOps, policies, scanning, backup, chaos) only in
+the cloud, and on Autopilot much of it was refused. The local lab builds the same platform on Docker,
+so you can study and break it without an account (status above: the end-to-end round is
+`verified locally`):
+
+```bash
+make e2e            # up + every probe + down: about 30-40 minutes on tx01v2, 8 GB of Docker memory for "full"
+make local-up       # or keep it running (LOCAL_PROFILE=core|observability|operations|full)
+make local-check    # probes against the running lab
+make local-down     # destroy + leftover check
+```
+
+| Google Cloud (cloud path) | Local lab |
+|---|---|
+| GKE Autopilot 1.36 (REGULAR channel) | kind 1.36 (`terraform/envs/local`) |
+| Artifact Registry | registry (`registry.tx03v2.local`, push to `localhost:5003`) |
+| Cloud SQL for PostgreSQL 17 (Private Service Connect, shared CA, `verify-full`) | PostgreSQL 17, TLS only, lab CA |
+| GKE Gateway (global external Application Load Balancer) + Cloud Armor | cloud-provider-kind + Istio Gateway (Gateway API); no WAF |
+| HTTPS listener certificate (`planned` on the GKE Gateway) | cert-manager, ClusterIssuer `lab-ca` |
+| Secret Manager + ESO (Workload Identity Federation for GKE) | Secrets of `lab-secrets` + ESO |
+| Cloud Storage (backups) | Versity S3 Gateway (S3 API) |
+| Parameter Manager contract | ConfigMap `lab-system/lab-contract` (`docs/CONTRATO.md`) |
+| GitHub (GitOps source) | Soft Serve git server |
+
+Details, probes and limits: [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) and
+[docs/ARQUITETURA.md](docs/ARQUITETURA.md). Deploying dx03v2 on top of it (through the local contract)
+is `planned` in dx03v2.
+
 ## Cloud path (costs money)
 
 **Cost first:** about US$0.12 per hour in us-central1 with the defaults while the GKE free tier
@@ -114,11 +156,12 @@ project Owner) → `cloud_run_report` issue.
 | Target | What it runs | When |
 |---|---|---|
 | `make help` | lists the targets | any time |
-| `make tools` | `scripts/install-tools.sh`: terraform 1.16.5, tflint 0.64.0 + google ruleset 0.40.0, trivy 0.75.0, actionlint 1.7.12, shellcheck 0.11.0, kubeconform 0.8.0, gitleaks 8.30.1, kubectl 1.37.1, helm 4.3.0 | once, and after a tool bump |
+| `make tools` | `scripts/install-tools.sh`: terraform 1.16.5, tflint 0.64.0 + google ruleset 0.40.0, trivy 0.75.0, actionlint 1.7.12, shellcheck 0.11.0, kubeconform 0.8.0, gitleaks 8.30.1, kubectl 1.37.1, helm 4.3.0, kind 0.33.0, gator 3.23.1 | once, and after a tool bump |
 | `make static` | `scripts/harness.sh static` | before every push |
-| `make test` | `scripts/harness.sh test` (`terraform test`, mocked google provider) | before every push |
-| `make verify` | static + test (what CI runs) | before every PR |
-| `make all` | every stage (same as verify here) | — |
+| `make test` | `scripts/harness.sh test` (`terraform test`, mocked providers) | before every push |
+| `make verify` | static + test (CI jobs `static` and `test`) | before every PR |
+| `make e2e` | `scripts/harness.sh e2e`: the local lab end to end (CI job `e2e`) | platform or local lab changes |
+| `make all` | static + test + e2e | — |
 | `make clean` | removes `.tools/`, caches and Terraform working dirs | — |
 
 `scripts/harness.sh list` prints every check. The `platform` and `terraform-destroy` workflows install
@@ -135,6 +178,7 @@ All docs are in Brazilian Portuguese.
 | [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | diagram, ADRs, AWS / Azure / Google Cloud, v1 → v2 |
 | [docs/CONTRATO.md](docs/CONTRATO.md) | tx03v2 ⇄ dx03v2 contract v1 (source of truth) |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | full cloud round |
+| [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) | the local lab: what is emulated, how to run it, probes, limits |
 | [docs/CUSTOS.md](docs/CUSTOS.md) | cost estimate per component, with and without the GKE free tier |
 | [docs/GUARDRAILS.md](docs/GUARDRAILS.md) | rules, enforcement, exceptions, limits |
 | [docs/HARNESS.md](docs/HARNESS.md) | checks, strict mode, troubleshooting |

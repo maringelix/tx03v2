@@ -1,0 +1,27 @@
+# Envoy at the edge replaces an external X-Request-Id by default. The dx03v2 smoke test on compose and
+# kind (SMOKE_EDGE=nginx, its default) expects the id the client sent to come back, so every Istio
+# Gateway of the lab keeps it (context GATEWAY only: sidecars and waypoints are not touched). This is
+# NOT a claim about Google Cloud: the docs of the global external Application Load Balancer behind the
+# GKE Gateway do not say whether it forwards, replaces or adds X-Request-Id (dx03v2 docs/API.md,
+# checked 2026-10-11), so dx03v2 SMOKE_EDGE=gke checks only the safety property there. The app still
+# decides whether an incoming id is safe (dx03v2 api/src/middleware/request-id.ts).
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: gateway-preserve-request-id
+  namespace: istio-system
+spec:
+  configPatches:
+    - applyTo: NETWORK_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: MERGE
+        value:
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+            preserve_external_request_id: true

@@ -4,11 +4,13 @@ O harness é o conjunto de checks que prova o que este repositório afirma, sem 
 Ele vive em `scripts/harness.sh`; o `Makefile` e o CI só o chamam, e o CI usa `HARNESS_STRICT=1`.
 Duas diferenças conhecidas entre uma pasta sem commits e o CI: o `gitleaks` lê a árvore de trabalho
 (no CI, o histórico inteiro) e o bit executável só é exigido de scripts que já estão no índice do
-git. `scripts/harness.sh list` mostra os checks: 30 no estágio `static` e os 2 `terraform-test:*` no
-`test`, que também roda `tool-versions` (32 no `make verify`, que conta o `tool-versions` uma vez).
+git. `scripts/harness.sh list` mostra os checks: 35 no estágio `static` e os 3 `terraform-test:*` no
+`test`, que também roda `tool-versions` (38 no `make verify`, que conta o `tool-versions` uma vez),
+mais o `local-lab-e2e` no estágio `e2e` (`make e2e`, fora do `verify`).
 
-Estado: `HARNESS_STRICT=1 make verify` passa com 32 PASS num container Linux (`verificado
-localmente`); o CI ainda não rodou no GitHub.
+Estado: `HARNESS_STRICT=1 make verify` passou com 32 PASS no CI (jobs `static` e `test`) antes do lab
+local; com os checks do lab local são 38 PASS num container Linux (`verificado localmente`; o CI
+ainda não rodou essa versão). O `local-lab-e2e` está `verificado localmente` (26 sondas, 2026-10-13).
 
 ## Camadas
 
@@ -17,12 +19,12 @@ localmente`); o CI ainda não rodou no GitHub.
 | Ferramentas | `make tools` | binários nas versões de `tools/versions.env`, SHA256 conferido (linux_amd64, linux_arm64, darwin_arm64) | — | local, CI |
 | Versões | `tool-versions` | o PATH usa as versões fixadas (no modo estrito, divergência é FAIL) | — | local, CI |
 | Estrutura e honestidade | `repo-structure`, `version-consistency` | arquivos obrigatórios; rótulos de status, sem auto-elogios, emojis ou links para o v1 nos READMEs; README com até 250 linhas; `CLAUDE.md`; LF; bit executável no índice do git (só um aviso para scripts ainda fora do índice); devcontainer por digest; versões coerentes entre arquivos (inclusive a minor do Kubernetes no `docs/CONTRATO.md` e a versão do gcloud nos workflows) | que a documentação está certa | local, CI |
-| Políticas do Terraform | `policy-terraform`, `policy-labels` | erros do v1 não voltam (segredos write-only, sem chaves de conta de serviço, sem IAM autoritativo, sem `roles/owner`, sem `principalSet`, nada público, nada acima do projeto, só Autopilot, cluster e banco privados, endpoint DNS só IAM, sem `0.0.0.0/0`, sem providers `kubernetes`/`helm`/`google-beta`, backend `gcs {}` sem argumentos, APIs nunca desligadas, bucket sem `force_destroy`, sem `timestamp()` com diff perpétuo); `default_labels` com exatamente os quatro labels do contrato nos dois roots | intenção de quem escreveu | local, CI |
+| Políticas do Terraform | `policy-terraform`, `policy-labels` | erros do v1 não voltam (segredos write-only, sem chaves de conta de serviço, sem IAM autoritativo, sem `roles/owner`, sem `principalSet`, nada público, nada acima do projeto, só Autopilot, cluster e banco privados, endpoint DNS só IAM, sem `0.0.0.0/0` nos roots de nuvem e nos módulos, sem providers `kubernetes`/`helm`/`google-beta`, backend `gcs {}` sem argumentos, APIs nunca desligadas, bucket sem `force_destroy`, sem `timestamp()` com diff perpétuo; no `terraform/envs/local`: nenhum provider de nuvem nem backend remoto, só o backend `local {}`, portas só em 127.0.0.1, nada privilegiado, `random_password` permitido só ali); `default_labels` com exatamente os quatro labels do contrato nos dois roots | intenção de quem escreveu | local, CI |
 | Identificadores | `policy-identifiers` | sem números de projeto, contas de faturamento, IDs de projeto (em caminhos `projects/<id>/`, e-mails de conta de serviço e pools `<id>.svc.id.goog`), e-mails, IPs públicos ou GUIDs reais; só os placeholders, as faixas privadas e de documentação e as duas faixas do load balancer | identificadores fora desses formatos | local, CI |
 | Workflows | `policy-workflows`, `actionlint` | actions por SHA, `permissions`, regras de Workload Identity Federation (`auth` só com `vars.*`, sem chaves), guardas, `-lock=false` só no plan, nada apaga state ou lock, confirmação digitada, uninstall e checagem de sobras no destroy; YAML, expressões e shellcheck dos blocos `run` | comportamento contra o Google Cloud | local, CI |
 | Exceções | `trivyignore-policy` | cada ignore tem `statement` e `expired_at` em até ~7 meses (hoje não há nenhum) | — | local, CI |
 | Contrato | `contract-platform`, `contract-parameter` | os manifests renderizados são os do contrato (objetos, labels, regras da Role, sujeitos da RoleBinding sem repetição, ClusterSecretStore); o renderizador recusa entradas inválidas; values e pins do ESO; as 15 chaves de `contract.tf` = lista do harness, valores fixos, nome do parâmetro no Terraform e nos scripts, e cada chave tem uma linha na tabela de `docs/CONTRATO.md` | linhas a mais na tabela; o que o dx03v2 faz (o harness dele vai conferir) | local, CI |
-| Formato e sintaxe | `terraform-fmt`, `terraform-validate:*` (2 roots, 8 módulos) | HCL formatado e válido para o schema do provider fixado | que o Google Cloud aceita os valores | local, CI |
+| Formato e sintaxe | `terraform-fmt`, `terraform-validate:*` (3 roots, 8 módulos) | HCL formatado e válido para o schema do provider fixado | que o Google Cloud aceita os valores | local, CI |
 | Lock de providers | `terraform-lockfiles` | pelo menos 4 hashes `h1:` por provider nos lock files dos roots (gerados para linux_amd64, linux_arm64, darwin_arm64, windows_amd64) | a qual plataforma cada hash pertence | local, CI |
 | Lint | `tflint` | preset recommended + ruleset google 0.40.0 sem issues | regras que dependem de chamadas ao Google Cloud | local, CI |
 | Segurança da IaC | `trivy-config`, `trivy-config-tfvars` | sem HIGH/CRITICAL (não há exceções) | configuração em runtime, IAM efetivo | local, CI |
@@ -31,6 +33,9 @@ localmente`); o CI ainda não rodou no GitHub.
 | Chart da plataforma | `helm-template` | o chart do ESO 2.12.0 baixado por tag e digest do manifest OCI tem o SHA256 registrado e aceita `platform/values`: três imagens com o digest, ServiceAccount `external-secrets` sem anotação de conta de serviço do Google, requests nos três contêineres, CRDs | instalação real e comportamento do controller | local, CI (rede) |
 | Segredos | `gitleaks` | nenhum segredo conhecido (histórico completo quando há commits; antes disso, a árvore de trabalho) | segredos fora dos padrões do gitleaks | local, CI |
 | Testes unitários | `terraform-test:bootstrap` (19 casos), `terraform-test:envs/lab` (41 casos) | APIs, bucket do state, pool e provider do Workload Identity Federation, um sujeito por vínculo, papéis do plan e do apply, condição IAM = papéis de projeto do lab, budget, GKE Autopilot, rede e NAT, Cloud SQL (PSC, TLS, edição, backups), segredos write-only, Artifact Registry, Cloud Armor e `none`, chaves e valores do contrato, concessões IAM, validações negativas | que os recursos sobem no Google Cloud (provider mockado) | local, CI |
+| Lab local: Terraform | `terraform-validate:envs/local`, `terraform-test:envs/local` (10 casos, só plan) | rede privada, labels em tudo, só o registry publicado e só em 127.0.0.1, banco só TLS, imagens por digest, validações negativas | que o Docker cria os contêineres (isso é o `e2e`) | local, CI |
+| Lab local: plataforma | `local-versions`, `helm-template-local`, `kubeconform-local`, `policy-gator` | os 15 charts fixados por SHA256 renderizam só imagens por digest e Services ClusterIP; manifests válidos; cada política do Gatekeeper aceita e recusa os casos de `platform/local/policies/tests`; kind no mesmo minor da GKE do lab (`GKE_KUBERNETES_MINOR`); gator igual ao Gatekeeper; o arquivo do ESO local tem o mesmo SHA256 do chart OCI da plataforma | comportamento no cluster | local, CI (rede) |
+| Lab local: ponta a ponta | `local-lab-e2e` (`make e2e`) | apply do `terraform/envs/local`, instalação do perfil `full` e as 26 sondas de `platform/local/check.sh` (`docs/LAB_LOCAL.md`); destroy e checagem de sobras sempre | Google Cloud | local (Docker, 8 GB), CI; `verificado localmente` em 2026-10-13 (26 sondas) |
 | Nuvem | workflows `terraform-*`, `platform` | — | — | `não executado em nuvem (v2)` |
 
 ## Jobs do CI
@@ -39,10 +44,12 @@ localmente`); o CI ainda não rodou no GitHub.
 |---|---|---|
 | `static` | `make tools && make static` | `static` |
 | `test` | `make tools && make test` | `test` |
+| `e2e` | `make tools && make e2e` | `e2e` (o lab local; diagnósticos e o log completo do e2e como artifact em caso de falha) |
 
 Os ids `static` e `test` são estáveis: são os checks exigidos pelo ruleset
-(`.github/rulesets/main.json`); o `policy-workflows` falha se um deles sumir. O CI não recebe
-credenciais do Google Cloud (o `policy-workflows` recusa `id-token: write` no `ci.yml`).
+(`.github/rulesets/main.json`); o `policy-workflows` falha se um deles sumir. O `e2e` roda em todo PR
+e precisa estar verde para o merge (disciplina do mantenedor; ainda não está no ruleset). O CI não
+recebe credenciais do Google Cloud (o `policy-workflows` recusa `id-token: write` no `ci.yml`).
 
 ## Modo estrito
 

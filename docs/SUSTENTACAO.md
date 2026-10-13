@@ -12,8 +12,11 @@ com ele.
 
 ## 2. Estado atual
 
-- Harness completo (`HARNESS_STRICT=1 make verify`, 32 checks) `verificado no CI` (jobs `static` e
-  `test`) e localmente num container Linux.
+- Harness completo (`HARNESS_STRICT=1 make verify`) `verificado no CI` com 32 checks (jobs `static`
+  e `test`); com os checks do lab local são 38, `verificado localmente` em container Linux (o CI
+  ainda não rodou essa versão).
+- Lab local (`docs/LAB_LOCAL.md`): `make e2e` com o perfil `full` (26 sondas) `verificado localmente`
+  em 2026-10-13 (rodada do zero, destroy sem sobras); roda também no job `e2e` do CI.
 - Bootstrap, apply, plan em PRs, plataforma e destroy: `não executado em nuvem (v2)`.
 - Contrato com o dx03v2: versão 1 (`docs/CONTRATO.md`); o dx03v2 confere a parte dele no próprio
   harness (CI verde lá) e o deploy dele é `não executado em nuvem (v2)`.
@@ -49,10 +52,14 @@ com ele.
 | Runners e devcontainer | Ubuntu 24.04 LTS | suporte padrão até 2029-04 | ubuntu.com | Trocar antes do fim |
 | Schemas do kubeconform | yannh/kubernetes-json-schema `5f1fa4f` (1.36.0); datreeio/CRDs-catalog `f3e4382` (2026-06-02) | — | `docs/HARNESS.md` | Reavaliar a cada revisão trimestral (5.7) |
 | Exceções do trivy | nenhuma | — | `.trivyignore.yaml` | Uma exceção nova precisa de `statement` e `expired_at` (5.9) |
+| Istio (lab local) | 1.31.1 | ~2027-02 (6 semanas depois da 1.33) | [releases suportadas](https://istio.io/latest/docs/releases/supported-releases/) | Trimestral (5.14), junto com o tx01v2 |
+| Demais charts do lab local | `platform/local/versions.env` (cert-manager 1.21.2, kube-prometheus-stack 92.3.0, Loki 7.3.0, Alloy 1.13.1, Argo CD 10.10.3, Gatekeeper 3.23.1, Trivy Operator 0.37.0, Velero 12.2.1, Chaos Mesh 2.8.4, metrics-server 3.14.0) | cada projeto mantém as versões recentes | releases de cada projeto | Trimestral (5.14), junto com o tx01v2 |
+| Imagens dos serviços emulados | registry 3.1.2, Versity S3 Gateway 1.8.0, Soft Serve 0.12.3, cloud-provider-kind 0.12.0, PostgreSQL 17 | sem data fixa | `terraform/envs/local/images.tf` | Trimestral (5.14) |
+| kind / gator | 0.33.0 (nó `kindest/node:v1.36.4`) / 3.23.1 | sem política publicada | releases do kind e do Gatekeeper | Trimestral (5.14); o nó segue a minor da GKE do lab |
 
 ## 5. Procedimentos
 
-### 5.1 Ferramenta do harness (terraform, tflint, ruleset google, trivy, actionlint, shellcheck, kubeconform, gitleaks, kubectl, helm)
+### 5.1 Ferramenta do harness (terraform, tflint, ruleset google, trivy, actionlint, shellcheck, kubeconform, gitleaks, kubectl, helm, kind, gator)
 
 ```bash
 scripts/update-tool-checksums.sh trivy 0.76.0   # baixa o arquivo de checksums oficial da release
@@ -106,13 +113,17 @@ Autopilot atualiza sozinho. Quando a minor padrão do canal mudar (release notes
    `version-consistency` exige exatamente a minor de `GKE_KUBERNETES_MINOR`).
 3. `kubectl` a no máximo uma minor de distância (5.1).
 4. No dx03v2: a mesma minor nos schemas, no kind e no kubectl dele.
+5. Lab local: a imagem do nó em `terraform/envs/local/kind-config.yaml` (o `local-versions` exige a
+   minor de `GKE_KUBERNETES_MINOR`; 5.14).
 
 ### 5.5 External Secrets Operator (junto com o tx01v2 e o tx02v2)
 
 1. Leia as release notes (versão de API dos CRDs, valores do chart, requisitos de Kubernetes).
 2. Chart: `helm pull oci://ghcr.io/external-secrets/charts/external-secrets --version <versão>`
    imprime o `Digest:` do manifest OCI (`ESO_CHART_DIGEST`); `sha256sum external-secrets-<versão>.tgz`
-   dá o `ESO_CHART_SHA256`. Atualize também `ESO_CHART_VERSION` em `platform/versions.env`.
+   dá o `ESO_CHART_SHA256`. Atualize também `ESO_CHART_VERSION` em `platform/versions.env` e o
+   `ESO_SHA256` do lab local (`platform/local/versions.env`, o mesmo arquivo pelo repositório HTTP;
+   o `local-versions` exige os dois iguais).
 3. Imagem: `docker buildx imagetools inspect ghcr.io/external-secrets/external-secrets:v<versão>` →
    o digest do índice nas três entradas `tag:` de `platform/values/external-secrets.yaml` (controller,
    webhook e cert controller usam a mesma imagem; o `version-consistency` exige `v<versão>@sha256:`
@@ -197,6 +208,22 @@ Nas release notes da GKE, procure mudanças no endpoint DNS do plano de controle
 `gcp_public_cidrs_access_enabled`), nos mínimos e proporções de recursos do Autopilot (50m de CPU e
 52 MiB por pod, CPU:memória entre 1:1 e 1:6,5, assumidos) e no free tier. O teste
 `autopilot_private_dns_endpoint_gateway` prova a configuração, não o comportamento da GKE.
+
+### 5.14 Lab local (charts, imagens, kind)
+
+Os pins são os mesmos do lab local do `tx01v2`: atualize os repositórios juntos.
+
+1. Para cada chart de `platform/local/versions.env`: leia as notas da release, rode
+   `helm pull <chart> --repo <repo> --version <nova>` e grave a versão e o `sha256sum` do `.tgz`. O
+   ESO local segue a 5.5: `ESO_SHA256` igual a `ESO_CHART_SHA256` (o `local-versions` confere).
+2. Atualize os digests em `platform/local/values/*.yaml` (`docker buildx imagetools inspect <imagem>:<tag>`
+   devolve o digest do índice multi-arquitetura). O check `helm-template-local` recusa imagem sem digest.
+3. Gatekeeper: suba `GATOR_VERSION` (`scripts/update-tool-checksums.sh gator <versão>`) junto com
+   `GATEKEEPER_VERSION`; o check `local-versions` exige as duas iguais.
+4. Imagens dos serviços emulados: `terraform/envs/local/images.tf` (o teste exige digest em todas). O
+   nó do kind (`terraform/envs/local/kind-config.yaml`) segue o `GKE_KUBERNETES_MINOR` do harness
+   (`local-versions` confere a minor).
+5. Rode `make verify` e `make e2e` (ou deixe o job `e2e` do CI provar no PR) e registre no CHANGELOG.
 
 ## 6. Resposta a problemas
 
