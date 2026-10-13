@@ -45,16 +45,16 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | HTTPS no Gateway | `planejado` | fora do contrato v1 (`docs/CONTRATO.md`) |
 | Configurações do repositório como código (ruleset, environment `lab`) | `planejado` | `scripts/repo-guardrails.sh`, `docs/PUBLICACAO.md` |
 | **Lab local, checks estáticos**: testes de plan do `terraform/envs/local` (rede privada, labels, registry só em loopback, banco só TLS, digests, validações negativas; 10 casos), 15 charts locais por SHA256 renderizando só digests e ClusterIP, políticas do Gatekeeper contra os casos do gator | `verificado localmente` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
-| **Lab local** (Terraform no Docker): cluster kind + Artifact Registry, Cloud SQL (PostgreSQL, só TLS), Cloud Storage (emulador com API S3), load balancer e servidor git emulados; destroy + checagem de sobras | `verificado localmente` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
-| Service mesh: Istio 1.31 ambient, mTLS `STRICT`, `AuthorizationPolicy` por identidade | `verificado localmente` | `make e2e` (`platform/local/check.sh`: sondas permitida, de outra identidade e em texto puro) |
-| Gateway API no Istio atrás do load balancer emulado, HTTPS com cert-manager (CA do lab), HTTP → HTTPS | `verificado localmente` | `make e2e` |
-| External Secrets (ClusterSecretStore `local-secrets`), metrics-server | `verificado localmente` | `make e2e` |
-| Observabilidade: Prometheus, Alertmanager (alerta sintético entregue), Grafana (ClusterIP), Loki + Alloy | `verificado localmente` | `make e2e` |
-| GitOps com Argo CD 3.5 (commit → sync → self-heal a partir do servidor git do lab) | `verificado localmente` | `make e2e` |
-| Policy as code no cluster: Gatekeeper 3.23 em `deny` (registries permitidos, imagens fixadas, recursos, probes, labels, NodePort) | `verificado localmente` | `make e2e` |
-| Scan dentro do cluster: Trivy Operator (relatórios de vulnerabilidade e de configuração) | `verificado localmente` | `make e2e` |
-| Ensaio de backup e restore: Velero no emulador de objetos (namespace apagado e restaurado com os dados) | `verificado localmente` | `make e2e` |
-| Chaos engineering com hipótese: pod-kill do Chaos Mesh, disponibilidade medida | `verificado localmente` | `make e2e` |
+| **Lab local** (Terraform no Docker): cluster kind + Artifact Registry, Cloud SQL (PostgreSQL, só TLS), Cloud Storage (emulador com API S3), load balancer e servidor git emulados; destroy + checagem de sobras | `verificado no CI` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
+| Service mesh: Istio 1.31 ambient, mTLS `STRICT`, `AuthorizationPolicy` por identidade | `verificado no CI` | `make e2e` (`platform/local/check.sh`: sondas permitida, de outra identidade e em texto puro) |
+| Gateway API no Istio atrás do load balancer emulado, HTTPS com cert-manager (CA do lab), HTTP → HTTPS | `verificado no CI` | `make e2e` |
+| External Secrets (ClusterSecretStore `local-secrets`), metrics-server | `verificado no CI` | `make e2e` |
+| Observabilidade: Prometheus, Alertmanager (alerta sintético entregue), Grafana (ClusterIP), Loki + Alloy | `verificado no CI` | `make e2e` |
+| GitOps com Argo CD 3.5 (commit → sync → self-heal a partir do servidor git do lab) | `verificado no CI` | `make e2e` |
+| Policy as code no cluster: Gatekeeper 3.23 em `deny` (registries permitidos, imagens fixadas, recursos, probes, labels, NodePort) | `verificado no CI` | `make e2e` |
+| Scan dentro do cluster: Trivy Operator (relatórios de vulnerabilidade e de configuração) | `verificado no CI` | `make e2e` |
+| Ensaio de backup e restore: Velero no emulador de objetos (namespace apagado e restaurado com os dados) | `verificado no CI` | `make e2e` |
+| Chaos engineering com hipótese: pod-kill do Chaos Mesh, disponibilidade medida | `verificado no CI` | `make e2e` |
 | Os mesmos add-ons na GKE | `planejado` | o lab local mostra o alvo; a camada de plataforma em nuvem instala só o ESO (vários desses add-ons precisam de privilégios que o Autopilot recusa, `docs/LAB_LOCAL.md`) |
 
 As linhas `verificado no CI` (`HARNESS_STRICT=1 make verify`) rodam no CI (`ci.yml`, jobs `static`
@@ -110,7 +110,7 @@ No Windows ou macOS, abra a pasta no devcontainer (`.devcontainer/devcontainer.j
 
 O lab v1 rodava a plataforma (mesh, monitoração, GitOps, políticas, scan, backup, chaos) só na nuvem,
 e no Autopilot boa parte foi recusada. O lab local monta a mesma plataforma no Docker, para estudar e
-quebrar sem conta (status acima: a rodada de ponta a ponta está `verificado localmente`):
+quebrar sem conta (status acima: a rodada de ponta a ponta está `verificado no CI`):
 
 ```bash
 make e2e            # up + todas as sondas + down: 30 a 40 minutos no tx01v2, 8 GB de memória no Docker para "full"

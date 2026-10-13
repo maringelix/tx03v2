@@ -18,7 +18,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The local lab (docs/LAB_LOCAL.md), ported from tx01v2: the whole v1 platform on Docker, with no
-  cloud account. `make e2e` verified locally (26 probes, destroy with no leftovers).
+  cloud account. `make e2e` verified locally and in CI (26 probes, destroy with no leftovers).
   - `terraform/envs/local` (providers docker 4.6.0, tls 4.4.1, random 3.9.1): network
     `tx03v2-local` (`10.252.0.0/24`), kind 1.36 cluster (the GKE Autopilot twin), emulated Artifact
     Registry (registry 3.1.2, push to `localhost:5003`), Cloud SQL (PostgreSQL 17, TLS only, lab CA),

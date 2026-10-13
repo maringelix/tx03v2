@@ -45,16 +45,16 @@ changes, so the comparison between clouds stays fair.
 | HTTPS on the Gateway | `planned` | outside contract v1 (`docs/CONTRATO.md`) |
 | Repository settings as code (ruleset, environment `lab`) | `planned` | `scripts/repo-guardrails.sh`, `docs/PUBLICACAO.md` |
 | **Local lab, static checks**: `terraform/envs/local` plan tests (private network, labels, loopback-only registry, TLS-only database, digests, negative validations; 10 runs), 15 local charts by SHA256 rendering digests and ClusterIP only, Gatekeeper policies against their gator cases | `verified locally` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
-| **Local lab** (Terraform on Docker): kind cluster + emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (S3 API emulator), load balancer, git server; destroy + leftover check | `verified locally` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
-| Service mesh: Istio 1.31 ambient, mTLS `STRICT`, identity-based `AuthorizationPolicy` | `verified locally` | `make e2e` (`platform/local/check.sh`: allowed, other identity and plaintext probes) |
-| Gateway API on Istio behind the emulated load balancer, HTTPS with cert-manager (lab CA), HTTP → HTTPS | `verified locally` | `make e2e` |
-| External Secrets (ClusterSecretStore `local-secrets`), metrics-server | `verified locally` | `make e2e` |
-| Observability: Prometheus, Alertmanager (synthetic alert delivered), Grafana (ClusterIP), Loki + Alloy | `verified locally` | `make e2e` |
-| GitOps with Argo CD 3.5 (commit → sync → self-heal from the lab git server) | `verified locally` | `make e2e` |
-| Policy as code in the cluster: Gatekeeper 3.23 in `deny` (allowed registries, pinned images, resources, probes, labels, NodePort) | `verified locally` | `make e2e` |
-| In-cluster scanning: Trivy Operator (vulnerability and configuration reports) | `verified locally` | `make e2e` |
-| Backup and restore drill: Velero to the object storage emulator (namespace deleted, restored with its data) | `verified locally` | `make e2e` |
-| Chaos engineering with a hypothesis: Chaos Mesh pod-kill, availability measured | `verified locally` | `make e2e` |
+| **Local lab** (Terraform on Docker): kind cluster + emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (S3 API emulator), load balancer, git server; destroy + leftover check | `verified in CI` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
+| Service mesh: Istio 1.31 ambient, mTLS `STRICT`, identity-based `AuthorizationPolicy` | `verified in CI` | `make e2e` (`platform/local/check.sh`: allowed, other identity and plaintext probes) |
+| Gateway API on Istio behind the emulated load balancer, HTTPS with cert-manager (lab CA), HTTP → HTTPS | `verified in CI` | `make e2e` |
+| External Secrets (ClusterSecretStore `local-secrets`), metrics-server | `verified in CI` | `make e2e` |
+| Observability: Prometheus, Alertmanager (synthetic alert delivered), Grafana (ClusterIP), Loki + Alloy | `verified in CI` | `make e2e` |
+| GitOps with Argo CD 3.5 (commit → sync → self-heal from the lab git server) | `verified in CI` | `make e2e` |
+| Policy as code in the cluster: Gatekeeper 3.23 in `deny` (allowed registries, pinned images, resources, probes, labels, NodePort) | `verified in CI` | `make e2e` |
+| In-cluster scanning: Trivy Operator (vulnerability and configuration reports) | `verified in CI` | `make e2e` |
+| Backup and restore drill: Velero to the object storage emulator (namespace deleted, restored with its data) | `verified in CI` | `make e2e` |
+| Chaos engineering with a hypothesis: Chaos Mesh pod-kill, availability measured | `verified in CI` | `make e2e` |
 | The same add-ons on GKE | `planned` | the local platform shows the target; the cloud platform layer installs only ESO (several of these add-ons need privileges Autopilot refuses, `docs/LAB_LOCAL.md`) |
 
 `verified in CI` rows (`HARNESS_STRICT=1 make verify`) run in the CI (`ci.yml`, jobs `static` and
@@ -111,7 +111,7 @@ runs `make tools` for you. Nothing here touches Google Cloud.
 The v1 lab ran its platform (mesh, monitoring, GitOps, policies, scanning, backup, chaos) only in
 the cloud, and on Autopilot much of it was refused. The local lab builds the same platform on Docker,
 so you can study and break it without an account (status above: the end-to-end round is
-`verified locally`):
+`verified in CI`):
 
 ```bash
 make e2e            # up + every probe + down: about 30-40 minutes on tx01v2, 8 GB of Docker memory for "full"
