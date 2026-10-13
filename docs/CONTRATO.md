@@ -205,6 +205,45 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   saída da api para `db/endpoint-ip`/32:5432; DNS (base) e a saída para o cache DNS do nó
   `169.254.20.10/32:53` (NodeLocal DNSCache do Autopilot).
 
+## Lab local (contrato local, versão 1)
+
+O lab local (`docs/LAB_LOCAL.md`) é um contrato à parte, com versão própria (chave `version`), para o
+deploy local do dx03v2 (`planejado` lá). Ele espelha o contrato da nuvem com nomes do lab local; não
+muda nada acima. As chaves são as mesmas do lab local do `tx01v2` (o app consome os dois do mesmo
+jeito); só a coluna da nuvem muda. Publicado por `platform/local/install.sh` no ConfigMap
+`lab-system/lab-contract`:
+
+| Chave | Valor | Equivale na nuvem |
+|---|---|---|
+| `version` | `1` | versão deste arquivo |
+| `cluster-name` | `tx03v2-local` | `cluster-name` |
+| `network-cidr` | `10.252.0.0/24` (ou `subnet_cidr`) | `nodes-subnet-cidr` |
+| `registry` | `registry.tx03v2.local` (nome das imagens no cluster) | `artifact-registry/repository` (prefixo) |
+| `registry-push` | `localhost:5003` (push desta máquina) | — |
+| `db.endpoint-ip`, `db.hostname`, `db.port` | `10.252.0.11`, `db.tx03v2.local`, `5432` | `db/endpoint-ip` (endpoint Private Service Connect) e o `host` de `tx03v2-lab-db-app` (nome DNS do PSC) |
+| `db.secret-name` | `tx03v2-lab-db-app` (chaves `host`, `port`, `dbname`, `username`, `password`) | `db/secret-name` |
+| `db.ca-configmap` | `lab-system/lab-ca` (chave `ca.crt`) | ConfigMap `cloudsql-ca` (bundle da região, aceito só com a raiz do contrato; criado pelo deploy) |
+| `app.admin-token-secret-name` | `tx03v2-lab-app-admin-token` (chave `token`; no Secret Manager é uma string pura) | `app/admin-token-secret-name` |
+| `eso.cluster-secret-store` | `local-secrets` (só o namespace `dx03v2`) | `eso/cluster-secret-store` (`gcp-secret-manager`) |
+| `gateway.class` | `istio` (Gateway API) | GatewayClass `gke-l7-global-external-managed` (com `gateway/address-name`) |
+| `tls.cluster-issuer` | `lab-ca` (cert-manager) | — (HTTPS no Gateway `planejado`) |
+| `gitops.push-url`, `gitops.read-url` | `ssh://10.252.0.13:23231/dx03v2-gitops`, `http://10.252.0.13:23232/dx03v2-gitops.git` | — |
+| `gitops.push-key-secret` | `lab-secrets/gitops-push-key` (chave SSH do push, `kubernetes.io/ssh-auth`) | conta de serviço `dx03v2-gha-deploy` |
+| `argocd.project` | `dx03v2` (AppProject: só o repositório GitOps, só o namespace `dx03v2`, só os kinds do deploy, nada de Secret ou recurso de cluster) | Role `dx03v2-deployer` |
+| `monitoring.prometheus-service-account` | `monitoring/kube-prometheus-stack-prometheus` (identidade do Prometheus no mesh) | — |
+
+Os Secrets `tx03v2-lab-db-app` e `tx03v2-lab-app-admin-token` ficam no namespace `lab-secrets` (o
+gêmeo local do Secret Manager) com os mesmos nomes dos segredos do Secret Manager, que já são válidos
+no Kubernetes. Regras do namespace `dx03v2` no lab local: Pod Security `restricted`, mesh ambient
+(`istio.io/dataplane-mode: ambient`), constraints do Gatekeeper em `deny` (`policy.lab/enforce:
+"true"`; imagens só de `registry.tx03v2.local/`), métricas do app coletadas pelo Prometheus do
+namespace `monitoring`. O deploy local escreve no repositório GitOps; quem aplica no cluster é o Argo
+CD. Diferenças de borda: o Gateway local mantém um `X-Request-Id` externo (o que o smoke do dx03v2
+espera no kind); no Google Cloud a documentação do load balancer não diz o que ele faz com esse
+cabeçalho (o `SMOKE_EDGE=gke` confere só a propriedade de segurança). O banco do lab local aceita só
+TLS (CA do lab em `db.ca-configmap`); o `DB_SSL_MODE=disable` acima vale para o compose e o kind do
+próprio dx03v2.
+
 ## Mudando o contrato
 
 1. Abra PRs nos dois repositórios, com links cruzados, e incremente a versão no título dos dois

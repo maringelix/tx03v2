@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tx03v2 harness: every check lives here. `make` targets and every CI job only call this script.
-# Usage: scripts/harness.sh <stage>...   stages: static, test, all (= static test), list
+# Usage: scripts/harness.sh <stage>...   stages: static, test, e2e, all (= static test e2e), list
 #   HARNESS_STRICT=1   (set in CI) turns every SKIP into a FAIL
 #   HARNESS_VERBOSE=1  also prints the output of passing checks
 #   HARNESS_WORK_DIR   scratch dir for Terraform data, logs and caches (default: $TMPDIR/tx03v2-harness)
@@ -87,6 +87,30 @@ REQUIRED_FILES=(
   terraform/bootstrap/terraform.tfvars.example terraform/envs/lab/terraform.tfvars.example
   terraform/envs/lab/backend.hcl.example terraform/tests/mocks/google.tfmock.hcl
   terraform/modules/project-roles/main.tf
+  docs/LAB_LOCAL.md
+  terraform/envs/local/.terraform.lock.hcl terraform/envs/local/kind-config.yaml
+  scripts/local-lab.sh scripts/leftovers-local.sh scripts/local/kind-cluster.sh scripts/lib/local.sh
+  platform/local/install.sh platform/local/uninstall.sh platform/local/check.sh platform/local/versions.env
+  platform/local/policies/README.md platform/local/policies/tests/suite.yaml
+)
+# Charts of the local platform (keys of platform/local/versions.env and platform/versions.env):
+# <repo key> <version key> <sha256 key> <chart> <values files under platform/local/values, comma separated>
+LOCAL_CHARTS=(
+  "ISTIO_REPO ISTIO_VERSION ISTIO_BASE_SHA256 base istio-base"
+  "ISTIO_REPO ISTIO_VERSION ISTIOD_SHA256 istiod istiod"
+  "ISTIO_REPO ISTIO_VERSION ISTIO_CNI_SHA256 cni istio-cni"
+  "ISTIO_REPO ISTIO_VERSION ZTUNNEL_SHA256 ztunnel ztunnel"
+  "CERT_MANAGER_REPO CERT_MANAGER_VERSION CERT_MANAGER_SHA256 cert-manager cert-manager"
+  "ESO_REPO ESO_CHART_VERSION ESO_SHA256 external-secrets ../../values/external-secrets,external-secrets"
+  "METRICS_SERVER_REPO METRICS_SERVER_VERSION METRICS_SERVER_SHA256 metrics-server metrics-server"
+  "KPS_REPO KPS_VERSION KPS_SHA256 kube-prometheus-stack kube-prometheus-stack"
+  "GRAFANA_REPO LOKI_VERSION LOKI_SHA256 loki loki"
+  "GRAFANA_REPO ALLOY_VERSION ALLOY_SHA256 alloy alloy"
+  "ARGOCD_REPO ARGOCD_VERSION ARGOCD_SHA256 argo-cd argo-cd"
+  "GATEKEEPER_REPO GATEKEEPER_VERSION GATEKEEPER_SHA256 gatekeeper gatekeeper"
+  "TRIVY_OPERATOR_REPO TRIVY_OPERATOR_VERSION TRIVY_OPERATOR_SHA256 trivy-operator trivy-operator"
+  "VELERO_REPO VELERO_VERSION VELERO_SHA256 velero velero"
+  "CHAOS_MESH_REPO CHAOS_MESH_VERSION CHAOS_MESH_SHA256 chaos-mesh chaos-mesh"
 )
 
 # ---------------------------------------------------------------------------------------------
@@ -206,6 +230,8 @@ installed_version() {
     gitleaks) out="$(gitleaks version 2>/dev/null)" || out="" ;;
     kubectl) out="$(kubectl version --client 2>/dev/null)" || out="" ;;
     helm) out="$(helm version --short 2>/dev/null)" || out="" ;;
+    kind) out="$(kind version 2>/dev/null)" || out="" ;;
+    gator) out="$(gator --version 2>/dev/null)" || out="" ;;
   esac
   [[ "$out" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
   return 0
@@ -343,7 +369,7 @@ check_terraform_validate() {
 
 check_terraform_lockfiles() {
   local f rc=0
-  for f in terraform/bootstrap/.terraform.lock.hcl terraform/envs/lab/.terraform.lock.hcl; do
+  for f in terraform/bootstrap/.terraform.lock.hcl terraform/envs/lab/.terraform.lock.hcl terraform/envs/local/.terraform.lock.hcl; do
     awk -v file="$f" '
       /^provider "/ { name = $2; h1 = 0; next }
       /"h1:/ { h1++ }
@@ -447,7 +473,9 @@ policy_terraform_blocks() {
         for (a in args)
           if (a ~ /^(password|root_password|secret_data|secret_string|client_secret|private_key)$/)
             err(argline[a], id " sets " a " in plain text: use the write-only " a "_wo with an ephemeral value")
-        if (btype ~ /^random_(password|string)$/) err(bline, id ": generated secrets must be ephemeral resources (a random_password resource stores its result in state)")
+        # The local lab (terraform/envs/local) keeps throwaway credentials of this machine in its local
+        # state on purpose: the platform scripts read them back. Every cloud root uses ephemeral resources.
+        if (btype ~ /^random_(password|string)$/ && file !~ /^terraform\/envs\/local\//) err(bline, id ": generated secrets must be ephemeral resources (a random_password resource stores its result in state)")
         if (btype == "google_service_account_key") err(bline, id ": no service account keys, ever (Workload Identity Federation only)")
         if (btype ~ /^google_.*_iam_(binding|policy)$/) err(bline, id ": authoritative IAM (" btype ") can remove grants made by others; use the *_iam_member resources")
         if (btype ~ /^google_(organization|folder)_/) err(bline, id ": nothing above the project (the lab is one dedicated project)")
@@ -476,6 +504,9 @@ policy_terraform_blocks() {
         if (arg("add_terraform_attribution_label") != "false") err(bline, "provider google: set add_terraform_attribution_label = false (exactly the four contract labels)")
       }
       if (kind == "provider" && bname ~ /^(kubernetes|helm|google-beta)$/) err(bline, "provider " bname ": not allowed (platform/install.sh talks to Kubernetes; only the GA google provider)")
+      # The local lab keeps its throwaway state outside the repository (backend "local", path passed by
+      # scripts/local-lab.sh); every cloud root uses the GCS bucket.
+      if (kind == "terraform" && backend == "local" && file ~ /^terraform\/envs\/local\// && nbargs == 0) backend = ""
       if (kind == "terraform" && backend != "") {
         if (backend != "gcs") err(bline, "backend " backend ": the lab state lives in the GCS bucket of terraform/bootstrap")
         if (nbargs > 0) err(bline, "backend gcs: no arguments in code (bucket and prefix come from backend.hcl; credentials never in code)")
@@ -543,9 +574,16 @@ check_policy_terraform() {
   forbid '^[^#]*"roles/owner"' "roles/owner is never granted (the IAM condition of tx03v2-gha-apply excludes it)" '*.tf' terraform || rc=1
   forbid '^[^#]*principalSet://' "no principalSet grants: one roles/iam.workloadIdentityUser per exact subject" '*.tf' terraform || rc=1
   forbid '^[^#]*(allUsers|allAuthenticatedUsers)' "nothing is public to allUsers/allAuthenticatedUsers" '*.tf' terraform || rc=1
-  forbid '^[^#]*0\.0\.0\.0/0' "no 0.0.0.0/0 (firewalls, authorized networks)" '*.tf' terraform || rc=1
+  # Cloud roots and modules only: the pg_hba.conf of the local lab says 0.0.0.0/0 inside its private
+  # Docker network (hostssl + SCRAM, plaintext rejected; nothing is published but the registry on 127.0.0.1).
+  forbid '^[^#]*0\.0\.0\.0/0' "no 0.0.0.0/0 (firewalls, authorized networks)" '*.tf' \
+    terraform/bootstrap terraform/envs/lab terraform/modules || rc=1
   forbid '^[^#]*(ipv4_enabled|enable_k8s_tokens_via_dns|enable_k8s_certs_via_dns)[[:space:]]*=[[:space:]]*true|^[^#]*(enable_private_nodes|enable_private_endpoint)[[:space:]]*=[[:space:]]*false|^[^#]*authorized_networks[[:space:]]*\{' \
     "Cloud SQL has no public IP, the nodes and the control plane IP endpoint stay private, the DNS endpoint is IAM-only" '*.tf' terraform || rc=1
+  forbid 'hashicorp/(aws|azurerm|google)|provider[[:space:]]+"(aws|azurerm|google)"|backend[[:space:]]+"(s3|azurerm|gcs)"' \
+    "the local lab must not reach a cloud (no cloud provider or remote backend in terraform/envs/local)" '*.tf' terraform/envs/local || rc=1
+  forbid '^[[:space:]]*ip[[:space:]]*=[[:space:]]*"0\.0\.0\.0"|^[[:space:]]*privileged[[:space:]]*=[[:space:]]*true' \
+    "local lab containers publish ports on 127.0.0.1 only and never run privileged" '*.tf' terraform/envs/local || rc=1
   return "$rc"
 }
 
@@ -647,7 +685,10 @@ check_tflint() {
 trivy_config() {
   trivy config --quiet --skip-check-update --exit-code 1 --severity HIGH,CRITICAL \
     --cache-dir "$HARNESS_WORK_DIR/trivy-cache" --ignorefile .trivyignore.yaml \
-    --skip-dirs .tools --skip-dirs .cache --skip-dirs '**/.terraform' "$@"
+    --skip-dirs .tools --skip-dirs .cache --skip-dirs '**/.terraform' \
+    --skip-dirs platform/local/policies/tests "$@"
+  # platform/local/policies/tests holds the gator fixtures: pods that break the policies on purpose
+  # (never applied to a cluster). Everything that is applied is scanned.
 }
 
 check_trivy_config() {
@@ -1037,6 +1078,160 @@ check_terraform_test() {
   terraform -chdir="$1" test -no-color
 }
 
+# --- Local lab (terraform/envs/local + platform/local) ---------------------------------------------
+
+# load_local_versions -> LV[KEY]=VALUE from platform/versions.env and platform/local/versions.env.
+declare -A LV=()
+load_local_versions() {
+  local f key value
+  for f in platform/versions.env platform/local/versions.env; do
+    while IFS='=' read -r key value; do
+      [[ "$key" =~ ^[A-Z0-9_]+$ ]] && LV[$key]="$value"
+    done < <(grep -E '^[A-Z0-9_]+=' "$f")
+  done
+}
+
+check_local_versions() {
+  local rc=0 key entry prefix version_key sha_key kind_minor
+  load_versions
+  load_local_versions
+  for key in "${!LV[@]}"; do
+    if [[ "$key" == *_SHA256 && ! "${LV[$key]}" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "platform/local/versions.env: $key must be a SHA256 (64 hex characters)"
+      rc=1
+    fi
+  done
+  for entry in "${LOCAL_CHARTS[@]}"; do
+    read -r prefix version_key sha_key _ <<<"$entry"
+    [[ "${LV[$prefix]:-}" =~ ^https:// ]] || {
+      echo "platform/local/versions.env: $prefix must be an https URL"
+      rc=1
+    }
+    [[ -n "${LV[$version_key]:-}" && -n "${LV[$sha_key]:-}" ]] || {
+      echo "platform/local/versions.env: $version_key and $sha_key are required"
+      rc=1
+    }
+  done
+  [[ "${LV[GATEKEEPER_VERSION]:-}" == "$GATOR_VERSION" ]] || {
+    echo "tools/versions.env GATOR_VERSION ($GATOR_VERSION) must equal GATEKEEPER_VERSION (${LV[GATEKEEPER_VERSION]:-?})"
+    rc=1
+  }
+  # The local ESO archive is the same as the OCI one of the cloud platform (same SHA256).
+  [[ "${LV[ESO_SHA256]:-}" == "${LV[ESO_CHART_SHA256]:-}" ]] || {
+    echo "platform/local/versions.env ESO_SHA256 must equal ESO_CHART_SHA256 of platform/versions.env (same chart archive)"
+    rc=1
+  }
+  kind_minor="$(grep -oE 'kindest/node:v[0-9]+\.[0-9]+' terraform/envs/local/kind-config.yaml | sed 's/.*:v//')"
+  [[ -n "$kind_minor" && "$kind_minor" == "$GKE_KUBERNETES_MINOR" ]] || {
+    echo "the kind node image (${kind_minor:-?}) must run the Kubernetes minor of the GKE lab (GKE_KUBERNETES_MINOR = $GKE_KUBERNETES_MINOR)"
+    rc=1
+  }
+  grep -qE 'kindest/node:v[0-9.]+@sha256:[0-9a-f]{64}$' terraform/envs/local/kind-config.yaml || {
+    echo "terraform/envs/local/kind-config.yaml must pin the node image by digest"
+    rc=1
+  }
+  [[ "$(grep -c 'tag: v'"${LV[ESO_CHART_VERSION]}"'@sha256' platform/values/external-secrets.yaml)" == 3 ]] || {
+    echo "the local platform reuses platform/values/external-secrets.yaml: it must pin ESO ${LV[ESO_CHART_VERSION]} by digest"
+    rc=1
+  }
+  return "$rc"
+}
+
+# local_chart_values NAME -> --values arguments for one chart, with the install-time placeholders of
+# platform/local/install.sh replaced by example values.
+local_chart_values() {
+  local list=$1 v out="$HARNESS_WORK_DIR/local-values" f
+  local -a parts=()
+  mkdir -p "$out"
+  local i=0
+  IFS=, read -ra parts <<<"$list"
+  for v in "${parts[@]}"; do
+    i=$((i + 1))
+    f="platform/local/values/$v.yaml"
+    sed -e 's|__S3_BUCKET__|tx03v2-local-velero|' -e 's|__S3_ENDPOINT__|http://10.252.0.12:7070|' \
+      -e 's|__REGISTRY_ENDPOINT__|10.252.0.10:5000|' "$f" >"$out/$i-$(basename "$v").yaml"
+    printf -- '--values\n%s\n' "$out/$i-$(basename "$v").yaml"
+  done
+}
+
+# Pulls every chart of the local platform (SHA256-verified, like install.sh), renders it with its
+# values and asserts: every image pinned by digest, no :latest, no Service of type LoadBalancer or
+# NodePort (only the Istio gateways get a LoadBalancer, created at run time), no placeholder left.
+check_helm_template_local() {
+  local rc=0 entry repo_key version_key sha_key chart values tgz rendered out images bad svc
+  local -a args=()
+  need helm
+  load_local_versions
+  export HELM_CACHE_HOME="$HARNESS_WORK_DIR/helm/cache" HELM_CONFIG_HOME="$HARNESS_WORK_DIR/helm/config" HELM_DATA_HOME="$HARNESS_WORK_DIR/helm/data"
+  out="$HARNESS_WORK_DIR/local-charts"
+  rm -rf "$out"
+  mkdir -p "$out"
+  for entry in "${LOCAL_CHARTS[@]}"; do
+    read -r repo_key version_key sha_key chart values <<<"$entry"
+    mkdir -p "$out/$chart"
+    helm pull "$chart" --repo "${LV[$repo_key]}" --version "${LV[$version_key]}" --destination "$out/$chart" >/dev/null
+    tgz="$(find "$out/$chart" -maxdepth 1 -name '*.tgz' -print -quit)"
+    [[ "$(sha256_of "$tgz")" == "${LV[$sha_key]:-}" ]] || {
+      echo "$chart ${LV[$version_key]}: SHA256 $(sha256_of "$tgz") differs from $sha_key"
+      rc=1
+      continue
+    }
+    mapfile -t args < <(local_chart_values "$values")
+    rendered="$out/$chart.yaml"
+    helm template "$chart" "$tgz" --namespace lab --kube-version "$K8S_SCHEMA_KUBERNETES_VERSION" "${args[@]}" >"$rendered" || {
+      echo "$chart: helm template failed"
+      rc=1
+      continue
+    }
+    # Some charts (istio base) render no workload at all.
+    # ConfigMaps are left out: istiod ships its injection templates (with template placeholders) in one.
+    images="$(awk '/^---/ { flush(); next } { doc = doc $0 "\n" } /^kind: ConfigMap$/ { skip = 1 }
+      function flush() { if (!skip) printf "%s", doc; doc = ""; skip = 0 } END { flush() }' "$rendered" |
+      grep -hoE '^[[:space:]-]*image:[[:space:]]*["'\'']?[^"'\''[:space:]]+' | sed -E 's/^[[:space:]-]*image:[[:space:]]*["'\'']?//' | sort -u)" || images=""
+    bad=""
+    [[ -z "$images" ]] || bad="$(grep -vE '@sha256:[0-9a-f]{64}$' <<<"$images")" || bad=""
+    if [[ -n "$bad" ]]; then
+      printf '%s: images not pinned by digest:\n%s\n' "$chart" "$bad"
+      rc=1
+    fi
+    svc="$(awk '/^kind: Service$/ { s = 1 } s && /^  type: (LoadBalancer|NodePort)/ { print; s = 0 } /^---/ { s = 0 }' "$rendered")"
+    if [[ -n "$svc" ]]; then
+      printf '%s: Services must stay ClusterIP:\n%s\n' "$chart" "$svc"
+      rc=1
+    fi
+    if grep -qE '__[A-Z_]+__' "$rendered"; then
+      echo "$chart: unresolved placeholder in the rendered chart"
+      rc=1
+    fi
+    echo "$chart ${LV[$version_key]}: $(grep -c . <<<"$images" || :) images, $(grep -c '^kind:' "$rendered" || :) objects"
+  done
+  return "$rc"
+}
+
+# kubeconform on the plain manifests of the local platform (the Gatekeeper constraints are custom
+# kinds created by their templates: gator verify covers them).
+check_kubeconform_local() {
+  need kubeconform
+  mkdir -p "$HARNESS_WORK_DIR/kubeconform-cache"
+  kubeconform -strict -summary -output text \
+    -kubernetes-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
+    -cache "$HARNESS_WORK_DIR/kubeconform-cache" \
+    -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/$K8S_SCHEMA_REF/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
+    -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRD_SCHEMA_REF/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+    platform/local/manifests platform/local/policies/templates platform/local/policies/tests/namespace-dx03v2.yaml
+}
+
+check_policy_gator() {
+  need gator
+  gator verify -v platform/local/policies/tests/
+}
+
+check_local_lab_e2e() {
+  need terraform kind kubectl helm docker curl git ssh
+  docker info >/dev/null 2>&1 || skip "docker is installed but the daemon is not reachable"
+  bash scripts/local-lab.sh e2e
+}
+
 register_checks() {
   local d
   register static tool-versions check_tool_versions
@@ -1051,7 +1246,7 @@ register_checks() {
   register static contract-parameter check_contract_parameter
   register static terraform-fmt check_terraform_fmt
   register static terraform-lockfiles check_terraform_lockfiles
-  for d in terraform/bootstrap terraform/envs/lab "$REPO_ROOT"/terraform/modules/*/; do
+  for d in terraform/bootstrap terraform/envs/lab terraform/envs/local "$REPO_ROOT"/terraform/modules/*/; do
     d="${d#"$REPO_ROOT"/}"
     d="${d%/}"
     register static "terraform-validate:${d#terraform/}" "check_terraform_validate $d"
@@ -1063,10 +1258,16 @@ register_checks() {
   register static shellcheck check_shellcheck
   register static kubeconform check_kubeconform
   register static helm-template check_helm_template
+  register static local-versions check_local_versions
+  register static helm-template-local check_helm_template_local
+  register static kubeconform-local check_kubeconform_local
+  register static policy-gator check_policy_gator
   register static gitleaks check_gitleaks
   register test tool-versions check_tool_versions
   register test terraform-test:bootstrap "check_terraform_test terraform/bootstrap"
   register test terraform-test:envs/lab "check_terraform_test terraform/envs/lab"
+  register test terraform-test:envs/local "check_terraform_test terraform/envs/local"
+  register e2e local-lab-e2e check_local_lab_e2e
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -1128,8 +1329,9 @@ list_checks() {
   local i
   echo "stages:"
   echo "  static  policies, contract, fmt, validate, lock files, tflint, trivy, actionlint, shellcheck, kubeconform, helm template, gitleaks"
-  echo "  test    terraform test (mock google provider) for terraform/bootstrap and terraform/envs/lab"
-  echo "  all     static + test"
+  echo "  test    terraform test (mocked providers) for terraform/bootstrap, terraform/envs/lab and terraform/envs/local"
+  echo "  e2e     local lab on Docker: terraform apply of envs/local, platform/local, every probe, destroy + leftovers"
+  echo "  all     static + test + e2e"
   echo "checks:"
   for i in "${!CHECK_NAME[@]}"; do
     printf '  %-7s %s\n' "${CHECK_STAGE[$i]}" "${CHECK_NAME[$i]}"
@@ -1137,7 +1339,7 @@ list_checks() {
 }
 
 usage() {
-  echo "usage: $0 <stage>...   (stages: static, test, all, list)" >&2
+  echo "usage: $0 <stage>...   (stages: static, test, e2e, all, list)" >&2
   exit 2
 }
 
@@ -1149,8 +1351,8 @@ main() {
   register_checks
   for arg in "$@"; do
     case "$arg" in
-      static | test) stages+=("$arg") ;;
-      all) stages+=(static test) ;;
+      static | test | e2e) stages+=("$arg") ;;
+      all) stages+=(static test e2e) ;;
       list)
         list_checks
         return 0
