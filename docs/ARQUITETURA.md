@@ -53,7 +53,7 @@ Camadas: `terraform/bootstrap` (uma vez, por um humano Owner do projeto) → `te
 
 A mesma arquitetura emulada no Docker (`terraform/envs/local` + `platform/local`), com a plataforma
 completa do v1 por cima; é o lab local do `tx01v2` com os nomes do `tx03v2` e os gêmeos Google Cloud.
-Detalhes, sondas e limites: `docs/LAB_LOCAL.md` (rodada de ponta a ponta `planejado` aqui).
+Detalhes, sondas e limites: `docs/LAB_LOCAL.md` (rodada de ponta a ponta no job `e2e` do CI).
 
 ```mermaid
 flowchart LR

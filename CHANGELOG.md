@@ -18,6 +18,9 @@ All notable changes to this project are documented here. The format follows
 
 - The family table of both READMEs links the family hub `tx00v2` (roadmap, family guardrails,
   cross-repo checks).
+- `docs/GUARDRAILS.md`, `docs/ARQUITETURA.md` and `docs/CONTRATO.md` no longer say that the
+  end-to-end run of the local lab and the local deploy of dx03v2 are pending: the CI jobs `e2e` (here)
+  and `e2e-platform` (dx03v2) run them on every pull request.
 - `scripts/repo-guardrails.sh` also turns issues on (the issue forms) and requires approval for
   workflow runs from forks of external contributors; the reviewer of the `lab` environment is the gh
   user that runs it. It fails while the workflows of a fork are still disabled and notes a renamed
