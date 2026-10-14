@@ -219,7 +219,8 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
 ## Lab local (contrato local, versão 2)
 
 O lab local (`docs/LAB_LOCAL.md`) é um contrato à parte, com versão própria (chave `version`), para o
-deploy local do dx03v2 (`planejado` lá). Ele espelha o contrato da nuvem com nomes do lab local; não
+deploy local do dx03v2 (`scripts/deploy-local.sh` lá, provado pelo job `e2e-platform`). Ele espelha o
+contrato da nuvem com nomes do lab local; não
 muda nada acima. As chaves são as mesmas do lab local do `tx01v2` (o app consome os dois do mesmo
 jeito); só a coluna da nuvem muda. Publicado por `platform/local/install.sh` no ConfigMap
 `lab-system/lab-contract`:
