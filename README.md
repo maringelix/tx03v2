@@ -45,7 +45,7 @@ changes, so the comparison between clouds stays fair.
 | Platform layer (External Secrets Operator 2.12.0; the GKE Gateway controller is managed by Google) | `not run in the cloud (v2)` | `.github/workflows/platform.yml`, `platform/install.sh` |
 | Destroy + leftover check | `not run in the cloud (v2)` | `.github/workflows/terraform-destroy.yml`, `scripts/leftovers.sh` |
 | HTTPS on the Gateway | `planned` | outside contract v1 (`docs/CONTRATO.md`) |
-| Repository settings as code (ruleset, environment `lab`) | `verified locally` | `scripts/repo-guardrails.sh` applied; read back with `gh api` on 2026-10-13 (`docs/PUBLICACAO.md`) |
+| Repository settings as code (ruleset, environment `lab`) | `verified locally` | `scripts/repo-guardrails.sh` applied; read back with `gh api` on 2026-10-14 (`docs/PUBLICACAO.md`) |
 | **Local lab, static checks**: `terraform/envs/local` plan tests (private network, labels, loopback-only registry, TLS-only database, digests, negative validations; 10 runs), 15 local charts by SHA256 rendering digests and ClusterIP only, Gatekeeper policies against their gator cases | `verified locally` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
 | **Local lab** (Terraform on Docker): kind cluster + emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (S3 API emulator), load balancer, git server; destroy + leftover check | `verified in CI` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
 | Service mesh: Istio 1.31 ambient, mTLS `STRICT`, identity-based `AuthorizationPolicy` | `verified in CI` | `make e2e` (`platform/local/check.sh`: allowed, other identity and plaintext probes) |
