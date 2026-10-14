@@ -1,4 +1,7 @@
-# Contrato tx03v2 <-> dx03v2 — versão 1 (2026-10-11)
+# Contrato tx03v2 <-> dx03v2 — versão 2 (2026-10-14)
+
+Versão 2: o OpenTelemetry Collector da camada de plataforma (namespace `observability`, traces para o
+Cloud Trace). A versão 1 (2026-10-11) não tinha traces.
 
 Interface entre a infraestrutura (este repositório) e a aplicação (`dx03v2`). Esta é a fonte da
 verdade: `dx03v2/docs/CONTRATO.md` repete a parte que o app usa e aponta para cá. Qualquer mudança
@@ -12,7 +15,8 @@ parte que cada um controla. O formato é o mesmo dos contratos AWS (`tx01v2` ⇄
 |---|---|---|
 | Pool e provider de Workload Identity Federation (issuer, mapeamento, condição), contas de serviço do CI e um sujeito exato por vínculo `roles/iam.workloadIdentityUser` | `terraform/bootstrap/tests/identities.tftest.hcl` | `verificado localmente` |
 | Papéis do plan e do apply; a condição IAM do `roles/resourcemanager.projectIamAdmin` do apply lista exatamente os papéis de projeto que o root do lab concede | `terraform/bootstrap/tests/roles.tftest.hcl`, `terraform/envs/lab/tests/roles.tftest.hcl` | `verificado localmente` |
-| Papéis de `dx03v2-gha-deploy`, dos `app_deployer_members`, do ESO e da conta de serviço dos nós | `terraform/envs/lab/tests/roles.tftest.hcl` | `verificado localmente` |
+| Papéis de `dx03v2-gha-deploy`, dos `app_deployer_members`, do ESO, do OpenTelemetry Collector (`roles/cloudtrace.agent`) e da conta de serviço dos nós | `terraform/envs/lab/tests/roles.tftest.hcl` | `verificado localmente` |
+| Collector no namespace `observability`, exporter `googlecloud`, mesmo digest do lab local, chart com SHA256 conferido | checks `contract-platform` e `helm-template` | `verificado localmente` |
 | As 15 chaves do parâmetro de contrato (nomes, valores fixos, origem de cada valor) | `terraform/envs/lab/tests/lab.tftest.hcl`; o check `contract-parameter` confere que `contract.tf`, a lista do harness e a tabela deste arquivo são iguais | `verificado localmente` |
 | Secret Manager (segredos write-only), Cloud SQL (PSC, TLS, CA compartilhada), Artifact Registry | `terraform/envs/lab/tests/data_stores.tftest.hcl` | `verificado localmente` |
 | GKE Autopilot (canal, nós privados, endpoint DNS, Gateway API), rede, NAT, endpoint PSC e zona DNS | `terraform/envs/lab/tests/gke.tftest.hcl`, `network.tftest.hcl` | `verificado localmente` |
@@ -173,6 +177,13 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   `dx03v2`.
 - Namespace `dx03v2`, Role e RoleBinding acima. O controlador de Gateway da GKE é gerenciado pelo
   Google (GatewayClass `gke-l7-global-external-managed`); nada a instalar.
+- Traces (versão 2): OpenTelemetry Collector 0.162.0 (chart 0.176.0, SHA256 conferido) no namespace
+  `observability` (mesmos labels de Pod Security), ServiceAccount `opentelemetry-collector` sem
+  anotação (o principal
+  `principal://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<PROJECT_ID>.svc.id.goog/subject/ns/observability/sa/opentelemetry-collector`
+  tem só `roles/cloudtrace.agent` no projeto; o Cloud Trace não tem IAM por recurso), requests para o
+  Autopilot. O app manda OTLP/HTTP para `http://opentelemetry-collector.observability.svc:4318`; o
+  Collector grava os spans no Cloud Trace do projeto. O app não recebe nenhum papel do IAM para isso.
 - `platform/uninstall.sh` apaga o namespace `dx03v2` antes de qualquer destroy e espera o finalizer do
   Gateway e o sumiço dos NEGs `k8s1-*` do app: o load balancer criado pelo controlador fica fora do
   state do Terraform e vazaria se o cluster sumisse antes.
@@ -205,7 +216,7 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   saída da api para `db/endpoint-ip`/32:5432; DNS (base) e a saída para o cache DNS do nó
   `169.254.20.10/32:53` (NodeLocal DNSCache do Autopilot).
 
-## Lab local (contrato local, versão 1)
+## Lab local (contrato local, versão 2)
 
 O lab local (`docs/LAB_LOCAL.md`) é um contrato à parte, com versão própria (chave `version`), para o
 deploy local do dx03v2 (`planejado` lá). Ele espelha o contrato da nuvem com nomes do lab local; não
@@ -215,7 +226,7 @@ jeito); só a coluna da nuvem muda. Publicado por `platform/local/install.sh` no
 
 | Chave | Valor | Equivale na nuvem |
 |---|---|---|
-| `version` | `1` | versão deste arquivo |
+| `version` | `2` (2026-10-14: `tracing.otlp-endpoint`; a versão 1 não tinha traces) | versão deste arquivo |
 | `cluster-name` | `tx03v2-local` | `cluster-name` |
 | `network-cidr` | `10.252.0.0/24` (ou `subnet_cidr`) | `nodes-subnet-cidr` |
 | `registry` | `registry.tx03v2.local` (nome das imagens no cluster) | `artifact-registry/repository` (prefixo) |
@@ -231,6 +242,7 @@ jeito); só a coluna da nuvem muda. Publicado por `platform/local/install.sh` no
 | `gitops.push-key-secret` | `lab-secrets/gitops-push-key` (chave SSH do push, `kubernetes.io/ssh-auth`) | conta de serviço `dx03v2-gha-deploy` |
 | `argocd.project` | `dx03v2` (AppProject: só o repositório GitOps, só o namespace `dx03v2`, só os kinds do deploy, nada de Secret ou recurso de cluster) | Role `dx03v2-deployer` |
 | `monitoring.prometheus-service-account` | `monitoring/kube-prometheus-stack-prometheus` (identidade do Prometheus no mesh) | — |
+| `tracing.otlp-endpoint` | `http://opentelemetry-collector.monitoring.svc:4318` (OTLP/HTTP do OpenTelemetry Collector; o app manda os spans por ele, pelo mesh, e os Gateways mandam os deles em OTLP/gRPC na porta 4317) | `http://opentelemetry-collector.observability.svc:4318` |
 
 Os Secrets `tx03v2-lab-db-app` e `tx03v2-lab-app-admin-token` ficam no namespace `lab-secrets` (o
 gêmeo local do Secret Manager) com os mesmos nomes dos segredos do Secret Manager, que já são válidos

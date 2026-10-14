@@ -6,7 +6,7 @@
 #      NEGs) and removes the Gateway finalizer, so the cluster must still be running;
 #   2. waits until the namespace is gone and until no network endpoint group whose name contains
 #      dx03v2 is left in the project (read-only gcloud polling; fails loudly on timeout);
-#   3. uninstalls the External Secrets Operator release.
+#   3. uninstalls the OpenTelemetry Collector and the External Secrets Operator releases.
 # CLOUD-MUTATING. Fails loudly on any error or timeout. Needs the same tools as platform/install.sh.
 # GCP_PROJECT_ID is required; REGION and CLUSTER_NAME default to us-central1 and the contract name
 # (tx03v2-lab): the teardown does not depend on the contract parameter.
@@ -98,7 +98,8 @@ main() {
   delete_app_namespace
   wait_for_negs "$project"
 
-  log "uninstalling the platform release"
+  log "uninstalling the platform releases"
+  helm uninstall opentelemetry-collector --namespace observability --ignore-not-found --wait=watcher --timeout 10m
   helm uninstall external-secrets --namespace external-secrets --ignore-not-found --wait=watcher --timeout 10m
   log "platform removed from $CLUSTER_NAME"
 }

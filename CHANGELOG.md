@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The family table of both READMEs links the family hub `tx00v2` (roadmap, family guardrails,
+  cross-repo checks).
 - `scripts/repo-guardrails.sh` also turns issues on (the issue forms) and requires approval for
   workflow runs from forks of external contributors; the reviewer of the `lab` environment is the gh
   user that runs it. It fails while the workflows of a fork are still disabled and notes a renamed
@@ -34,6 +36,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Local lab, "Observability 2.0" (ported from tx01v2; the last step of the v1 roadmap, never started
+  there): Tempo 3.1.0 (grafana-community chart 3.1.0) and the OpenTelemetry Collector contrib 0.162.0
+  (chart 0.176.0) in the observability layer; every Istio Gateway reports its spans (Telemetry
+  `mesh-default`); spanmetrics with exemplars (scraped every 10 s: an exemplar lives one flush);
+  Grafana links logs, metrics and traces. Alertmanager also posts warning and critical alerts to Slack
+  (Secret `monitoring/alertmanager-slack`, `LOCAL_SLACK_WEBHOOK_URL`; without it the sink gets the Slack
+  message and a probe checks it). Chaos with hypotheses: NetworkChaos (100 ms) and StressChaos (CPU +
+  memory) next to the pod kill. The edge keeps a UUID-shaped `X-Request-Id` as sent. A failed install
+  dumps diagnostics for the CI artifact. Local contract version 2 (`tracing.otlp-endpoint`). 34 probes
+  (was 26).
+- Contract version 2 (`not run in the cloud (v2)`): the cloud platform layer installs the same
+  Collector (chart pinned by version and archive SHA256, `OTEL_COLLECTOR_CHART_*` of
+  `platform/versions.env`, shared with the local lab) in the namespace `observability`, exporting to
+  Cloud Trace. Its Kubernetes ServiceAccount is the IAM principal itself (no Google service account,
+  no key) with `roles/cloudtrace.agent` on the project: an IAM widening of `modules/project-roles`
+  that also changes the IAM condition of `tx03v2-gha-apply`, and the API `cloudtrace.googleapis.com`
+  joins the bootstrap list (re-apply the bootstrap). `platform/uninstall.sh` removes the release;
+  tests and the `contract-platform`/`helm-template` checks cover the grant, the API, the namespace,
+  the service account, the exporter, the requests and the digest.
 - `FORK.md`: forking the lab step by step (what GitHub does not copy to a fork, the repository
   settings, the local lab, your own cloud account, troubleshooting), linked from both READMEs and
   CONTRIBUTING.md; the harness requires it.

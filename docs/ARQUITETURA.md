@@ -67,7 +67,7 @@ flowchart LR
     subgraph kind["kind tx03v2-local 1.36 (GKE Autopilot)"]
       gw["Gateway istio + cert-manager lab-ca"]
       mesh["Istio ambient: ztunnel, mTLS STRICT"]
-      obs["Prometheus, Alertmanager, Grafana, Loki, Alloy"]
+      obs["Prometheus, Alertmanager, Grafana, Loki, Alloy, Tempo, OpenTelemetry Collector"]
       ops["Argo CD, Gatekeeper, Trivy Operator, Velero, Chaos Mesh"]
       eso["ESO local-secrets (Secret Manager)"]
       app["namespace dx03v2"]
@@ -117,9 +117,10 @@ flowchart LR
 | 31 | Istio ambient no lab local | mTLS e autorização por identidade sem sidecar; roda no kind (no v1 o Autopilot recusou o `NET_ADMIN` do sidecar e do ztunnel, lição 7) | sidecar (mais memória por pod); Linkerd |
 | 32 | GitOps com Argo CD lendo um servidor git do lab | um único dono do namespace do app; o push usa a chave do state, a leitura é anônima; o Argo CD fica só ClusterIP | Flux; apontar para o GitHub (exigiria credenciais e internet no caminho do deploy) |
 | 33 | Gatekeeper com políticas próprias testadas no `gator` | as regras do v1 (tx01 e o `:latest` do tx03), em `deny`, com casos que provam aceitação e recusa | gatekeeper-library inteira (mais regras do que o lab explica); Policy Controller da GKE (não avaliado); Kyverno |
-| 34 | Alertmanager → `alert-sink` dentro do cluster | entrega de alerta provada sem credencial externa | Slack/e-mail reais |
+| 34 | Alertmanager → `alert-sink` dentro do cluster; receiver do Slack com o webhook num Secret opcional | entrega de alerta provada sem credencial externa; sem webhook, a mensagem no formato do Slack vai para o sink e a sonda confere o conteúdo | webhook do Slack nos values versionados (v1) |
 | 35 | Velero no emulador de objetos (API S3), backup por recursos, sem snapshots | o ensaio de restore roda em minutos e sem nuvem (o v1 nunca restaurou nada, lição 17); o emulador fala S3, então o plugin AWS do Velero só existe no lab local (no Google Cloud seria o plugin GCP num bucket do Cloud Storage, `planejado`) | `pg_dump` sozinho; snapshots CSI; um emulador da API do Cloud Storage (não avaliado; o lab reaproveita o emulador do `tx01v2`) |
 | 36 | Perfis `core`/`observability`/`operations`/`full`; rede `10.252.0.0/24` e registry em `localhost:5003` | máquinas com pouca memória validam uma camada por vez; o CI roda `full`; rede e porta diferentes das do `tx01v2` (`10.250.0.0/24`, `5001`) e do `tx02v2` (`10.251.0.0/24`, `5002`) evitam colisão entre os labs | um único perfil; os mesmos endereços em todos os pares |
+| 37 | Traces: o OpenTelemetry Collector como único destino OTLP; Tempo no lab local, Cloud Trace na nuvem, com o ServiceAccount `observability/opentelemetry-collector` como principal (`roles/cloudtrace.agent` no projeto, como o ESO na decisão 6) | o app e os Gateways falam só OTLP; trocar o backend não muda o app; nenhuma conta de serviço do Google nem chave; Tempo monolítico cabe no kind | SDK do Cloud Trace no app (prende o app ao Google Cloud); conta de serviço do Google com `iam.gke.io/gcp-service-account`; Managed Service for Prometheus/OTLP gerenciado do Google (mais peças) |
 
 ### O que fica fora do state
 

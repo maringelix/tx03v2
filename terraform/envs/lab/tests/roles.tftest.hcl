@@ -59,16 +59,25 @@ run "project_grants_follow_the_contract" {
   assert {
     # Both directions: every project role the lab grants is in the shared list, and every role of
     # the list is used (an unused entry would widen the IAM condition of tx03v2-gha-apply for nothing).
-    condition     = toset([for g in google_project_iam_member.lab : g.role]) == toset(module.project_roles.lab_project_roles)
+    condition     = toset(concat([for g in google_project_iam_member.lab : g.role], [google_project_iam_member.otel.role])) == toset(module.project_roles.lab_project_roles)
     error_message = "The project roles of the lab must equal modules/project-roles."
   }
 
   assert {
     condition = alltrue([
-      for g in google_project_iam_member.lab :
+      for g in concat(values(google_project_iam_member.lab), [google_project_iam_member.otel]) :
       !contains(["roles/owner", "roles/editor", "roles/container.admin", "roles/container.developer", "roles/secretmanager.secretAccessor"], g.role)
     ])
     error_message = "No broad or secret-reading project role in the lab."
+  }
+
+  assert {
+    condition = (
+      google_project_iam_member.otel.project == "tx03v2-lab-example" &&
+      google_project_iam_member.otel.role == "roles/cloudtrace.agent" &&
+      google_project_iam_member.otel.member == "principal://iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/tx03v2-lab-example.svc.id.goog/subject/ns/observability/sa/opentelemetry-collector"
+    )
+    error_message = "Cloud Trace Agent goes to the Collector ServiceAccount observability/opentelemetry-collector only (contract v2), no Google service account."
   }
 }
 

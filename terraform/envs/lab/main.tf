@@ -1,7 +1,7 @@
 # Lab root: composes the modules for tx03v2-lab inside the project prepared by terraform/bootstrap
 # (APIs, state bucket, CI service accounts). Names, labels and published values follow
-# docs/CONTRATO.md (contract v1 with dx03v2). Nothing here talks to the Kubernetes API: ESO and
-# the manifests are installed by platform/install.sh. Every IAM grant of the lab lives in roles.tf.
+# docs/CONTRATO.md (contract v2 with dx03v2). Nothing here talks to the Kubernetes API: ESO, the
+# OpenTelemetry Collector and the manifests are installed by platform/install.sh. Every IAM grant of the lab lives in roles.tf.
 data "google_project" "this" {
   project_id = var.project_id
 }
@@ -16,6 +16,9 @@ locals {
   # Workload Identity Federation for GKE principal of the ESO controller ServiceAccount
   # (external-secrets/external-secrets): no Google service account in between.
   eso_principal = "principal://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/external-secrets/sa/external-secrets"
+  # The same for the OpenTelemetry Collector of the platform layer (observability/opentelemetry-collector,
+  # contract v2), which writes the traces of the app to Cloud Trace.
+  otel_principal = "principal://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/observability/sa/opentelemetry-collector"
 }
 
 module "project_roles" {
