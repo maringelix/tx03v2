@@ -3,7 +3,10 @@
 #   1. External Secrets Operator (namespace external-secrets, ServiceAccount external-secrets,
 #      Workload Identity Federation for GKE) from the OCI chart pinned by digest and SHA256 in
 #      platform/versions.env
-#   2. platform/manifests (namespace dx03v2, deployer RBAC, ClusterSecretStore gcp-secret-manager)
+#   2. platform/manifests (namespaces dx03v2 and observability, deployer RBAC, ClusterSecretStore
+#      gcp-secret-manager)
+#   3. OpenTelemetry Collector (namespace observability, contract v2): OTLP from the app, traces to
+#      Cloud Trace (its ServiceAccount is the IAM principal with roles/cloudtrace.agent)
 # The GKE Gateway controller (GatewayClass gke-l7-global-external-managed) is managed by Google:
 # nothing to install for it.
 # CLOUD-MUTATING: run it only when you mean to (docs/RUNBOOK.md). Needs gcloud logged in (gcloud
@@ -26,6 +29,8 @@ source "$REPO_ROOT/scripts/lib/gcp.sh"
 export PATH="$REPO_ROOT/.tools/bin:$PATH"
 
 ESO_NAMESPACE=external-secrets
+OTEL_NAMESPACE=observability
+OTEL_CHART_REPO="https://open-telemetry.github.io/opentelemetry-helm-charts"
 SECRET_STORE=gcp-secret-manager
 WORK_DIR=""
 
@@ -73,6 +78,22 @@ install_external_secrets() {
   helm upgrade --install external-secrets "$tgz" \
     --namespace "$ESO_NAMESPACE" --create-namespace \
     --values "$HERE/values/external-secrets.yaml" \
+    --wait=watcher --rollback-on-failure --timeout 15m
+}
+
+# The Collector, from the chart archive checked against platform/versions.env; the project of the lab
+# is the one setting that comes from here.
+install_otel_collector() {
+  local project=$1 tgz
+  tgz="$WORK_DIR/opentelemetry-collector-$OTEL_COLLECTOR_CHART_VERSION.tgz"
+  helm pull opentelemetry-collector --repo "$OTEL_CHART_REPO" --version "$OTEL_COLLECTOR_CHART_VERSION" --destination "$WORK_DIR" >&2
+  [[ -f "$tgz" && "$(sha256_of "$tgz")" == "$OTEL_COLLECTOR_CHART_SHA256" ]] ||
+    die "refusing the opentelemetry-collector chart $OTEL_COLLECTOR_CHART_VERSION: missing, or its SHA256 differs from platform/versions.env"
+  log "installing the opentelemetry-collector chart $OTEL_COLLECTOR_CHART_VERSION (SHA256 verified; traces to Cloud Trace)"
+  helm upgrade --install opentelemetry-collector "$tgz" \
+    --namespace "$OTEL_NAMESPACE" \
+    --values "$HERE/values/otel-collector.yaml" \
+    --set-string "config.exporters.googlecloud.project=$project" \
     --wait=watcher --rollback-on-failure --timeout 15m
 }
 
@@ -128,9 +149,10 @@ main() {
   install_external_secrets
   log "applying platform/manifests"
   apply_manifests "$WORK_DIR/manifests.yaml"
+  install_otel_collector "$project"
   # Ready means ESO reached Secret Manager with the identity of its controller ServiceAccount.
   kubectl wait --for=condition=Ready "clustersecretstore/$store" --timeout=180s
-  log "platform ready: ClusterSecretStore $store, namespace dx03v2 (GatewayClass gke-l7-global-external-managed is managed by GKE)"
+  log "platform ready: ClusterSecretStore $store, namespace dx03v2, OTLP endpoint opentelemetry-collector.$OTEL_NAMESPACE.svc:4318 (GatewayClass gke-l7-global-external-managed is managed by GKE)"
 }
 
 main "$@"

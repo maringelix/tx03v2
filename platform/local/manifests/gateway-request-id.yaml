@@ -1,10 +1,12 @@
-# Envoy at the edge replaces an external X-Request-Id by default. The dx03v2 smoke test on compose and
-# kind (SMOKE_EDGE=nginx, its default) expects the id the client sent to come back, so every Istio
-# Gateway of the lab keeps it (context GATEWAY only: sidecars and waypoints are not touched). This is
-# NOT a claim about Google Cloud: the docs of the global external Application Load Balancer behind the
-# GKE Gateway do not say whether it forwards, replaces or adds X-Request-Id (dx03v2 docs/API.md,
-# checked 2026-10-11), so dx03v2 SMOKE_EDGE=gke checks only the safety property there. The app still
-# decides whether an incoming id is safe (dx03v2 api/src/middleware/request-id.ts).
+# Envoy at the edge replaces an external X-Request-Id by default, and with tracing on it would also
+# rewrite one character of a UUID-shaped id to record the sampling decision. The dx03v2 smoke test on
+# compose and kind (SMOKE_EDGE=nginx, its default) expects the id the client sent to come back, so every
+# Istio Gateway of the lab keeps it as it came (context GATEWAY only: sidecars and waypoints are not
+# touched), and sampling never depends on it (tracing samples by the W3C traceparent). This is NOT a
+# claim about Google Cloud: the docs of the global external Application Load Balancer behind the GKE
+# Gateway do not say whether it forwards, replaces or adds X-Request-Id (dx03v2 docs/API.md, checked
+# 2026-10-11), so dx03v2 SMOKE_EDGE=gke checks only the safety property there. The app still decides
+# whether an incoming id is safe (dx03v2 api/src/middleware/request-id.ts).
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
@@ -25,3 +27,8 @@ spec:
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
             preserve_external_request_id: true
+            request_id_extension:
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.request_id.uuid.v3.UuidRequestIdConfig
+                pack_trace_reason: false
+                use_request_id_for_trace_sampling: false

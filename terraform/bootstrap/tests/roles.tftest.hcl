@@ -103,7 +103,7 @@ run "apply_identity_grants_only_the_lab_project_roles" {
     condition = (
       google_project_iam_member.apply_project_iam_admin.role == "roles/resourcemanager.projectIamAdmin" &&
       google_project_iam_member.apply_project_iam_admin.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com" &&
-      google_project_iam_member.apply_project_iam_admin.condition[0].expression == "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(['roles/container.clusterViewer', 'roles/container.defaultNodeServiceAccount', 'roles/parametermanager.parameterAccessor'])"
+      google_project_iam_member.apply_project_iam_admin.condition[0].expression == "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(['roles/cloudtrace.agent', 'roles/container.clusterViewer', 'roles/container.defaultNodeServiceAccount', 'roles/parametermanager.parameterAccessor'])"
     )
     error_message = "Project IAM Admin only with the modifiedGrantsByRole condition listing the lab project roles."
   }

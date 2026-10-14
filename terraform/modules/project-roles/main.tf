@@ -17,5 +17,9 @@ locals {
     # cluster scope) and the contract parameter (no per-parameter IAM in the google provider 8.6.0).
     "roles/container.clusterViewer",
     "roles/parametermanager.parameterAccessor",
+    # OpenTelemetry Collector (contract v2, principal .../ns/observability/sa/opentelemetry-collector):
+    # writes the spans of the app to Cloud Trace (cloudtrace.traces.patch only; Cloud Trace has no
+    # resource-level IAM, so the grant is on the project).
+    "roles/cloudtrace.agent",
   ]
 }

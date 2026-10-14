@@ -61,6 +61,25 @@ resource "google_project_iam_member" "lab" {
   }
 }
 
+# The OpenTelemetry Collector writes the spans of the app to Cloud Trace (contract v2). Cloud Trace
+# has no resource-level IAM, so this is a project grant; it lives apart from google_project_iam_member.lab
+# because its principal belongs to the workload pool, which exists once the cluster does (the cluster
+# itself waits for the node role of .lab).
+resource "google_project_iam_member" "otel" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = local.otel_principal
+
+  depends_on = [module.gke]
+
+  lifecycle {
+    precondition {
+      condition     = contains(module.project_roles.lab_project_roles, "roles/cloudtrace.agent")
+      error_message = "roles/cloudtrace.agent is not in modules/project-roles: the IAM condition of tx03v2-gha-apply would refuse it (add it there and re-apply the bootstrap)."
+    }
+  }
+}
+
 resource "google_artifact_registry_repository_iam_member" "dx03v2" {
   for_each = local.repository_grants
 

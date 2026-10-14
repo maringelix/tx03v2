@@ -42,7 +42,7 @@ RENDER_DEPLOYERS=(dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com y
 # The only project IDs and project number that may appear in the repository (placeholders).
 PLACEHOLDER_PROJECTS_RE='^(tx03v2-lab-example|other-lab-project|example-tenant-project)$'
 
-# Contract v1 (docs/CONTRATO.md): the keys of the Parameter Manager parameter tx03v2-lab-contract
+# Contract v2 (docs/CONTRATO.md): the keys of the Parameter Manager parameter tx03v2-lab-contract
 # that dx03v2 and platform/install.sh read.
 CONTRACT_KEYS=(
   project-id region cluster-name network-name nodes-subnet-cidr db/endpoint-ip lb-source-ranges
@@ -53,7 +53,7 @@ CONTRACT_KEYS=(
 # zonal NEGs (Google Cloud load balancing docs, verified 2026-10-11): the only public ranges allowed
 # in the repository.
 LB_SOURCE_RANGES="35.191.0.0/16,130.211.0.0/22"
-# Contract v1: rules of the Role dx03v2-deployer, one "apiGroup|resource|verbs" per resource
+# Contract v2 (unchanged since v1): rules of the Role dx03v2-deployer, one "apiGroup|resource|verbs" per resource
 # (verbs sorted).
 ROLE_CRUD="create,delete,get,list,patch,update,watch"
 ROLE_READ="get,list,watch"
@@ -106,6 +106,8 @@ LOCAL_CHARTS=(
   "KPS_REPO KPS_VERSION KPS_SHA256 kube-prometheus-stack kube-prometheus-stack"
   "GRAFANA_REPO LOKI_VERSION LOKI_SHA256 loki loki"
   "GRAFANA_REPO ALLOY_VERSION ALLOY_SHA256 alloy alloy"
+  "GRAFANA_COMMUNITY_REPO TEMPO_VERSION TEMPO_SHA256 tempo tempo"
+  "OTEL_COLLECTOR_REPO OTEL_COLLECTOR_CHART_VERSION OTEL_COLLECTOR_CHART_SHA256 opentelemetry-collector otel-collector"
   "ARGOCD_REPO ARGOCD_VERSION ARGOCD_SHA256 argo-cd argo-cd"
   "GATEKEEPER_REPO GATEKEEPER_VERSION GATEKEEPER_SHA256 gatekeeper gatekeeper"
   "TRIVY_OPERATOR_REPO TRIVY_OPERATOR_VERSION TRIVY_OPERATOR_SHA256 trivy-operator trivy-operator"
@@ -873,7 +875,7 @@ check_kubeconform() {
     "$rendered"
 }
 
-# The platform layer of contract v1, parsed from the rendered manifests (kubectl, no cluster):
+# The platform layer of contract v2, parsed from the rendered manifests (kubectl, no cluster):
 # exact objects, Pod Security labels, Role rules, RoleBinding subjects, ClusterSecretStore;
 # plus the Helm values and the pins of platform/versions.env.
 # shellcheck disable=SC2016 # Go templates of kubectl, not shell expansions
@@ -884,22 +886,24 @@ check_contract_platform() {
   render_platform >"$rendered"
   got="$(kubectl_local "$rendered" '{{.apiVersion}} {{.kind}}/{{.metadata.name}}{{if .metadata.namespace}} ns={{.metadata.namespace}}{{end}}{{"\n"}}' | sort)"
   want="$(printf '%s\n' "external-secrets.io/v1 ClusterSecretStore/gcp-secret-manager" "rbac.authorization.k8s.io/v1 Role/dx03v2-deployer ns=dx03v2" \
-    "rbac.authorization.k8s.io/v1 RoleBinding/dx03v2-deployers ns=dx03v2" "v1 Namespace/dx03v2" | sort)"
+    "rbac.authorization.k8s.io/v1 RoleBinding/dx03v2-deployers ns=dx03v2" "v1 Namespace/dx03v2" "v1 Namespace/observability" | sort)"
   [[ "$got" == "$want" ]] || {
     printf 'platform/manifests must render exactly these objects (docs/CONTRATO.md):\n%s\ngot:\n%s\n' "$want" "$got"
     rc=1
   }
-  got="$(kubectl_local "$rendered" '{{if eq .kind "Namespace"}}{{range $k, $v := .metadata.labels}}{{$k}}={{$v}}{{"\n"}}{{end}}{{end}}')"
-  [[ "$got" == $'pod-security.kubernetes.io/enforce=restricted\npod-security.kubernetes.io/enforce-version=latest' ]] || {
-    printf 'namespace dx03v2 must carry exactly the Pod Security labels enforce=restricted, enforce-version=latest; got:\n%s\n' "$got"
-    rc=1
-  }
+  for key in dx03v2 observability; do
+    got="$(kubectl_local "$rendered" "{{if and (eq .kind \"Namespace\") (eq .metadata.name \"$key\")}}{{range \$k, \$v := .metadata.labels}}{{\$k}}={{\$v}}{{\"\\n\"}}{{end}}{{end}}")"
+    [[ "$got" == $'pod-security.kubernetes.io/enforce=restricted\npod-security.kubernetes.io/enforce-version=latest' ]] || {
+      printf 'namespace %s must carry exactly the Pod Security labels enforce=restricted, enforce-version=latest; got:\n%s\n' "$key" "$got"
+      rc=1
+    }
+  done
   got="$(kubectl_local "$rendered" '{{if eq .kind "Role"}}{{range .rules}}{{$r := .}}{{range $r.apiGroups}}{{$g := .}}{{range $r.resources}}{{$g}}|{{.}}|{{range $r.verbs}}{{.}} {{end}}{{"\n"}}{{end}}{{end}}{{if or $r.resourceNames $r.nonResourceURLs}}restricted-rule{{"\n"}}{{end}}{{end}}{{end}}' |
     awk -F'|' 'NF == 3 { n = split($3, v, " "); s = ""; for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++) if (v[j] < v[i]) { t = v[i]; v[i] = v[j]; v[j] = t }
       for (i = 1; i <= n; i++) s = s (i > 1 ? "," : "") v[i]; print $1 "|" $2 "|" s; next } { print }' | sort)"
   want="$(printf '%s\n' "${CONTRACT_ROLE_RULES[@]}" | sort)"
   [[ "$got" == "$want" ]] || {
-    echo "Role dx03v2-deployer differs from contract v1 (lines: apiGroup|resource|verbs):"
+    echo "Role dx03v2-deployer differs from contract v2 (lines: apiGroup|resource|verbs):"
     diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^</  contract:/p; s/^>/  rendered:/p'
     rc=1
   }
@@ -946,12 +950,22 @@ check_contract_platform() {
     echo "ESO: no Google service account annotation (the Kubernetes ServiceAccount itself is the IAM principal)"
     rc=1
   fi
-  platform_versions
-  [[ "${PV[ESO_CHART_VERSION]:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-    echo "platform/versions.env: ESO_CHART_VERSION is missing or malformed"
+  grep -qE '^  name: opentelemetry-collector$' platform/values/otel-collector.yaml || {
+    echo "OpenTelemetry Collector: the service account must be opentelemetry-collector (contract principal .../ns/observability/sa/opentelemetry-collector)"
     rc=1
   }
-  for key in ESO_CHART_DIGEST ESO_CHART_SHA256; do
+  if grep -vE '^[[:space:]]*#' platform/values/otel-collector.yaml | grep -qE 'iam\.gke\.io/gcp-service-account|azure\.workload\.identity'; then
+    echo "OpenTelemetry Collector: no Google service account annotation (the Kubernetes ServiceAccount itself is the IAM principal)"
+    rc=1
+  fi
+  platform_versions
+  for key in ESO_CHART_VERSION OTEL_COLLECTOR_CHART_VERSION; do
+    [[ "${PV[$key]:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+      echo "platform/versions.env: $key is missing or malformed"
+      rc=1
+    }
+  done
+  for key in ESO_CHART_DIGEST ESO_CHART_SHA256 OTEL_COLLECTOR_CHART_SHA256; do
     [[ "${PV[$key]:-}" =~ ^[0-9a-f]{64}$ ]] || {
       echo "platform/versions.env: $key must be a SHA256 (64 hex characters)"
       rc=1
@@ -965,7 +979,7 @@ check_contract_platform() {
 }
 
 # The contract keys the lab publishes in the Parameter Manager parameter
-# (terraform/envs/lab/contract.tf) are exactly the 15 keys of contract v1 (CONTRACT_KEYS, the list
+# (terraform/envs/lab/contract.tf) are exactly the 15 keys of contract v2 (CONTRACT_KEYS, the list
 # dx03v2 reads), with the fixed values of the contract.
 check_contract_parameter() {
   local rc=0 got want key
@@ -974,7 +988,7 @@ check_contract_parameter() {
   if [[ "$got" == "$want" ]]; then
     echo "terraform/envs/lab/contract.tf: the ${#CONTRACT_KEYS[@]} contract keys"
   else
-    echo "terraform/envs/lab/contract.tf must define exactly the ${#CONTRACT_KEYS[@]} keys of contract v1:"
+    echo "terraform/envs/lab/contract.tf must define exactly the ${#CONTRACT_KEYS[@]} keys of contract v2:"
     diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^</  missing:/p; s/^>/  unexpected:/p'
     rc=1
   fi
@@ -1014,7 +1028,7 @@ check_contract_parameter() {
 # SHA256 of platform/versions.env (what platform/install.sh refuses otherwise) and renders it with
 # platform/values/external-secrets.yaml.
 check_helm_template() {
-  local rc=0 eso charts tgz want e
+  local rc=0 eso otel charts tgz want e
   need helm
   platform_versions
   export HELM_CACHE_HOME="$HARNESS_WORK_DIR/helm/cache" HELM_CONFIG_HOME="$HARNESS_WORK_DIR/helm/config" HELM_DATA_HOME="$HARNESS_WORK_DIR/helm/data"
@@ -1061,7 +1075,39 @@ check_helm_template() {
     echo "external-secrets chart: the controller, webhook and cert controller must all set resource requests (Autopilot)"
     rc=1
   }
-  echo "rendered external-secrets ${PV[ESO_CHART_VERSION]} (digest and SHA256 verified, $(wc -l <<<"$eso") lines)"
+  helm pull opentelemetry-collector --repo https://open-telemetry.github.io/opentelemetry-helm-charts \
+    --version "${PV[OTEL_COLLECTOR_CHART_VERSION]}" --destination "$charts"
+  tgz="$charts/opentelemetry-collector-${PV[OTEL_COLLECTOR_CHART_VERSION]}.tgz"
+  [[ -f "$tgz" && "$(sha256_of "$tgz")" == "${PV[OTEL_COLLECTOR_CHART_SHA256]}" ]] || {
+    echo "the opentelemetry-collector chart ${PV[OTEL_COLLECTOR_CHART_VERSION]} is missing or its SHA256 differs from platform/versions.env"
+    return 1
+  }
+  otel="$(helm template opentelemetry-collector "$tgz" --namespace observability \
+    --values platform/values/otel-collector.yaml --set-string "config.exporters.googlecloud.project=$RENDER_PROJECT_ID")"
+  want="$(sed -n 's/^  digest: //p' platform/values/otel-collector.yaml)"
+  local -a expect_otel=(
+    "image: \"otel/opentelemetry-collector-contrib@$want\""
+    "serviceAccountName: opentelemetry-collector"
+    "googlecloud:"
+    "project: $RENDER_PROJECT_ID"
+    "- googlecloud"
+  )
+  for e in "${expect_otel[@]}"; do
+    grep -qF -- "$e" <<<"$otel" || {
+      echo "opentelemetry-collector chart: missing '$e'"
+      rc=1
+    }
+  done
+  [[ "$want" == "$(sed -n 's/^  digest: //p' platform/local/values/otel-collector.yaml)" ]] || {
+    echo "the cloud and the local OpenTelemetry Collector must run the same image digest"
+    rc=1
+  }
+  # Autopilot bills requests and rewrites pods without them.
+  grep -qE '^ {12}requests:$' <<<"$otel" || {
+    echo "opentelemetry-collector chart: the Collector must set resource requests (Autopilot)"
+    rc=1
+  }
+  echo "rendered external-secrets ${PV[ESO_CHART_VERSION]} (digest and SHA256 verified, $(wc -l <<<"$eso") lines) and opentelemetry-collector ${PV[OTEL_COLLECTOR_CHART_VERSION]} (SHA256 verified, $(wc -l <<<"$otel") lines)"
   return "$rc"
 }
 

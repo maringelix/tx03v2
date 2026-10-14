@@ -22,6 +22,7 @@ moeda, e o budget do bootstrap usa essa moeda. Nada disto foi medido: a v2 nunca
 | Endpoint do Private Service Connect (Cloud SQL) | 1 endpoint | ~US$0,01/h + processamento de dados | 0,010 | 0,24 | 7,30 |
 | IP externo estático `tx03v2-lab-gateway` | 1 endereço global | sem cobrança enquanto preso a uma forwarding rule; cobrado enquanto reservado sem uso | pequeno | pequeno | pequeno (entre o apply e o deploy) |
 | Cloud DNS (zona privada), Secret Manager, Parameter Manager, Artifact Registry, Cloud Logging | 1 zona, 2 segredos, 1 parâmetro, 2 imagens por commit, logs da GKE | centavos por mês na zona DNS; franquias gratuitas: 6 versões de segredo e 6 de parâmetro, 0,5 GB de registry, 50 GiB de logs por projeto | ~0 | ~0 | centavos |
+| Cloud Trace (traces do app pelo OpenTelemetry Collector, contrato v2) | volume do lab (milhares de spans por rodada) | US$0,20 por milhão de spans depois de 2,5 milhões por mês por conta de faturamento ([preços do Google Cloud Observability](https://cloud.google.com/products/observability/pricing), verificado em 2026-10-14) | ~0 | ~0 | ~0 |
 | Bucket do state, VPC, Cloud Router, IAM, Workload Identity Federation, budget | — | sem cobrança relevante | 0,000 | 0,00 | 0,00 |
 | **Total com o free tier da GKE** | | | **~0,12** | **~2,90** | **~88** |
 | **Total sem o free tier** | | | **~0,22** | **~5,30** | **~160** |

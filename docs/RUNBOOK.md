@@ -154,9 +154,17 @@ precisam de lista de IPs. O `platform/install.sh`:
 3. baixa o chart do External Secrets Operator 2.12.0 por tag e digest, recusa o arquivo se o SHA256
    diferir de `platform/versions.env` e instala-o em `external-secrets` (`--wait=watcher
    --rollback-on-failure`, 15 min);
-4. aplica namespace, Role, RoleBinding e ClusterSecretStore (até 5 tentativas enquanto o webhook do
-   ESO sobe) e espera o `gcp-secret-manager` ficar `Ready` (o ESO alcançou o Secret Manager com a
-   identidade do próprio ServiceAccount).
+4. aplica os namespaces `dx03v2` e `observability`, Role, RoleBinding e ClusterSecretStore (até 5
+   tentativas enquanto o webhook do ESO sobe);
+5. baixa o chart do OpenTelemetry Collector 0.176.0, recusa o arquivo se o SHA256 diferir de
+   `platform/versions.env` e instala-o em `observability` com o projeto do lab (contrato v2: traces no
+   Cloud Trace com o principal do próprio ServiceAccount `opentelemetry-collector`);
+6. espera o `gcp-secret-manager` ficar `Ready` (o ESO alcançou o Secret Manager com a identidade do
+   próprio ServiceAccount).
+
+Ao atualizar um lab criado antes do contrato v2: `roles/cloudtrace.agent` entrou na condição IAM de
+`tx03v2-gha-apply` e a API `cloudtrace.googleapis.com` na lista do bootstrap, então aplique o
+bootstrap de novo (seção 2) antes do apply.
 
 O controlador de Gateway da GKE é gerenciado pelo Google: nada a instalar. Localmente (como Owner):
 
@@ -206,6 +214,11 @@ Com o WAF, uma requisição com padrão de SQL injection deve receber 403 do Clo
 (`curl -s -o /dev/null -w '%{http_code}\n' "http://<GATEWAY_ADDRESS>/api/info?id=1%27%20OR%20%271%27=%271"`).
 O load balancer pode levar vários minutos para responder depois do `Programmed`. Registre o
 resultado no `cloud_run_report`.
+
+Traces (contrato v2), esperado e não verificado: depois de algumas requisições, o Trace Explorer do
+projeto mostra o serviço `dx03v2-api` (span da rota e da consulta ao PostgreSQL). Nada em alguns
+minutos: `kubectl -n observability logs deployment/opentelemetry-collector` (um `PermissionDenied` do
+exporter `googlecloud` aponta para a concessão `roles/cloudtrace.agent` do principal do Collector).
 
 ## 8. Destroy
 
