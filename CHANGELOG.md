@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The ruleset requires the CI job `e2e` too (`.github/rulesets/main.json`, applied with
+  `scripts/repo-guardrails.sh`): the local lab is a merge gate, not only maintainer discipline.
+- README status matrix: repository settings as code are applied (read back with `gh api` on
+  2026-10-13), no longer `planned`.
 - The CI (`static`, `test`) ran green on GitHub: the README status matrix now says `verified in CI`
   for the harness rows (AGENTS.md, docs/SUSTENTACAO.md and docs/LICOES_APRENDIDAS.md follow).
 - `dx03v2` exists and is public (CI green there): the README family tables link it, and AGENTS.md,

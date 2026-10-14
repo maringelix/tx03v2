@@ -46,9 +46,9 @@ ainda não rodou essa versão). O `local-lab-e2e` está `verificado no CI` e loc
 | `test` | `make tools && make test` | `test` |
 | `e2e` | `make tools && make e2e` | `e2e` (o lab local; diagnósticos e o log completo do e2e como artifact em caso de falha) |
 
-Os ids `static` e `test` são estáveis: são os checks exigidos pelo ruleset
-(`.github/rulesets/main.json`); o `policy-workflows` falha se um deles sumir. O `e2e` roda em todo PR
-e precisa estar verde para o merge (disciplina do mantenedor; ainda não está no ruleset). O CI não
+Os ids `static`, `test` e `e2e` são estáveis: são os checks exigidos pelo ruleset
+(`.github/rulesets/main.json`; o `e2e`, o lab local, entrou em 2026-10-13); o `policy-workflows` falha se
+um deles sumir. O CI não
 recebe credenciais do Google Cloud (o `policy-workflows` recusa `id-token: write` no `ci.yml`).
 
 ## Modo estrito
