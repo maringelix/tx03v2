@@ -3,6 +3,9 @@
 project_id = "tx03v2-lab-example"
 region     = "us-central1"
 
+# Your GitHub user (the owner of your fork). The workflows pass github.repository_owner instead.
+github_owner = "your-github-user"
+
 # Bootstrap output deploy_service_account (e-mail of dx03v2-gha-deploy).
 deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
 

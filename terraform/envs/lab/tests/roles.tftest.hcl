@@ -8,6 +8,7 @@ mock_provider "google" {
 }
 
 variables {
+  github_owner           = "maringelix"
   project_id             = "tx03v2-lab-example"
   deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
   app_deployer_members   = ["user:you@example.com"]

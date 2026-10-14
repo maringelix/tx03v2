@@ -69,7 +69,7 @@ CONTRACT_ROLE_RULES=(
 )
 
 REQUIRED_FILES=(
-  README.md README.pt-BR.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md CHANGELOG.md LICENSE
+  README.md README.pt-BR.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md CHANGELOG.md LICENSE FORK.md
   .editorconfig .gitattributes .gitignore .pre-commit-config.yaml Makefile .tflint.hcl .trivyignore.yaml
   .devcontainer/devcontainer.json
   .github/CODEOWNERS .github/dependabot.yml .github/pull_request_template.md
@@ -332,6 +332,10 @@ check_repo_structure() {
       echo ".devcontainer/devcontainer.json: postCreateCommand must be \"make tools\""
       rc=1
     }
+    if grep -nE '"ghcr.io/devcontainers/features/[^"@]+"' .devcontainer/devcontainer.json | grep -v '@sha256:'; then
+      echo ".devcontainer/devcontainer.json: features must be pinned by digest"
+      rc=1
+    fi
   fi
   need git
   while IFS= read -r f; do

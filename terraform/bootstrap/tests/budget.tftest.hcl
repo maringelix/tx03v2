@@ -7,9 +7,10 @@ mock_provider "google" {
 }
 
 variables {
+  github_owner        = "maringelix"
   project_id          = "tx03v2-lab-example"
   billing_account     = "000000-000000-000000"
-  budget_alert_emails = ["you@example.com"]
+  budget_alert_emails = ["lab-alerts@example.org"]
 }
 
 run "budget_is_on_and_scoped_to_the_project" {
@@ -51,8 +52,8 @@ run "budget_is_on_and_scoped_to_the_project" {
   assert {
     condition = (
       length(google_monitoring_notification_channel.budget) == 1 &&
-      google_monitoring_notification_channel.budget["you@example.com"].type == "email" &&
-      google_monitoring_notification_channel.budget["you@example.com"].labels.email_address == "you@example.com"
+      google_monitoring_notification_channel.budget["lab-alerts@example.org"].type == "email" &&
+      google_monitoring_notification_channel.budget["lab-alerts@example.org"].labels.email_address == "lab-alerts@example.org"
     )
     error_message = "Each budget_alert_emails entry becomes an e-mail notification channel."
   }
@@ -116,6 +117,16 @@ run "rejects_an_invalid_alert_email" {
 
   variables {
     budget_alert_emails = ["not-an-email"]
+  }
+
+  expect_failures = [var.budget_alert_emails]
+}
+
+run "placeholder_alert_email_is_refused" {
+  command = plan
+
+  variables {
+    budget_alert_emails = ["You@Example.com"]
   }
 
   expect_failures = [var.budget_alert_emails]

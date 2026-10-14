@@ -6,6 +6,8 @@ Metade de infraestrutura Google Cloud de um lab de DevOps: Terraform, GKE Autopi
 
 [English](README.md)
 
+**Fork do lab:** o [FORK.md](FORK.md) (em inglês) leva você do fork ao lab rodando, primeiro na sua máquina, depois na sua conta de nuvem.
+
 ## O que é
 
 Um lab público e educacional para clonar ou fazer fork e aprender como uma plataforma GKE pequena é
@@ -36,7 +38,7 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | Workflows, scripts, manifests da plataforma e values do Helm (actionlint, shellcheck, kubeconform, helm template do chart do External Secrets fixado por digest e SHA256) | `verificado no CI` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
 | Scan de segredos e políticas do repositório (só identificadores placeholder, actions fixadas, os quatro labels do contrato, regras de Terraform contra as regressões do v1) | `verificado no CI` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
 | Contrato v1 com o dx03v2 (15 chaves do parâmetro do Parameter Manager, namespace, RBAC do deployer, ClusterSecretStore) | `verificado no CI` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
-| Testes unitários do Terraform com provider google mockado (sujeitos do Workload Identity Federation, bucket do state, papéis do plan e do apply, condição IAM = papéis de projeto do lab, budget, GKE Autopilot, rede, Cloud SQL, segredos, Artifact Registry, Cloud Armor, parâmetro do contrato, concessões IAM, validações negativas; 60 casos) | `verificado no CI` | `make test` |
+| Testes unitários do Terraform com provider google mockado (sujeitos do Workload Identity Federation, bucket do state, papéis do plan e do apply, condição IAM = papéis de projeto do lab, budget, GKE Autopilot, rede, Cloud SQL, segredos, Artifact Registry, Cloud Armor, parâmetro do contrato, concessões IAM, validações negativas; 63 casos) | `verificado no CI` | `make test` |
 | Bootstrap (APIs, bucket do state, pool e provider do Workload Identity Federation, contas de serviço do CI, budget) | `não executado em nuvem (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Apply do lab (VPC + Cloud NAT, GKE Autopilot no canal REGULAR, Cloud SQL PostgreSQL 17 por Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, contrato no Parameter Manager) | `não executado em nuvem (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan em pull requests | `não executado em nuvem (v2)` | `.github/workflows/terraform-plan.yml` |
@@ -171,6 +173,7 @@ próprio gcloud para o caminho em nuvem. Detalhes: [docs/HARNESS.md](docs/HARNES
 
 | Documento | Conteúdo |
 |---|---|
+| [FORK.md](FORK.md) | fork do lab (em inglês): o que o GitHub não copia, o lab local, a sua conta de nuvem |
 | [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | diagrama, ADRs, AWS / Azure / Google Cloud, v1 → v2 |
 | [docs/CONTRATO.md](docs/CONTRATO.md) | contrato tx03v2 ⇄ dx03v2 v1 (fonte da verdade) |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | rodada completa na nuvem |

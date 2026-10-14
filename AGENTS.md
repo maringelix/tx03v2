@@ -51,8 +51,9 @@ is the source of truth. The full rule list (pt-BR) is [docs/GUARDRAILS.md](docs/
 ```text
 .github/workflows/      ci.yml (harness), terraform-plan/apply/destroy.yml, platform.yml (cloud: dispatch; plan also on PRs)
 .github/rulesets/       main.json: branch ruleset applied by scripts/repo-guardrails.sh
-.devcontainer/          Linux environment pinned by digest (runs make tools)
+.devcontainer/          Linux environment + Docker-in-Docker, pinned by digest (runs make tools; make e2e works inside)
 docs/                   pt-BR docs: architecture, contract, runbook, costs, guardrails, harness, sustainment, lessons
+FORK.md                 how to fork the lab: what GitHub does not copy, the local lab, your own cloud account
 platform/               install.sh / uninstall.sh / render-manifests.sh, versions.env, Helm values, manifests
 platform/local/         local platform: install.sh, check.sh (probes), uninstall.sh, versions.env, values/,
                         manifests/, policies/ (Gatekeeper templates, constraints, gator tests)
@@ -63,7 +64,7 @@ scripts/local/          kind-cluster.sh (called by terraform/envs/local)
 scripts/install-tools.sh            pinned tools into .tools/ (SHA256-verified)
 scripts/update-tool-checksums.sh    bump a tool: versions.env + checksums.txt from upstream checksums
 scripts/leftovers.sh    read-only scan for billable/orphaned lab resources after a destroy
-scripts/repo-guardrails.sh          repository settings via gh api (run by the maintainer)
+scripts/repo-guardrails.sh          repository settings via gh api (run by the maintainer, and once by every fork owner)
 scripts/lib/            shared bash helpers (common, tools, gcp, local)
 terraform/bootstrap/    APIs, state bucket, GitHub Workload Identity Federation, 3 CI service accounts + roles, budget
 terraform/envs/lab/     lab root: modules, generated secrets, every IAM grant (roles.tf), contract parameter
@@ -89,7 +90,7 @@ tools/                  versions.env and checksums.txt of the harness tools
 |---|---|---|
 | `make tools` | `scripts/install-tools.sh` (all pinned tools) | first time, after a tool bump |
 | `make static` | `scripts/harness.sh static`: policies (Terraform, labels, identifiers, workflows), contract (parameter, platform), fmt, validate, lock files, tflint, trivy (x2), actionlint, shellcheck, kubeconform, helm template, gitleaks | every change |
-| `make test` | `scripts/harness.sh test`: `terraform test` for bootstrap and envs/lab (mocked google provider, 60 runs) and envs/local (mocked docker, tls, random; 10 runs) | every Terraform change |
+| `make test` | `scripts/harness.sh test`: `terraform test` for bootstrap and envs/lab (mocked google provider, 63 runs) and envs/local (mocked docker, tls, random; 10 runs) | every Terraform change |
 | `HARNESS_STRICT=1 make verify` | static + test with SKIP = FAIL (CI jobs `static` and `test`) | before every PR |
 | `make e2e` | `scripts/harness.sh e2e`: the local lab end to end, always destroyed (CI job `e2e`) | `platform/local`, `terraform/envs/local` or tool changes |
 | `make local-up` / `local-check` / `local-down` | keep the local lab running between steps (`LOCAL_PROFILE`) | debugging the platform |

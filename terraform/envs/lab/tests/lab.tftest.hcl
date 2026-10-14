@@ -6,6 +6,7 @@ mock_provider "google" {
 }
 
 variables {
+  github_owner           = "maringelix"
   project_id             = "tx03v2-lab-example"
   deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
 }
@@ -14,8 +15,8 @@ run "defaults_are_lab_friendly" {
   command = plan
 
   assert {
-    condition     = var.region == "us-central1" && var.github_owner == "maringelix" && var.enable_waf
-    error_message = "Defaults: us-central1, owner maringelix and WAF on (parity with tx01v2 and tx02v2)."
+    condition     = var.region == "us-central1" && var.enable_waf
+    error_message = "Defaults: us-central1 and WAF on (parity with tx01v2 and tx02v2). github_owner has no default: the workflows pass github.repository_owner."
   }
 
   assert {

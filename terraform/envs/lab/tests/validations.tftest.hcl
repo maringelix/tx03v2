@@ -6,6 +6,7 @@ mock_provider "google" {
 }
 
 variables {
+  github_owner           = "maringelix"
   project_id             = "tx03v2-lab-example"
   deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
 }
@@ -233,4 +234,14 @@ run "rejects_a_fractional_token_version" {
     admin_token_version = 1.5
   }
   expect_failures = [var.admin_token_version]
+}
+
+run "placeholder_owner_is_refused" {
+  command = plan
+
+  variables {
+    github_owner = "your-github-user"
+  }
+
+  expect_failures = [var.github_owner]
 }
