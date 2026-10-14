@@ -819,7 +819,7 @@ check_policy_workflows() {
     echo "ci.yml must never request id-token: write (Workload Identity Federation is for cloud workflows only)"
     rc=1
   fi
-  for ctx in static test; do
+  for ctx in static test e2e; do
     grep -qE "^  ${ctx}:[[:space:]]*$" .github/workflows/ci.yml || {
       echo "ci.yml must keep the stable job id '$ctx' (required status check)"
       rc=1
