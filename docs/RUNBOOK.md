@@ -55,6 +55,9 @@ uniforme, prevenção de acesso público), o pool `tx03v2-github` com o provider
 papéis do contrato, e o budget mensal (padrão 10 na moeda da conta de faturamento, alertas de 50, 90
 e 100 % do gasto e de 100 % da previsão para os administradores da conta e os e-mails opcionais).
 
+- `github_owner` não tem padrão: use o seu usuário do GitHub, o dono dos repositórios `tx03v2` e
+  `dx03v2` (ou dos seus forks). O placeholder do exemplo (`your-github-user`) e o e-mail
+  `you@example.com` são recusados.
 - O state do bootstrap fica **local** (`terraform.tfstate`, ignorado pelo git). Faça backup dele.
 - O provider usa as suas credenciais de usuário (ADC) com `user_project_override` e o próprio
   projeto como projeto de cota (a API de budgets exige um).
@@ -79,6 +82,9 @@ plan não roda num environment). Elas aparecem nos logs: não coloque nada priva
 conferem o formato no primeiro passo (e que as contas e o bucket são os do projeto), mascaram nos
 logs o ID e o número do projeto e o sufixo, e trocam esses valores por `<PROJECT_ID>`,
 `<PROJECT_NUMBER>` e `<SUFFIX>` nos resumos.
+
+O `FORK.md` (passo 7) grava os outputs `github_variables_tx03v2` e `github_variables_dx03v2` do
+bootstrap com `gh variable set -f`; as variáveis `LAB_*` que você escolhe vêm da tabela abaixo.
 
 ### tx03v2
 

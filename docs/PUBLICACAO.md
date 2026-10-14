@@ -24,14 +24,12 @@ tem o comando ou o lugar onde é verificado. O repositório nasce privado; torn�
 
 - [ ] `gh repo edit maringelix/tx03v2 --visibility public --accept-visibility-change-consequences`
 - [ ] `scripts/repo-guardrails.sh maringelix/tx03v2`: alertas de vulnerabilidade, security updates do
-      Dependabot, squash-only, `delete_branch_on_merge`, `GITHUB_TOKEN` só leitura por padrão (sem
-      aprovar PRs), ruleset `main`, secret scanning + push protection, private vulnerability
-      reporting e environment `lab` (revisor: o dono; só `main`). O script imprime o que foi
-      aplicado, pulado e o que falhou.
-- [ ] Aprovação obrigatória para workflows de PRs de forks de todos os colaboradores externos
-      (Settings > Actions > General, ou
-      `gh api --method PUT repos/maringelix/tx03v2/actions/permissions/fork-pr-contributor-approval --input -`
-      com `{"approval_policy":"all_external_contributors"}` na entrada).
+      Dependabot, squash-only, `delete_branch_on_merge`, issues, `GITHUB_TOKEN` só leitura por padrão
+      (sem aprovar PRs), ruleset `main`, secret scanning + push protection, private vulnerability
+      reporting, aprovação obrigatória para workflows de PRs de forks de colaboradores externos e
+      environment `lab` (revisor: quem roda o script; só `main`). Ele também falha enquanto o Actions
+      estiver desligado e aponta o que um fork ainda precisa trocar (`FORK.md`). O script imprime o
+      que foi aplicado, pulado, as notas e o que falhou.
 
 ## Ruleset `main` (`.github/rulesets/main.json`)
 

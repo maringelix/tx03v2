@@ -7,6 +7,7 @@ mock_provider "google" {
 }
 
 variables {
+  github_owner    = "maringelix"
   project_id      = "tx03v2-lab-example"
   billing_account = "000000-000000-000000"
 }
@@ -142,6 +143,16 @@ run "rejects_an_invalid_owner" {
 
   variables {
     github_owner = "bad owner"
+  }
+
+  expect_failures = [var.github_owner]
+}
+
+run "placeholder_owner_is_refused" {
+  command = plan
+
+  variables {
+    github_owner = "your-github-user"
   }
 
   expect_failures = [var.github_owner]

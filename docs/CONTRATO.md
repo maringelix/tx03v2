@@ -72,7 +72,7 @@ Pool `tx03v2-github`, provider OIDC `github` com issuer `https://token.actions.g
 mapeamento `google.subject = assertion.sub`, `attribute.repository = assertion.repository`,
 `attribute.repository_owner = assertion.repository_owner` e condição
 `assertion.repository_owner == '<owner>' && assertion.repository in ['<owner>/tx03v2', '<owner>/dx03v2']`
-(dono configurável, `github_owner`, padrão `maringelix`). Cada conta de serviço recebe
+(dono configurável, `github_owner`, sem padrão: o dono do repositório ou do seu fork). Cada conta de serviço recebe
 `roles/iam.workloadIdentityUser` só para sujeitos exatos
 (`principal://iam.googleapis.com/projects/<número>/locations/global/workloadIdentityPools/tx03v2-github/subject/<sujeito>`):
 

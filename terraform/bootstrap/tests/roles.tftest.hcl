@@ -8,6 +8,7 @@ mock_provider "google" {
 }
 
 variables {
+  github_owner    = "maringelix"
   project_id      = "tx03v2-lab-example"
   billing_account = "000000-000000-000000"
 }
