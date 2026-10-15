@@ -1,7 +1,10 @@
 # Applies terraform/envs/lab. CLOUD-MUTATING and billable (GKE Autopilot pods, Cloud SQL, the
 # Gateway load balancer and Cloud Armor; docs/CUSTOS.md): dispatch manually, after reading the
 # latest terraform-plan run. The `lab` environment (required reviewer, main only) gates the
-# Workload Identity Federation subject of tx03v2-gha-apply (repo:<owner>/tx03v2:environment:lab).
+# Workload Identity Federation subject of tx03v2-gha-apply (the immutable
+# repo:<owner>@<owner id>/tx03v2@<repository id>:environment:lab). The project must be dedicated to
+# the lab: scripts/preflight.sh runs first and stops at a cluster, a database or a secret of other
+# work, because the apply identity has Editor on the whole project (docs/GUARDRAILS.md, SEC-18).
 # Not run in the cloud yet (v2).
 name: terraform-apply
 
@@ -34,7 +37,8 @@ jobs:
       TF_VAR_region: ${{ vars.GCP_REGION }}
       TF_VAR_github_owner: ${{ github.repository_owner }}
       TF_VAR_deploy_service_account: ${{ vars.LAB_DEPLOY_SERVICE_ACCOUNT }}
-      TF_VAR_app_deployer_members: ${{ vars.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
+      # A secret, not a variable: the logs of a public repository are public, and a secret is masked.
+      TF_VAR_app_deployer_members: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
       TF_VAR_enable_waf: ${{ vars.LAB_ENABLE_WAF || 'true' }}
       TF_VAR_db_tier: ${{ vars.LAB_DB_TIER || 'db-g1-small' }}
     steps:
@@ -51,7 +55,7 @@ jobs:
           [[ "$TF_VAR_app_deployer_members" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. [\"user:you@example.com\"]")
           if ((${#problems[@]} > 0)); then
             printf '::error::Repository variable problem: %s\n' "${problems[@]}"
-            echo "::error::Settings > Secrets and variables > Actions > Variables; names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
             exit 1
           fi
           # Identifiers never reach the logs of a public repository.
@@ -59,6 +63,19 @@ jobs:
           for v in "$GCP_PROJECT_ID" "${number%%/*}" "$suffix"; do
             echo "::add-mask::$v"
           done
+
+      - name: Mask the people of the operator in the logs
+        env:
+          MEMBERS: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS }}
+        run: |
+          if [[ -n "$MEMBERS" ]]; then
+            items="$(jq -r '.[]' <<<"$MEMBERS")"
+            while IFS= read -r item; do
+              [[ -n "$item" ]] || continue
+              echo "::add-mask::$item"
+              echo "::add-mask::${item#*:}"
+            done <<<"$items"
+          fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,6 +85,13 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_APPLY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: '588.0.0'
+
+      - name: Pre-flight (the project holds only the lab)
+        run: bash scripts/preflight.sh --project "$GCP_PROJECT_ID"
 
       - name: Install terraform (pinned, SHA256-verified)
         run: |

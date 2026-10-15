@@ -241,7 +241,7 @@ Os pins são os mesmos do lab local do `tx01v2`: atualize os repositórios junto
 |---|---|
 | CI vermelho | Leia o primeiro `FAIL` (o log do check vem logo abaixo). Corrija no código; nunca enfraqueça o check. Reproduza com `HARNESS_STRICT=1 make verify` |
 | Vulnerabilidade | Alerta do Dependabot ou advisory: atualize por PR. Em ferramenta do harness: 5.1. No chart ou na imagem do ESO: 5.5. Reporte privado: `SECURITY.md` |
-| Alerta de custo (e-mail do budget) | `scripts/leftovers.sh` localmente como Owner do projeto; se houver lab de pé, rode o destroy; confira os relatórios do Cloud Billing por serviço e SKU |
+| Alerta de custo (e-mail do budget) | `scripts/leftovers.sh --project <id>` localmente como Owner do projeto; se houver lab de pé, rode o destroy; confira os relatórios do Cloud Billing por serviço e SKU |
 | Credencial exposta | Não há chaves de conta de serviço nem segredos de nuvem no GitHub. Se um segredo do Secret Manager vazar, gire com `db_password_version`/`admin_token_version` e rode o apply. Revise os vínculos `roles/iam.workloadIdentityUser` das contas de serviço e a condição do provider do pool. Reescrever histórico é decisão do mantenedor |
 | Sobras após o destroy | Siga a saída de `scripts/leftovers.sh` e a seção 9 do `docs/RUNBOOK.md`; registre no `cloud_run_report` |
 | Nome preso (pool de Workload Identity Federation em soft delete, instância Cloud SQL apagada) | `docs/ARQUITETURA.md`, "Nomes que ficam presos" |

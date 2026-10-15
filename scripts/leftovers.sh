@@ -5,11 +5,16 @@
 #   INFO       expected (bootstrap resources) or an API that is not enabled (nothing can exist there)
 #   UNCHECKED  this identity may not read that list: the CI identities have project roles chosen
 #              for the lab only, so run the script locally as the project Owner for a complete scan
-# Usage: scripts/leftovers.sh [--retry-for SECONDS]   (needs gcloud logged in and GCP_PROJECT_ID)
-#   --retry-for re-scans every 60 s until nothing billable remains or the time is up (deletions
-#   still running right after a destroy). Exit 2 on usage or Google Cloud API errors.
-# A dedicated project is assumed (docs/RUNBOOK.md): every cluster, instance, load balancer piece,
-# address, disk, repository, secret, parameter and DNS zone in it counts.
+# Usage: scripts/leftovers.sh --project ID [--retry-for SECONDS]   (needs gcloud logged in)
+#   --project    the project of the lab, always explicit: every gcloud call names it, so no variable
+#                of your shell (GCP_PROJECT_ID, CLOUDSDK_CORE_PROJECT) or gcloud configuration
+#                decides what is scanned
+#   --retry-for  re-scans every 60 s until nothing billable remains or the time is up (deletions
+#                still running right after a destroy). Exit 2 on usage or Google Cloud API errors.
+# Only what belongs to the lab counts as a leftover: a resource with the label project=tx03v2, named
+# tx03v2-lab*, in the network tx03v2-lab, or a piece of the load balancer that the GKE controllers
+# created for it (lab_resource, scripts/lib/gcp.sh). The same kinds of resource of any other work in
+# the project are listed as INFO "(not the lab's)", never as something to delete.
 set -euo pipefail
 
 # shellcheck source=scripts/lib/common.sh
@@ -28,7 +33,7 @@ cleanup() {
 }
 
 usage() {
-  echo "usage: $0 [--retry-for SECONDS]   (GCP_PROJECT_ID must be set)" >&2
+  echo "usage: $0 --project ID [--retry-for SECONDS]" >&2
   exit 2
 }
 
@@ -77,61 +82,78 @@ gcloud_items() {
   [[ -z "$out" ]] || mapfile -t _items <<<"$out"
 }
 
+# The scoped lists print one line per resource, name|place|label|home: the value of the label
+# project, and the network (or the cluster) the resource belongs to. A key that a resource does not
+# have prints empty. The formats are the same for every list, so lab_resource decides in one place.
+FORMAT_REGIONAL='value[separator="|"](name,region.basename(),labels.project,network.basename())'
+FORMAT_ZONAL='value[separator="|"](name,zone.basename(),labels.project,network.basename())'
+FORMAT_NAMED='value[separator="|"](name.basename(),createTime,labels.project)'
+
+# scoped LEVEL WHAT GCLOUD_ARGS... -> runs one list command and sorts each resource: the lab's at
+# LEVEL, the others as INFO "(not the lab's)". The command must print name|place|label|home.
+scoped() {
+  local level=$1 what=$2 line name place label home
+  local -a items=()
+  shift 2
+  gcloud_items items "$what" "$@"
+  for line in "${items[@]}"; do
+    IFS='|' read -r name place label home <<<"$line"
+    if lab_resource "$name" "$label" "$home"; then
+      found "$level" "$what" "$name${place:+ $place}"
+    else
+      found INFO "$what (not the lab's)" "$name${place:+ $place}"
+    fi
+  done
+}
+
 scan() {
   local -a items=() nats=()
-  local entry name region
-  gcloud_items items "GKE clusters" container clusters list --format='value(name,location)'
-  found BILLABLE "GKE cluster" "${items[@]}"
-  gcloud_items items "Cloud SQL instances" sql instances list --format='value(name,region)'
-  found BILLABLE "Cloud SQL instance" "${items[@]}"
+  local line name region label home
+  scoped BILLABLE "GKE cluster" container clusters list \
+    --format='value[separator="|"](name,location,resourceLabels.project,network)'
+  scoped BILLABLE "Cloud SQL instance" sql instances list \
+    --format='value[separator="|"](name,region,settings.userLabels.project)'
   # Backups retained after an instance deletion are billed until they expire or are deleted.
-  gcloud_items items "Cloud SQL backups" sql backups list --format='value(name)'
-  found BILLABLE "Cloud SQL backup (retained)" "${items[@]}"
+  scoped BILLABLE "Cloud SQL backup (retained)" sql backups list \
+    --format='value[separator="|"](instance,id)'
 
   # Load balancer pieces created by the GKE Gateway controller (outside the Terraform state).
-  gcloud_items items "forwarding rules" compute forwarding-rules list --format='value(name,region.basename())'
-  found BILLABLE "forwarding rule" "${items[@]}"
-  gcloud_items items "target HTTP proxies" compute target-http-proxies list --format='value(name)'
-  found ORPHANED "target HTTP proxy" "${items[@]}"
-  gcloud_items items "target HTTPS proxies" compute target-https-proxies list --format='value(name)'
-  found ORPHANED "target HTTPS proxy" "${items[@]}"
-  gcloud_items items "URL maps" compute url-maps list --format='value(name)'
-  found ORPHANED "URL map" "${items[@]}"
-  gcloud_items items "backend services" compute backend-services list --format='value(name)'
-  found ORPHANED "backend service" "${items[@]}"
-  gcloud_items items "health checks" compute health-checks list --format='value(name)'
-  found ORPHANED "health check" "${items[@]}"
-  gcloud_items items "network endpoint groups" compute network-endpoint-groups list --format='value(name,zone.basename())'
-  found ORPHANED "network endpoint group" "${items[@]}"
-  gcloud_items items "security policies" compute security-policies list --format='value(name)'
-  found BILLABLE "Cloud Armor security policy" "${items[@]}"
+  scoped BILLABLE "forwarding rule" compute forwarding-rules list --format="$FORMAT_REGIONAL"
+  scoped ORPHANED "target HTTP proxy" compute target-http-proxies list --format="$FORMAT_REGIONAL"
+  scoped ORPHANED "target HTTPS proxy" compute target-https-proxies list --format="$FORMAT_REGIONAL"
+  scoped ORPHANED "URL map" compute url-maps list --format="$FORMAT_REGIONAL"
+  scoped ORPHANED "backend service" compute backend-services list --format="$FORMAT_REGIONAL"
+  scoped ORPHANED "health check" compute health-checks list --format="$FORMAT_REGIONAL"
+  scoped ORPHANED "network endpoint group" compute network-endpoint-groups list --format="$FORMAT_ZONAL"
+  scoped BILLABLE "Cloud Armor security policy" compute security-policies list --format="$FORMAT_REGIONAL"
 
   # Reserved addresses are billed, in use or not (global gateway address, PSC endpoint address).
-  gcloud_items items "IP addresses" compute addresses list --format='value(name,region.basename())'
-  found BILLABLE "reserved IP address" "${items[@]}"
-  gcloud_items items "Cloud Routers" compute routers list --format='value(name,region.basename())'
-  for entry in "${items[@]}"; do
-    read -r name region <<<"$entry"
-    found ORPHANED "Cloud Router" "$name $region"
-    gcloud_items nats "Cloud NAT of $name" compute routers nats list --router "$name" --region "$region" --format='value(name)'
-    found BILLABLE "Cloud NAT (router $name)" "${nats[@]}"
+  scoped BILLABLE "reserved IP address" compute addresses list --format="$FORMAT_REGIONAL"
+  gcloud_items items "Cloud Routers" compute routers list --format="$FORMAT_REGIONAL"
+  for line in "${items[@]}"; do
+    IFS='|' read -r name region label home <<<"$line"
+    if lab_resource "$name" "$label" "$home"; then
+      found ORPHANED "Cloud Router" "$name $region"
+      gcloud_items nats "Cloud NAT of $name" compute routers nats list --router "$name" --region "$region" --format='value(name)'
+      found BILLABLE "Cloud NAT (router $name)" "${nats[@]}"
+    else
+      found INFO "Cloud Router (not the lab's)" "$name $region"
+    fi
   done
-  # PersistentVolumes with reclaimPolicy Retain survive the cluster as disks.
-  gcloud_items items "persistent disks" compute disks list --format='value(name,zone.basename())'
-  found BILLABLE "persistent disk" "${items[@]}"
-  gcloud_items items "firewall rules created by GKE" compute firewall-rules list --filter='name~^(gke-|k8s)' --format='value(name)'
-  found ORPHANED "firewall rule (GKE)" "${items[@]}"
+  # PersistentVolumes with reclaimPolicy Retain survive the cluster as disks. GKE puts the labels of
+  # the cluster, and goog-k8s-cluster-name, on the disks it creates for it.
+  scoped BILLABLE "persistent disk" compute disks list \
+    --format='value[separator="|"](name,zone.basename(),labels.project,labels.goog-k8s-cluster-name)'
+  scoped ORPHANED "firewall rule (GKE)" compute firewall-rules list --filter='name~^(gke-|k8s)' --format="$FORMAT_REGIONAL"
   gcloud_items items "VPC networks" compute networks list --filter="name=$LAB_NAME" --format='value(name)'
   found ORPHANED "VPC network" "${items[@]}"
 
-  gcloud_items items "Artifact Registry repositories" artifacts repositories list --format='value(name)'
-  found BILLABLE "Artifact Registry repository" "${items[@]}"
-  gcloud_items items "Secret Manager secrets" secrets list --format='value(name)'
-  found BILLABLE "Secret Manager secret" "${items[@]}"
-  gcloud_items items "Parameter Manager parameters" parametermanager parameters list --location=global --format='value(name)'
-  found BILLABLE "Parameter Manager parameter" "${items[@]}"
-  gcloud_items items "Cloud DNS zones" dns managed-zones list --format='value(name)'
-  found BILLABLE "Cloud DNS managed zone" "${items[@]}"
+  scoped BILLABLE "Artifact Registry repository" artifacts repositories list \
+    --format='value[separator="|"](name.basename(),format,labels.project)'
+  scoped BILLABLE "Secret Manager secret" secrets list --format="$FORMAT_NAMED"
+  scoped BILLABLE "Parameter Manager parameter" parametermanager parameters list --location=global --format="$FORMAT_NAMED"
+  scoped BILLABLE "Cloud DNS managed zone" dns managed-zones list \
+    --format='value[separator="|"](name,visibility,labels.project)'
 
   # Bootstrap resources (kept between rounds; removed only by the bootstrap teardown).
   gcloud_items items "state bucket" storage buckets list --filter="name~^$LAB_PROJECT-tfstate-" --format='value(name)'
@@ -153,19 +175,20 @@ main() {
         retry_for=$2
         shift 2
         ;;
+      --project)
+        [[ "${2:-}" =~ $PROJECT_RE ]] || usage
+        PROJECT=$2
+        shift 2
+        ;;
       *) usage ;;
     esac
   done
+  [[ -n "$PROJECT" ]] || usage
   # Exit 2 (not 1) for setup problems, so they are never mistaken for "billable leftovers found".
   command -v gcloud >/dev/null 2>&1 || {
     echo "error: the Google Cloud CLI (gcloud) is required" >&2
     exit 2
   }
-  [[ "${GCP_PROJECT_ID:-}" =~ $PROJECT_RE ]] || {
-    echo "error: set GCP_PROJECT_ID to the project of the lab" >&2
-    exit 2
-  }
-  PROJECT="$GCP_PROJECT_ID"
   [[ -n "$(gcloud auth list --filter=status:ACTIVE --format='value(account)')" ]] || {
     echo "error: gcloud is not logged in (gcloud auth login, or google-github-actions/auth in the workflow)" >&2
     exit 2

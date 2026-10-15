@@ -80,6 +80,7 @@ REQUIRED_FILES=(
   docs/ARQUITETURA.md docs/PUBLICACAO.md docs/CUSTOS.md docs/LICOES_APRENDIDAS.md
   tools/versions.env tools/checksums.txt
   scripts/install-tools.sh scripts/update-tool-checksums.sh scripts/harness.sh scripts/repo-guardrails.sh scripts/leftovers.sh
+  scripts/destroy.sh scripts/preflight.sh scripts/tests/destroy-flow.sh scripts/tests/leftovers-flow.sh scripts/tests/preflight-flow.sh scripts/tests/local-preflight.sh
   scripts/lib/common.sh scripts/lib/tools.sh scripts/lib/gcp.sh
   platform/install.sh platform/uninstall.sh platform/render-manifests.sh platform/versions.env
   platform/values/external-secrets.yaml
@@ -682,6 +683,32 @@ check_policy_identifiers() {
   return "$rc"
 }
 
+# scripts/destroy.sh with simulated gcloud, terraform, kubectl and helm: an uninstall that fails still
+# ends in the API cleanup of the load balancer, terraform destroy and the leftover check
+# (docs/GUARDRAILS.md, CUSTO-03).
+check_destroy_flow() {
+  bash scripts/tests/destroy-flow.sh
+}
+
+# The pre-flight of scripts/local-lab.sh with a simulated docker, kind and ip: a machine whose Docker
+# CLI and provider disagree, whose network or route overlaps the lab or whose registry port is taken
+# is refused, and a lab of another state directory is never touched (docs/GUARDRAILS.md, LOC-06).
+check_local_preflight() {
+  bash scripts/tests/local-preflight.sh
+}
+
+# scripts/leftovers.sh with a simulated gcloud: in a project that also holds other work only the
+# lab's resources are billable leftovers, and every gcloud call names the project (SEC-17).
+check_leftovers_flow() {
+  bash scripts/tests/leftovers-flow.sh
+}
+
+# scripts/preflight.sh with a simulated gcloud: a project that holds a cluster, a database or a
+# secret of other work is refused before the apply (SEC-18).
+check_preflight_flow() {
+  bash scripts/tests/preflight-flow.sh
+}
+
 # Scripts act only on what the lab created (docs/GUARDRAILS.md, SEC-16): no variable of the caller's
 # shell chooses their target (a forker may have CLUSTER_NAME exported for another cluster), the cloud
 # kubeconfig is a temporary file, the cloud scripts check the label project=tx03v2 of the cluster and
@@ -821,8 +848,19 @@ check_policy_workflows() {
       /\|\|[[:space:]]*(true|echo|:)([[:space:]]|$)/ { err("never swallow errors (|| true, || echo, || :)") }
       /aquasecurity\/(trivy-action|setup-trivy)/ { err("trivy-action/setup-trivy are forbidden; trivy comes from scripts/install-tools.sh") }
       /(^|[^A-Za-z])sed[[:space:]].*\.tf([^A-Za-z]|$)/ { err("never edit Terraform files with sed") }
-      /(^|[^A-Za-z])gsutil[[:space:]]+rm|gcloud[[:space:]]+storage[[:space:]]+rm|force-unlock/ { err("never delete state or lock objects from a workflow (v1 lesson; force-unlock is a manual decision)") }
+      /(^|[^A-Za-z])gsutil[[:space:]]+rm|gcloud[[:space:]]+storage[[:space:]]+rm/ { err("never delete state or lock objects from a workflow (v1 lesson)") }
+      # Releasing a lock stays a manual decision: only the destroy takes it, as a typed input of
+      # whoever dispatches it (and the lab environment approves), never by default.
+      /force[-_]unlock/ && file !~ /terraform-destroy\.yml$/ { err("force-unlock is a manual decision: only terraform-destroy takes it, as the typed input force_unlock_id") }
       /^[[:space:]]+(- )?run: terraform .* plan( |$)/ { plans++; if ($0 ~ / -lock=false( |$)/) nolock++ }
+      # The logs, the job summary and the artifacts of a public repository are public: the list of the
+      # people who operate the lab comes from a secret (masked), and the job masks each element on its
+      # own because Terraform prints them one by one.
+      /^[[:space:]]+(TF_VAR_app_deployer_members|APP_DEPLOYER_MEMBERS):/ {
+        members_env = 1
+        if ($0 !~ /secrets\.LAB_/) err("the list of people must come from secrets.LAB_* (a variable is printed in clear in the logs)")
+      }
+      /::add-mask::/ { masks = 1 }
       /^[^#]*terraform .*(apply|destroy).*-lock=false/ { err("apply and destroy must keep the state lock") }
       END {
         if (in_auth) close_auth()
@@ -844,6 +882,7 @@ check_policy_workflows() {
           if (!gauth) { printf "%s: cloud workflows authenticate with google-github-actions/auth (Workload Identity Federation)\n", file; bad = 1 }
         }
         if (file ~ /terraform-plan\.yml$/ && (!plans || nolock != plans)) { printf "%s: every terraform plan step runs with -lock=false (the plan identity can only read the state)\n", file; bad = 1 }
+        if (members_env && !masks) { printf "%s: a workflow that takes the list of people must mask each element (::add-mask::)\n", file; bad = 1 }
         if (checkouts != persist) { printf "%s: every actions/checkout needs persist-credentials: false\n", file; bad = 1 }
         exit bad
       }' "$f")" || {
@@ -872,12 +911,16 @@ check_policy_workflows() {
       echo "$f: the first step must refuse anything but the typed confirmation 'destroy tx03v2-lab'"
       rc=1
     }
-    grep -qE '^[[:space:]]+run: bash scripts/leftovers\.sh' "$f" || {
-      echo "$f: the destroy must end with scripts/leftovers.sh"
+    grep -qE 'bash scripts/destroy\.sh --project' "$f" || {
+      echo "$f: the destroy must run scripts/destroy.sh --project (platform uninstall while the cluster exists, API cleanup of the Gateway load balancer, terraform destroy, leftover check)"
       rc=1
     }
-    grep -qE 'bash platform/uninstall\.sh' "$f" || {
-      echo "$f: the destroy must run platform/uninstall.sh while the cluster exists (the Gateway load balancer is outside the state)"
+    grep -qE '^[[:space:]]+FORCE_UNLOCK_ID: [$][{][{] inputs[.]force_unlock_id [}][}][[:space:]]*$' "$f" || {
+      echo "$f: the lock ID must come from the typed input force_unlock_id (never from a variable or a default)"
+      rc=1
+    }
+    grep -qE 'bash scripts/leftovers\.sh|leftovers\.sh --project' scripts/destroy.sh || {
+      echo "scripts/destroy.sh must end with scripts/leftovers.sh --project (the check runs even after a failed destroy)"
       rc=1
     }
   fi
@@ -1354,6 +1397,10 @@ register_checks() {
   register static policy-identifiers check_policy_identifiers
   register static policy-workflows check_policy_workflows
   register static policy-scripts check_policy_scripts
+  register static destroy-flow check_destroy_flow
+  register static local-preflight check_local_preflight
+  register static leftovers-flow check_leftovers_flow
+  register static preflight-flow check_preflight_flow
   register static trivyignore-policy check_trivyignore_policy
   register static contract-platform check_contract_platform
   register static contract-parameter check_contract_parameter

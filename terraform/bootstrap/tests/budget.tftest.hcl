@@ -1,16 +1,20 @@
-# Monthly Cloud Billing budget of the lab project: on by default, scoped to the project, alerts at
-# 50/90/100 % of the spend and 100 % of the forecast, optional e-mail channels, and the input
-# validations that keep a typo from creating a budget for the wrong thing.
+# Monthly Cloud Billing budget of the lab project: on by default, scoped to the project, credits
+# not subtracted, alerts at 50/90/100 % of the spend and 100 % of the forecast to the e-mail
+# channels you name (at least one), and the input validations that keep a typo from creating a
+# budget for the wrong thing.
 
 mock_provider "google" {
   source = "../tests/mocks"
 }
 
 variables {
-  github_owner        = "maringelix"
-  project_id          = "tx03v2-lab-example"
-  billing_account     = "000000-000000-000000"
-  budget_alert_emails = ["lab-alerts@example.org"]
+  github_owner         = "maringelix"
+  github_owner_id      = "1000000"
+  tx03v2_repository_id = "2000000"
+  dx03v2_repository_id = "3000000"
+  project_id           = "tx03v2-lab-example"
+  billing_account      = "000000-000000-000000"
+  budget_alert_emails  = ["lab-alerts@example.org"]
 }
 
 run "budget_is_on_and_scoped_to_the_project" {
@@ -24,6 +28,11 @@ run "budget_is_on_and_scoped_to_the_project" {
       google_billing_budget.monthly.budget_filter[0].calendar_period == "MONTH"
     )
     error_message = "The budget must cover the lab project (by number), month by month, on the given billing account."
+  }
+
+  assert {
+    condition     = google_billing_budget.monthly.budget_filter[0].credit_types_treatment == "EXCLUDE_ALL_CREDITS"
+    error_message = "The budget must not subtract credits: the credits of a free trial would hide the spend."
   }
 
   assert {
@@ -64,22 +73,27 @@ run "budget_is_on_and_scoped_to_the_project" {
   }
 }
 
-run "no_extra_channel_by_default" {
+run "budget_amount_reaches_the_budget" {
   command = apply
 
   variables {
-    budget_alert_emails = []
-    budget_amount       = 25
+    budget_amount = 25
   }
 
   assert {
-    condition = (
-      length(google_monitoring_notification_channel.budget) == 0 &&
-      length(google_billing_budget.monthly.all_updates_rule[0].monitoring_notification_channels) == 0 &&
-      google_billing_budget.monthly.amount[0].specified_amount[0].units == "25"
-    )
-    error_message = "Without e-mails no channel is created; budget_amount reaches the budget."
+    condition     = google_billing_budget.monthly.amount[0].specified_amount[0].units == "25"
+    error_message = "budget_amount must reach the budget."
   }
+}
+
+run "an_empty_alert_list_is_refused" {
+  command = plan
+
+  variables {
+    budget_alert_emails = []
+  }
+
+  expect_failures = [var.budget_alert_emails]
 }
 
 run "rejects_a_billing_account_with_the_prefix" {

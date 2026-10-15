@@ -64,7 +64,10 @@ scripts/leftovers-local.sh          fails when anything of the local lab survive
 scripts/local/          kind-cluster.sh (called by terraform/envs/local)
 scripts/install-tools.sh            pinned tools into .tools/ (SHA256-verified)
 scripts/update-tool-checksums.sh    bump a tool: versions.env + checksums.txt from upstream checksums
-scripts/leftovers.sh    read-only scan for billable/orphaned lab resources after a destroy
+scripts/leftovers.sh    read-only scan for billable/orphaned lab resources after a destroy (--project)
+scripts/destroy.sh      the cloud destroy: uninstall, API cleanup of the Gateway load balancer, terraform destroy, leftovers
+scripts/preflight.sh    refuses a project that holds a cluster, a database or a secret of other work
+scripts/tests/          offline tests of the scripts above and of the local pre-flight (simulated CLIs)
 scripts/repo-guardrails.sh          repository settings via gh api (run by the maintainer, and once by every fork owner)
 scripts/lib/            shared bash helpers (common, tools, gcp, local)
 terraform/bootstrap/    APIs, state bucket, GitHub Workload Identity Federation, 3 CI service accounts + roles, budget
@@ -81,8 +84,9 @@ tools/                  versions.env and checksums.txt of the harness tools
 - Windows/macOS: open the repo in the devcontainer (it runs `make tools`). macOS without the
   devcontainer: `brew install bash`.
 - No cloud credentials are needed for anything except the cloud workflows,
-  `platform/install.sh`, `platform/uninstall.sh` and `scripts/leftovers.sh` (gcloud logged in and
-  `GCP_PROJECT_ID`; the platform scripts also need `gke-gcloud-auth-plugin` and jq).
+  `platform/install.sh`, `platform/uninstall.sh`, `scripts/destroy.sh`, `scripts/preflight.sh` and
+  `scripts/leftovers.sh` (gcloud logged in; the platform scripts read `GCP_PROJECT_ID`, the other three take
+  `--project`; the platform scripts also need `gke-gcloud-auth-plugin` and jq).
   `platform/render-manifests.sh` runs offline (the harness uses it).
 
 ## 5. Harness commands

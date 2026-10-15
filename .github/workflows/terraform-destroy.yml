@@ -1,6 +1,7 @@
 # Destroys the lab. CLOUD-MUTATING: requires the typed confirmation "destroy tx03v2-lab" and the
-# `lab` environment approval. Order: platform/uninstall.sh (if the cluster exists; the Gateway
-# load balancer and its NEGs live outside the Terraform state) -> terraform destroy ->
+# `lab` environment approval. scripts/destroy.sh runs platform/uninstall.sh (if the cluster exists;
+# the Gateway load balancer and its NEGs live outside the Terraform state), deletes through the API
+# what the controller left when the uninstall fails, runs terraform destroy and always ends with
 # scripts/leftovers.sh. Every step fails loudly; nothing is ignored. The bootstrap (APIs, state
 # bucket, CI identities, budget) stays. Not run in the cloud yet (v2).
 name: terraform-destroy
@@ -11,6 +12,11 @@ on:
       confirm:
         description: 'Type exactly: destroy tx03v2-lab'
         required: true
+        type: string
+      force_unlock_id:
+        description: 'Only after an interrupted apply or destroy: the lock ID of the Terraform error message (docs/RUNBOOK.md, section 8)'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -40,7 +46,8 @@ jobs:
       TF_VAR_region: ${{ vars.GCP_REGION }}
       TF_VAR_github_owner: ${{ github.repository_owner }}
       TF_VAR_deploy_service_account: ${{ vars.LAB_DEPLOY_SERVICE_ACCOUNT }}
-      TF_VAR_app_deployer_members: ${{ vars.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
+      # A secret, not a variable: the logs of a public repository are public, and a secret is masked.
+      TF_VAR_app_deployer_members: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
       TF_VAR_enable_waf: ${{ vars.LAB_ENABLE_WAF || 'true' }}
       TF_VAR_db_tier: ${{ vars.LAB_DB_TIER || 'db-g1-small' }}
     steps:
@@ -63,7 +70,7 @@ jobs:
           [[ "$TF_VAR_app_deployer_members" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. [\"user:you@example.com\"]")
           if ((${#problems[@]} > 0)); then
             printf '::error::Repository variable problem: %s\n' "${problems[@]}"
-            echo "::error::Settings > Secrets and variables > Actions > Variables; names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
             exit 1
           fi
           # Identifiers never reach the logs of a public repository.
@@ -71,6 +78,19 @@ jobs:
           for v in "$GCP_PROJECT_ID" "${number%%/*}" "$suffix"; do
             echo "::add-mask::$v"
           done
+
+      - name: Mask the people of the operator in the logs
+        env:
+          MEMBERS: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS }}
+        run: |
+          if [[ -n "$MEMBERS" ]]; then
+            items="$(jq -r '.[]' <<<"$MEMBERS")"
+            while IFS= read -r item; do
+              [[ -n "$item" ]] || continue
+              echo "::add-mask::$item"
+              echo "::add-mask::${item#*:}"
+            done <<<"$items"
+          fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,20 +111,14 @@ jobs:
           bash scripts/install-tools.sh terraform kubectl helm
           echo "$GITHUB_WORKSPACE/.tools/bin" >> "$GITHUB_PATH"
 
-      - name: Remove the platform layer while the cluster exists
+      # One step on purpose: the script keeps going after a failed uninstall and always ends with the
+      # leftover check (the order and the fallback are tested offline: check destroy-flow).
+      - name: Destroy the platform layer and the lab, then check for leftovers
+        env:
+          FORCE_UNLOCK_ID: ${{ inputs.force_unlock_id }}
         run: |
-          clusters="$(gcloud container clusters list --project "$GCP_PROJECT_ID" --filter="name=tx03v2-lab" --format='value(name)')"
-          if [[ "$clusters" == tx03v2-lab ]]; then
-            bash platform/uninstall.sh
-          else
-            echo "cluster tx03v2-lab not found: nothing to uninstall"
+          args=()
+          if [[ -n "$FORCE_UNLOCK_ID" ]]; then
+            args=(--force-unlock "$FORCE_UNLOCK_ID")
           fi
-
-      - name: terraform init
-        run: terraform -chdir=terraform/envs/lab init -input=false -lockfile=readonly -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="prefix=envs/lab"
-
-      - name: terraform destroy
-        run: terraform -chdir=terraform/envs/lab destroy -auto-approve -input=false -no-color
-
-      - name: Leftover check (must find nothing billable)
-        run: bash scripts/leftovers.sh --retry-for 900
+          bash scripts/destroy.sh --project "$GCP_PROJECT_ID" "${args[@]}"
