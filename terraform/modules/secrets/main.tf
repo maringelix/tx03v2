@@ -1,4 +1,4 @@
-# The two Secret Manager secrets of contract v1, replicated only in the lab region (user-managed
+# The two Secret Manager secrets of the contract, replicated only in the lab region (user-managed
 # replication). Values arrive as ephemeral values and are written only through the write-only
 # argument secret_data_wo: they never reach the plan or state. secret_data_wo_version decides when
 # a new version is sent. The apply identity writes them through roles/secretmanager.admin.

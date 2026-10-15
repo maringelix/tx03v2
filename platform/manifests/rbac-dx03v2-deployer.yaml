@@ -1,4 +1,4 @@
-# RBAC of the dx03v2 deployer (contract v1). GKE IAM has no per-cluster scope: dx03v2-gha-deploy
+# RBAC of the dx03v2 deployer (docs/CONTRATO.md). GKE IAM has no per-cluster scope: dx03v2-gha-deploy
 # and the app_deployer_members get only roles/container.clusterViewer on the project (credentials
 # and the DNS endpoint, no Kubernetes object access), so this binding (subject User = the Google
 # identity e-mail) is their only access, and only in the dx03v2 namespace.
