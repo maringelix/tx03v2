@@ -682,6 +682,36 @@ check_policy_identifiers() {
   return "$rc"
 }
 
+# Scripts act only on what the lab created (docs/GUARDRAILS.md, SEC-16): no variable of the caller's
+# shell chooses their target (a forker may have CLUSTER_NAME exported for another cluster), the cloud
+# kubeconfig is a temporary file, the cloud scripts check the label project=tx03v2 of the cluster and
+# every script of platform/local checks the kind context first.
+# shellcheck disable=SC2016 # the patterns and messages name shell expansions literally
+check_policy_scripts() {
+  local rc=0 f
+  forbid '\$\{(CLUSTER_NAME|RESOURCE_GROUP|LAB_[A-Z_]+|CONTRACT_PARAMETER)(:-|-|:=|=)' \
+    "an environment variable must never choose the target of a script of the lab" '*.sh' scripts platform || rc=1
+  while IFS= read -r f; do
+    grep -qE '^ +export KUBECONFIG="\$WORK_DIR/kubeconfig"$' "$f" || {
+      echo "$f runs gcloud container clusters get-credentials: it must export KUBECONFIG=\"\$WORK_DIR/kubeconfig\" (a temporary file) first, never write ~/.kube/config"
+      rc=1
+    }
+  done < <(grep -rl --include='*.sh' --exclude=harness.sh -e 'clusters get-credentials' scripts platform)
+  for f in platform/install.sh platform/uninstall.sh; do
+    grep -q '^  require_lab_cluster ' "$f" || {
+      echo "$f must call require_lab_cluster (label project=tx03v2) before it touches the cluster"
+      rc=1
+    }
+  done
+  for f in platform/local/install.sh platform/local/check.sh platform/local/uninstall.sh; do
+    grep -q '^  require_lab_context$' "$f" || {
+      echo "$f must call require_lab_context (only the kind context of the lab) before any kubectl"
+      rc=1
+    }
+  done
+  return "$rc"
+}
+
 check_tflint() {
   need tflint
   [[ -d "$TFLINT_PLUGIN_DIR/github.com/terraform-linters/tflint-ruleset-google" ]] || skip "tflint-ruleset-google is not installed (run: make tools)"
@@ -1006,8 +1036,8 @@ check_contract_parameter() {
     rc=1
   }
   # shellcheck disable=SC2016 # literal shell expansions of scripts/lib/gcp.sh
-  if ! grep -qE '^CONTRACT_PARAMETER="\$\{CONTRACT_PARAMETER:-\$LAB_NAME-contract\}"$' scripts/lib/gcp.sh ||
-    ! grep -qE '^LAB_NAME="\$\{LAB_NAME:-tx03v2-lab\}"$' scripts/lib/gcp.sh; then
+  if ! grep -qE '^CONTRACT_PARAMETER=\$LAB_NAME-contract$' scripts/lib/gcp.sh ||
+    ! grep -qE '^LAB_NAME=tx03v2-lab$' scripts/lib/gcp.sh; then
     echo "scripts/lib/gcp.sh must read the parameter tx03v2-lab-contract"
     rc=1
   fi
@@ -1291,6 +1321,7 @@ register_checks() {
   register static policy-labels check_policy_labels
   register static policy-identifiers check_policy_identifiers
   register static policy-workflows check_policy_workflows
+  register static policy-scripts check_policy_scripts
   register static trivyignore-policy check_trivyignore_policy
   register static contract-platform check_contract_platform
   register static contract-parameter check_contract_parameter

@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- Scripts act only on what the lab created, so whoever forks it can run them on a machine and a
+  project that also hold other work:
+  - `platform/uninstall.sh` no longer reads `CLUSTER_NAME` from the environment, and
+    `scripts/lib/gcp.sh` no longer reads `LAB_PROJECT`, `LAB_NAME` or `CONTRACT_PARAMETER`: the target
+    is the contract cluster `tx03v2-lab`, and the platform scripts refuse a cluster without the label
+    `project=tx03v2` (`require_lab_cluster`).
+  - The output `get_credentials_command` writes the kubeconfig of the lab to its own file
+    (`/tmp/tx03v2-lab.kubeconfig`): `~/.kube/config` and its current context stay as they were.
+  - The scripts of `platform/local` refuse any kube context but `kind-tx03v2-local`
+    (`require_lab_context`), also when one of them runs on its own: `platform/local/uninstall.sh`
+    deletes every Gateway and LoadBalancer Service of the cluster it reaches.
+  - New static check `policy-scripts` keeps all of this from coming back.
 - `github_owner` has no default any more (`terraform/bootstrap` and `terraform/envs/lab`): a fork that
   kept the default would have created CI identities that trust the workflows of another owner. The
   bootstrap refuses the placeholders of `terraform.tfvars.example` (`your-github-user` and the alert
