@@ -1,8 +1,10 @@
 # Monthly budget of the lab project (use a dedicated project). The amount is in the currency of the
 # billing account: currency_code is omitted on purpose (it must match the billing account).
-# Alerts at 50/90/100 % of the current spend and 100 % of the forecast go to the billing account
-# administrators and users (disable_default_iam_recipients = false) and, optionally, to the
-# e-mail notification channels of budget_alert_emails. A budget never stops spending.
+# Alerts at 50/90/100 % of the current spend and 100 % of the forecast go to the e-mail
+# notification channels of budget_alert_emails (required: someone you name reads them) and to the
+# billing account administrators and users (disable_default_iam_recipients = false). A budget never
+# stops spending. Credits are not subtracted (EXCLUDE_ALL_CREDITS): the free-trial credits would
+# keep the counted spend at zero and the alert would never come, although the credits end.
 resource "google_monitoring_notification_channel" "budget" {
   for_each = toset(var.budget_alert_emails)
 
@@ -29,8 +31,9 @@ resource "google_billing_budget" "monthly" {
   display_name    = "${local.lab_name}-monthly"
 
   budget_filter {
-    projects        = ["projects/${local.project_number}"]
-    calendar_period = "MONTH"
+    projects               = ["projects/${local.project_number}"]
+    calendar_period        = "MONTH"
+    credit_types_treatment = "EXCLUDE_ALL_CREDITS"
   }
 
   amount {

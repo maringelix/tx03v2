@@ -23,9 +23,12 @@ The rules, where each one is enforced and the known limits are in
   shellcheck, kubeconform and policy checks that block real identifiers, unpinned actions and the
   regressions found in v1.
 - GitHub Actions reach Google Cloud only through Workload Identity Federation: the provider of the
-  pool `tx03v2-github` accepts tokens of the two lab repositories only, and each CI service account
-  can be impersonated by one exact subject per grant. There are no service account keys anywhere
-  (the harness refuses `google_service_account_key` and `credentials_json`).
+  pool `tx03v2-github` accepts tokens of the two lab repositories only, by the numeric IDs of the
+  owner and of the repositories (a deleted and re-registered account name does not inherit the lab),
+  and each CI service account can be impersonated by one exact, immutable subject per grant
+  (`repo:<owner>@<id>/<repository>@<id>:...`). There are no service account keys anywhere (the harness
+  refuses `google_service_account_key` and `credentials_json`). The list of people who deploy from a
+  laptop is a repository secret, masked element by element in the logs.
 - The CI service accounts have roles only in the dedicated lab project. The apply identity may grant
   project roles only from a fixed list of three (an IAM condition on `modifiedGrantsByRole`);
   `roles/owner` is never granted and nothing is granted above the project.
@@ -50,7 +53,8 @@ roles of Kubernetes Engine, Secret Manager, Artifact Registry and Parameter Mana
 Account User); the IAM condition limits only project-level grants. The plan identity can read the
 project configuration, its IAM policies and the (non-secret) contract parameter; its subjects accept
 only pull requests of this repository and `main`, and fork pull requests never get a token. Use a
-**dedicated project** and keep the `lab` environment protected. The project ID and number live in
+**dedicated project** (`scripts/preflight.sh` refuses one that holds a cluster, a database or a
+secret of other work) and keep the `lab` environment protected. The project ID and number live in
 repository variables; the workflows mask them, but treat the logs as public. The DNS endpoint of the
 cluster is reachable from the internet (IAM and RBAC still apply), and the Gateway serves plain HTTP
 until HTTPS is added (`planned`). See the "Limites" section of docs/GUARDRAILS.md.

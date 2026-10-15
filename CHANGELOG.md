@@ -16,6 +16,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- The cloud path no longer trusts anyone who registers a deleted account name, it works for the
+  repositories GitHub creates now, and the project must be the lab's own (roadmap R3.13 to R3.17):
+  - The Workload Identity provider condition checks `repository_owner_id` and `repository_id`, and the
+    grants pin the immutable subject, `repo:<owner>@<owner id>/<repository>@<repository id>:<context>`,
+    which every repository created after 2026-07-15 (a fork too) emits; the name-based subject no
+    longer matched them. New bootstrap variables `github_owner_id`, `tx03v2_repository_id` and
+    `dx03v2_repository_id` (the `gh api` commands are in `docs/RUNBOOK.md`).
+  - `scripts/repo-guardrails.sh` (same file in the six lab repositories) fails, instead of skipping,
+    when it cannot protect the environment `lab`; it leaves only `main` in it, reads it back, fails
+    when the OIDC subject of the repository is name-based and refuses an argument that is not the
+    repository of the clone.
+  - `scripts/preflight.sh --project <id>` refuses a project that holds a GKE cluster, a Cloud SQL
+    instance or a secret that is not the lab's; `terraform-apply` runs it first (the apply identity
+    has Editor on the whole project). New check `preflight-flow`. Narrowing the apply roles to
+    `tx03v2-lab-*` resources was not done (it needs IAM conditions that cannot be validated without a
+    cloud): `docs/GUARDRAILS.md`, "Limites".
+  - `LAB_APP_DEPLOYER_MEMBERS` is a secret, masked element by element in every cloud workflow; the plan
+    summary and artifact replace the members (`<MEMBER>`, `<EMAIL>`). `policy-workflows` enforces it.
+  - `scripts/leftovers.sh --project <id>` names the project in every `gcloud` call and counts as
+    leftover only what is the lab's (label `project=tx03v2`, name `tx03v2-lab*`, network `tx03v2-lab`,
+    load balancer pieces of the namespace `dx03v2`): the same kinds of resource of other work are INFO
+    "(not the lab's)". New check `leftovers-flow` runs it against a simulated project that also holds
+    other work.
 - Scripts act only on what the lab created, so whoever forks it can run them on a machine and a
   project that also hold other work:
   - `platform/uninstall.sh` no longer reads `CLUSTER_NAME` from the environment, and
@@ -61,6 +84,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `scripts/destroy.sh` (roadmap R3.14), run by `terraform-destroy`: when the platform uninstall fails
+  the pieces of the Gateway load balancer that the controller left (forwarding rules, proxies, URL
+  maps, backend services, health checks, NEGs, firewall rules of the lab, by name and network) are
+  deleted through the API, `terraform destroy` still runs and the leftover check always ends the run.
+  The workflow has an optional `force_unlock_id` input for the lock of an interrupted apply, and
+  `docs/RUNBOOK.md` documents the recovery. New check `destroy-flow` (simulated `gcloud`,
+  `terraform`, `kubectl`, `helm`).
+- Pre-flight of `scripts/local-lab.sh up` (roadmap R3.18), also as `scripts/local-lab.sh preflight`:
+  the Docker CLI and the Terraform provider must talk to the same daemon, the lab network must not
+  overlap a Docker network or a route of the machine, the registry port must be free. `down` and `e2e`
+  refuse a lab that their state directory did not create, and `e2e` refuses a lab that is already up
+  (it would destroy it). `make clean` removes things only under the directory of the Makefile. New
+  check `local-preflight`. The budget does not subtract credits (`EXCLUDE_ALL_CREDITS`) and
+  `budget_alert_emails` is required; the runbook recommends a gcloud configuration directory of the
+  lab's own (`CLOUDSDK_CONFIG`).
 - `LOCAL_SIZE=small` for the local platform (roadmap R1.8, the port of tx01v2):
   `platform/local/values/small/<chart>.yaml` goes last in `helm_install`, with smaller memory limits
   and `GOMEMLIMIT` below them, 2 h of retention in Prometheus and 1 h in Tempo, no cAdvisor, kubelet

@@ -34,7 +34,8 @@ jobs:
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: ${{ vars.GCP_REGION }}
-      APP_DEPLOYER_MEMBERS: ${{ vars.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
+      # A secret, not a variable: the logs of a public repository are public, and a secret is masked.
+      APP_DEPLOYER_MEMBERS: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
     steps:
       - name: Check repository variables
         env:
@@ -49,7 +50,7 @@ jobs:
           [[ "$APP_DEPLOYER_MEMBERS" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. []")
           if ((${#problems[@]} > 0)); then
             printf '::error::Repository variable problem: %s\n' "${problems[@]}"
-            echo "::error::Settings > Secrets and variables > Actions > Variables; names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
             exit 1
           fi
           # Identifiers never reach the logs of a public repository.
@@ -57,6 +58,19 @@ jobs:
           for v in "$GCP_PROJECT_ID" "${number%%/*}"; do
             echo "::add-mask::$v"
           done
+
+      - name: Mask the people of the operator in the logs
+        env:
+          MEMBERS: ${{ env.APP_DEPLOYER_MEMBERS }}
+        run: |
+          if [[ -n "$MEMBERS" ]]; then
+            items="$(jq -r '.[]' <<<"$MEMBERS")"
+            while IFS= read -r item; do
+              [[ -n "$item" ]] || continue
+              echo "::add-mask::$item"
+              echo "::add-mask::${item#*:}"
+            done <<<"$items"
+          fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

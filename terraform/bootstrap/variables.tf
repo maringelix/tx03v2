@@ -34,6 +34,36 @@ variable "github_owner" {
   }
 }
 
+variable "github_owner_id" {
+  description = "Numeric GitHub ID of github_owner (gh api users/<owner> --jq .id; it works for organizations too). GitHub writes it, and the ID of the repository, into the OIDC subject of every repository created after 2026-07-15 (immutable subject claims). The provider condition and the subjects pin both, so a deleted and re-registered account name does not inherit the lab."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]{0,15}$", var.github_owner_id))
+    error_message = "The github_owner_id must be the numeric GitHub ID of the owner: gh api users/<owner> --jq .id"
+  }
+}
+
+variable "tx03v2_repository_id" {
+  description = "Numeric GitHub ID of your tx03v2 repository (gh api repos/<owner>/tx03v2 --jq .id)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]{0,15}$", var.tx03v2_repository_id))
+    error_message = "The tx03v2_repository_id must be the numeric ID of the repository: gh api repos/<owner>/tx03v2 --jq .id"
+  }
+}
+
+variable "dx03v2_repository_id" {
+  description = "Numeric GitHub ID of your dx03v2 repository (gh api repos/<owner>/dx03v2 --jq .id)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]{0,15}$", var.dx03v2_repository_id))
+    error_message = "The dx03v2_repository_id must be the numeric ID of the repository: gh api repos/<owner>/dx03v2 --jq .id"
+  }
+}
+
 variable "billing_account" {
   description = "Billing account linked to the project (gcloud billing projects describe <project> --format='value(billingAccountName)'), without the billingAccounts/ prefix."
   type        = string
@@ -56,13 +86,12 @@ variable "budget_amount" {
 }
 
 variable "budget_alert_emails" {
-  description = "Extra e-mail addresses that receive the budget alerts through monitoring notification channels (0-10). The billing account administrators and users always receive them."
+  description = "E-mail addresses that receive the budget alerts through monitoring notification channels (1-10), named explicitly: a budget never stops spending, so someone you name must read the alert. The billing account administrators and users receive them as well."
   type        = list(string)
-  default     = []
 
   validation {
-    condition     = length(var.budget_alert_emails) <= 10
-    error_message = "Set at most 10 addresses in budget_alert_emails."
+    condition     = length(var.budget_alert_emails) >= 1 && length(var.budget_alert_emails) <= 10
+    error_message = "Set between 1 and 10 addresses in budget_alert_emails: the alert of a budget must reach someone you name."
   }
 
   validation {
@@ -72,7 +101,7 @@ variable "budget_alert_emails" {
 
   validation {
     condition     = !contains([for e in var.budget_alert_emails : lower(e)], "you@example.com")
-    error_message = "Replace the placeholder you@example.com of terraform.tfvars.example with an address you read, or leave the list empty (the billing account administrators always get the alerts)."
+    error_message = "Replace the placeholder you@example.com of terraform.tfvars.example with an address you read."
   }
 }
 

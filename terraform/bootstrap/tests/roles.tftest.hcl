@@ -8,9 +8,13 @@ mock_provider "google" {
 }
 
 variables {
-  github_owner    = "maringelix"
-  project_id      = "tx03v2-lab-example"
-  billing_account = "000000-000000-000000"
+  github_owner         = "maringelix"
+  github_owner_id      = "1000000"
+  tx03v2_repository_id = "2000000"
+  dx03v2_repository_id = "3000000"
+  project_id           = "tx03v2-lab-example"
+  billing_account      = "000000-000000-000000"
+  budget_alert_emails  = ["lab-alerts@example.org"]
 }
 
 override_resource {

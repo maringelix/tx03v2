@@ -22,7 +22,7 @@ GitHub copies the code and its history, nothing else:
 | Running workflows: a fork keeps its workflows disabled until you enable them, and scheduled workflows stay off in a fork | step 2 |
 | Issues: they start disabled in a fork | step 3 turns them on (the bug report and cloud run report forms) |
 | Dependabot: security updates start disabled; version updates do not run in a fork by default | step 3 turns security updates on; version bumps arrive when you sync (step 9) |
-| Repository variables and secrets | the lab never needs a secret; the cloud path needs variables (step 7) |
+| Repository variables and secrets | the lab never needs a secret; the cloud path needs variables and, if people deploy from a laptop, one secret (step 7) |
 
 A fork of a public repository is public, and so are its workflow logs.
 
@@ -31,7 +31,8 @@ A fork of a public repository is public, and so are its workflow logs.
 Fork both [`maringelix/tx03v2`](https://github.com/maringelix/tx03v2) and
 [`maringelix/dx03v2`](https://github.com/maringelix/dx03v2) into your **personal account** and **keep
 the names**: the Workload Identity Federation that the bootstrap creates trusts exactly
-`<you>/tx03v2` and `<you>/dx03v2`. Clone both next to each other:
+`<you>/tx03v2` and `<you>/dx03v2`, by the numeric IDs GitHub gave them (step 7). Clone both next to
+each other:
 
 ```bash
 git clone https://github.com/<you>/tx03v2.git
@@ -119,15 +120,28 @@ Before the first apply:
 - Use a **dedicated project** with billing linked, where you are **Owner**, plus a role on the
   billing account that can create budgets (Owner of the project is not enough), the Google Cloud CLI
   with `gke-gcloud-auth-plugin`, and `jq` ([docs/RUNBOOK.md](docs/RUNBOOK.md), section 1).
+- Give the lab its own gcloud configuration directory before you log in:
+  `export CLOUDSDK_CONFIG="$HOME/.config/gcloud-tx03v2"`. `gcloud auth application-default login`
+  overwrites the Application Default Credentials of your machine, and the scripts use whatever
+  account and project gcloud has active.
 
 Then, from the root of your `tx03v2` clone:
 
 1. **Bootstrap** (once, from your machine, as Owner): `gcloud auth login` and
    `gcloud auth application-default login`; copy `terraform/bootstrap/terraform.tfvars.example` to
    `terraform.tfvars` (git-ignored) and set `project_id`, `billing_account`, `github_owner` (your
-   GitHub user) and `budget_alert_emails` (addresses you read, or an empty list: the billing account
-   administrators always get the alerts). `github_owner` has no default and the placeholders are
-   refused, so the service accounts can only trust your forks.
+   GitHub user) and `budget_alert_emails` (at least one address you read; the billing account
+   administrators get the alerts as well, and trial credits are not subtracted, so the alert does not
+   stay silent while credits last). `github_owner` has no default and the placeholders are refused,
+   so the service accounts can only trust your forks. Set the three numeric GitHub IDs too
+   (`github_owner_id`, `tx03v2_repository_id`, `dx03v2_repository_id`): GitHub writes them into the
+   OIDC subject of every repository created after 2026-07-15 (your fork), and the provider condition
+   and the subjects trust exactly those. `scripts/repo-guardrails.sh` prints them, or:
+   `gh api users/<you> --jq .id`, `gh api repos/<you>/tx03v2 --jq .id`,
+   `gh api repos/<you>/dx03v2 --jq .id`. A repository that predates 2026-07-15 must opt in to
+   immutable subject claims first (Settings > Actions > General > OpenID Connect). Before the
+   bootstrap, `scripts/preflight.sh --project <id>` must pass: it refuses a project that holds a
+   cluster, a database or a secret of other work.
 
    ```bash
    export PATH="$PWD/.tools/bin:$PATH"   # terraform and kubectl from make tools
@@ -146,9 +160,12 @@ Then, from the root of your `tx03v2` clone:
    gh variable set -f /tmp/dx03v2.env -R <you>/dx03v2
    ```
 
-   The optional ones (`LAB_APP_DEPLOYER_MEMBERS`, `LAB_ENABLE_WAF`, `LAB_DB_TIER`) are in
-   [docs/RUNBOOK.md](docs/RUNBOOK.md), section 3. Variables are not secret: never put a credential in
-   one.
+   The optional ones (`LAB_ENABLE_WAF`, `LAB_DB_TIER`) are in [docs/RUNBOOK.md](docs/RUNBOOK.md),
+   section 3. The list of people who deploy from a laptop is a **secret**, not a variable (the logs of
+   a public repository are public, and a secret is masked):
+   `gh secret set LAB_APP_DEPLOYER_MEMBERS -R <you>/tx03v2` with a JSON list such as
+   `["user:you@example.com"]`. Variables are not secret: never put a credential or an address of
+   yours in one.
 3. **Run**: from the Actions tab, `terraform-plan`, `terraform-apply` and `platform` (each one waits
    for your approval of the `lab` environment), the app deploy from your `dx03v2`, the smoke test,
    then `terraform-destroy`, which ends with the leftover check: [docs/RUNBOOK.md](docs/RUNBOOK.md),
@@ -179,7 +196,9 @@ request. Run `scripts/repo-guardrails.sh` again when `.github/rulesets/main.json
 | `make e2e` gets killed or Docker freezes | give Docker about 8 GB of memory (Docker Desktop on WSL 2: `memory=8GB` under `[wsl2]` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`) and run one lab at a time; with 7 GB, `LOCAL_SIZE=small make local-up`; with less memory, `LOCAL_PROFILE=core make e2e` proves the base layers |
 | Port 5003 is already in use | another local lab or registry is running: `make local-down`, `docker ps` |
 | Something of the local lab is left after an interruption | `make local-down` (destroy and leftover check) |
-| Bootstrap: `Set github_owner ...` or `Replace the placeholder ...` | put your values in `terraform/bootstrap/terraform.tfvars` |
+| Bootstrap: `Set github_owner ...`, `Replace the placeholder ...` or a numeric ID is refused | put your values in `terraform/bootstrap/terraform.tfvars` (the IDs: step 7) |
+| `scripts/preflight.sh` refuses the project | it holds a cluster, a database or a secret that is not the lab's: use a project of its own ([docs/RUNBOOK.md](docs/RUNBOOK.md), section 1) |
+| `scripts/local-lab.sh` refuses to start (pre-flight) | its message names the cause: another Docker daemon than the provider's, a network or a route (VPN) that overlaps the lab network, a taken registry port or a lab of another `LOCAL_STATE_DIR`; each one says which variable to set |
 | Bootstrap: `SERVICE_DISABLED` right after the APIs were enabled | wait a few minutes and run `terraform apply` again |
 | Bootstrap: the budget cannot be created | your user needs a role on the billing account ([docs/RUNBOOK.md](docs/RUNBOOK.md), section 1) |
 

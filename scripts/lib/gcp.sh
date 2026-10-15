@@ -15,6 +15,11 @@ PROJECT_RE='^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
 # shellcheck disable=SC2034
 REGION_RE='^[a-z]+-[a-z]+[0-9]+$'
 EMAIL_RE='^[a-z0-9][a-z0-9._%+-]*@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$'
+# The GKE Gateway controller names what it creates outside the Terraform state after the namespace of
+# the app: gkegw1-<hash>-dx03v2-<gateway>-<hash> (forwarding rule, proxy, URL map, backend service,
+# health check), k8s1-<hash>-dx03v2-<service>-<port>-<hash> (network endpoint group).
+LAB_APP_NAMESPACE=dx03v2
+CONTROLLER_RE="^(gkegw1|gkemcg1|k8s1|k8s2)-.*$LAB_APP_NAMESPACE"
 declare -gA CONTRACT=()
 
 # mask VALUE -> hides an identifier (project ID or number, e-mail) in GitHub Actions logs, which
@@ -110,4 +115,68 @@ emails_from_members() {
 # lines -> drops empty lines from gcloud value() output.
 lines() {
   sed -e '/^[[:space:]]*$/d'
+}
+
+# controller_owned NAME HOME -> success when the resource is a load balancer piece that the GKE
+# controllers created for the lab: a name that carries the namespace of the app (CONTROLLER_RE), or a
+# firewall rule of the controllers in the network of the lab. HOME is the network, or the cluster, the
+# resource belongs to ("" when it has none).
+controller_owned() {
+  [[ "$1" =~ $CONTROLLER_RE ]] && return 0
+  [[ "$2" == "$LAB_NAME" && "$1" =~ ^(gkegw1-|gkemcg1-|k8s1-|k8s2-|k8s-) ]]
+}
+
+# lab_resource NAME PROJECT_LABEL HOME -> success when a resource is the lab's, and only then: it
+# carries the label project=tx03v2 (the provider puts it on everything that takes labels, and GKE
+# copies the labels of the cluster to its disks), is named tx03v2-lab* (or gke-tx03v2-lab*, the
+# firewall rules of the cluster), lives in the network of the lab, or is a piece of the load balancer
+# the GKE controllers created for it. Everything else belongs to other work in the same project.
+lab_resource() {
+  local name=$1 label=$2 home=$3
+  [[ "$label" == "$LAB_PROJECT" || "$home" == "$LAB_NAME" ]] && return 0
+  [[ "$name" == "$LAB_NAME"* || "$name" == "gke-$LAB_NAME"* ]] && return 0
+  controller_owned "$name" "$home"
+}
+
+# controller_leftovers PROJECT -> one "KIND NAME SCOPE" line per piece of the load balancer that the
+# GKE controllers created for the lab and that still exists, in an order in which they can be deleted
+# (a piece goes before what it refers to). KIND is the `gcloud compute` command group; SCOPE is
+# global, a region or (network endpoint groups) a zone. Fails when a list fails: an API error is
+# never read as "nothing left".
+controller_leftovers() {
+  local project=$1 kind key out name scope home
+  for kind in forwarding-rules target-http-proxies target-https-proxies url-maps backend-services \
+    health-checks network-endpoint-groups firewall-rules; do
+    key='region.basename()'
+    [[ "$kind" != network-endpoint-groups ]] || key='zone.basename()'
+    out="$(gcloud compute "$kind" list --project "$project" --quiet \
+      --format="value[separator=\"|\"](name,$key,network.basename())")" || return 1
+    while IFS='|' read -r name scope home; do
+      if [[ -n "$name" ]] && controller_owned "$name" "$home"; then
+        printf '%s %s %s\n' "$kind" "$name" "${scope:-global}"
+      fi
+    done <<<"$out"
+  done
+}
+
+# delete_controller_resources PROJECT -> deletes through the Google Cloud API what controller_leftovers
+# lists (the controllers could not: the cluster API was unreachable, or the controller stopped). Only
+# the pieces of the lab, by name and network; nothing else of the project is read as a target.
+delete_controller_resources() {
+  local project=$1 pieces kind name scope rc=0
+  local -a where=()
+  pieces="$(controller_leftovers "$project")" || die "cannot list the load balancer pieces of the project"
+  while read -r kind name scope; do
+    [[ -n "$kind" ]] || continue
+    case "$kind" in
+      network-endpoint-groups) where=(--zone "$scope") ;;
+      firewall-rules) where=() ;;
+      *)
+        if [[ "$scope" == global ]]; then where=(--global); else where=(--region "$scope"); fi
+        ;;
+    esac
+    log "deleting $kind $name ($scope)"
+    gcloud compute "$kind" delete "$name" "${where[@]}" --project "$project" --quiet || rc=1
+  done <<<"$pieces"
+  return "$rc"
 }
