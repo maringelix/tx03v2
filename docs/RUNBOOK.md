@@ -226,6 +226,8 @@ Dispare `terraform-destroy` com a confirmação `destroy tx03v2-lab` e aprove o 
 job roda `platform/uninstall.sh` se o cluster existir (apaga o namespace `dx03v2`, espera o finalizer
 do Gateway e o sumiço dos NEGs do app, até 900 s cada, e desinstala o ESO), `terraform destroy` e
 `scripts/leftovers.sh --retry-for 900`. Qualquer erro para o job: leia o log, corrija e rode de novo.
+O `platform/uninstall.sh` só age no cluster `tx03v2-lab` com o label `project=tx03v2`; nenhuma
+variável de ambiente (`CLUSTER_NAME`, por exemplo) muda o alvo, e o kubeconfig dele é temporário.
 Localmente:
 
 ```bash

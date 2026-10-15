@@ -110,8 +110,8 @@ run "contract_keys_in_the_parameter" {
   }
 
   assert {
-    condition     = output.get_credentials_command == "gcloud container clusters get-credentials tx03v2-lab --location us-central1 --project tx03v2-lab-example --dns-endpoint"
-    error_message = "get_credentials_command must use the DNS-based endpoint (the IP endpoint is private)."
+    condition     = output.get_credentials_command == "KUBECONFIG=/tmp/tx03v2-lab.kubeconfig gcloud container clusters get-credentials tx03v2-lab --location us-central1 --project tx03v2-lab-example --dns-endpoint"
+    error_message = "get_credentials_command must use the DNS-based endpoint (the IP endpoint is private) and write the kubeconfig to its own file (~/.kube/config is never touched)."
   }
 
   assert {

@@ -16,8 +16,8 @@ output "cluster_name" {
 }
 
 output "get_credentials_command" {
-  description = "Writes a kubeconfig entry for the DNS-based endpoint of the cluster (IAM-authenticated; needs gke-gcloud-auth-plugin)."
-  value       = "gcloud container clusters get-credentials ${module.gke.cluster_name} --location ${var.region} --project ${var.project_id} --dns-endpoint"
+  description = "Writes the kubeconfig of the DNS-based endpoint of the cluster (IAM-authenticated; needs gke-gcloud-auth-plugin) to its own file; ~/.kube/config and its current context stay untouched. Then: export KUBECONFIG=/tmp/tx03v2-lab.kubeconfig"
+  value       = "KUBECONFIG=/tmp/${module.gke.cluster_name}.kubeconfig gcloud container clusters get-credentials ${module.gke.cluster_name} --location ${var.region} --project ${var.project_id} --dns-endpoint"
 }
 
 output "contract_parameter" {

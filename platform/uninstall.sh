@@ -8,8 +8,10 @@
 #      dx03v2 is left in the project (read-only gcloud polling; fails loudly on timeout);
 #   3. uninstalls the OpenTelemetry Collector and the External Secrets Operator releases.
 # CLOUD-MUTATING. Fails loudly on any error or timeout. Needs the same tools as platform/install.sh.
-# GCP_PROJECT_ID is required; REGION and CLUSTER_NAME default to us-central1 and the contract name
-# (tx03v2-lab): the teardown does not depend on the contract parameter.
+# GCP_PROJECT_ID is required; REGION defaults to us-central1. The cluster is the contract name
+# (tx03v2-lab), so the teardown does not depend on the contract parameter; no environment variable
+# changes it (a shell may export CLUSTER_NAME for other work), and the cluster must carry the label
+# project=tx03v2. The kubeconfig is temporary: ~/.kube/config and its current context stay as they were.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +22,7 @@ source "$REPO_ROOT/scripts/lib/gcp.sh"
 export PATH="$REPO_ROOT/.tools/bin:$PATH"
 
 REGION="${REGION:-$LAB_REGION_DEFAULT}"
-CLUSTER_NAME="${CLUSTER_NAME:-$LAB_NAME}"
+CLUSTER_NAME=$LAB_NAME
 APP_NAMESPACE=dx03v2
 NAMESPACE_WAIT_SECONDS="${NAMESPACE_WAIT_SECONDS:-900}"
 NEG_WAIT_SECONDS="${NEG_WAIT_SECONDS:-900}"
@@ -86,6 +88,7 @@ main() {
   require_gcloud_login
   project="$(lab_project)"
   mask "$project"
+  require_lab_cluster "$project" "$REGION" "$CLUSTER_NAME"
   WORK_DIR="$(mktemp -d)"
   trap cleanup EXIT
 

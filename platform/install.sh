@@ -18,7 +18,9 @@
 #   APP_DEPLOYER_MEMBERS  JSON list of extra deployers (the Terraform variable app_deployer_members,
 #                         e.g. ["user:you@example.com"]), default []; they become RoleBinding
 #                         subjects by e-mail, without the user:/serviceAccount: prefix
-# Re-running it upgrades in place.
+# Re-running it upgrades in place. It installs only on the contract cluster tx03v2-lab, and only when
+# that cluster carries the label project=tx03v2; the kubeconfig is a temporary file (~/.kube/config
+# and its current context stay as they were).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -127,6 +129,8 @@ main() {
   region="$(contract region)"
   [[ "$region" =~ $REGION_RE ]] || die "contract key region is not a Google Cloud region"
   cluster="$(contract cluster-name)"
+  [[ "$cluster" == "$LAB_NAME" ]] || die "contract key cluster-name is '$cluster', not $LAB_NAME"
+  require_lab_cluster "$project" "$region" "$cluster"
   store="$(contract eso/cluster-secret-store)"
   [[ "$store" == "$SECRET_STORE" ]] ||
     die "contract key eso/cluster-secret-store is '$store' but platform/manifests creates $SECRET_STORE"
