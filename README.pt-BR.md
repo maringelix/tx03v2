@@ -119,6 +119,7 @@ quebrar sem conta (status acima: a rodada de ponta a ponta está `verificado no 
 ```bash
 make e2e            # up + todas as sondas + down: 30 a 40 minutos no tx01v2, 8 GB de memória no Docker para "full"
 make local-up       # ou deixe rodando (LOCAL_PROFILE=core|observability|operations|full)
+LOCAL_SIZE=small make local-up   # a mesma plataforma com limites menores, para 7 GB de memória no Docker
 make local-check    # sondas contra o lab rodando
 make local-down     # destroy + checagem de sobras
 ```
