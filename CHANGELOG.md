@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The External Secrets webhook of the local lab timed out (`context deadline exceeded`) because the
+  local values kept the CPU limits that Autopilot needs (50m on the webhook and the cert controller,
+  100m on the controller). The local values drop the resources of the webhook and the cert controller
+  with `null`, as in tx01v2 and tx02v2, and give the controller a 1-CPU ceiling: Helm keeps a nested
+  `null` that the chart does not default, which would render `cpu: null` (roadmap R1.10).
+
 ### Security
 
 - Scripts act only on what the lab created, so whoever forks it can run them on a machine and a
@@ -28,6 +36,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Comments, script messages and docs say "the contract" or point to `docs/CONTRATO.md` instead of
+  "contract v1": the contract has been at version 2 since round 1 (roadmap S.8); the README says that HTTPS on the Gateway is outside contract v2.
 - The family table of both READMEs links the family hub `tx00v2` (roadmap, family guardrails,
   cross-repo checks).
 - `docs/GUARDRAILS.md`, `docs/ARQUITETURA.md` and `docs/CONTRATO.md` no longer say that the
