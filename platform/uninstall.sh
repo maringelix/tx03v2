@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Removes the platform layer before `terraform destroy`:
-#   1. deletes the namespace dx03v2 (Gateway, HTTPRoutes, HealthCheckPolicies, GCPBackendPolicies,
+#   1. stops the Argo CD app-of-apps and app Application so self-heal cannot recreate the Gateway;
+#   2. deletes the namespace dx03v2 (Gateway, HTTPRoutes, HealthCheckPolicies, GCPBackendPolicies,
 #      Services): the GKE Gateway controller then deletes the load balancer it created outside the
 #      Terraform state (forwarding rule, target proxy, URL map, backend services, health checks,
 #      NEGs) and removes the Gateway finalizer, so the cluster must still be running;
-#   2. waits until the namespace is gone and until no network endpoint group whose name contains
+#   3. waits until the namespace is gone and until no network endpoint group whose name contains
 #      dx03v2 is left in the project (read-only gcloud polling; fails loudly on timeout);
-#   3. uninstalls the OpenTelemetry Collector and the External Secrets Operator releases.
+#   4. uninstalls the OpenTelemetry Collector and the External Secrets Operator releases. Full-profile
+#      charts are removed with the cluster by terraform destroy; Velero backups must be emptied first.
 # CLOUD-MUTATING. Fails loudly on any error or timeout. Needs the same tools as platform/install.sh.
 # GCP_PROJECT_ID is required; REGION defaults to us-central1. The cluster is the contract name
 # (tx03v2-lab), so the teardown does not depend on the contract parameter; no environment variable
@@ -58,6 +60,15 @@ delete_app_namespace() {
   log "namespace $APP_NAMESPACE deleted"
 }
 
+stop_gitops() {
+  local crd
+  crd="$(kubectl get crd applications.argoproj.io --ignore-not-found -o name)" || die "cannot query the Argo CD Application CRD"
+  [[ -n "$crd" ]] || return 0
+  # Remove the parent first: it owns platform/gitops and would otherwise recreate the child app.
+  kubectl -n argocd delete application platform --ignore-not-found --wait=false
+  kubectl -n argocd delete application dx03v2 --ignore-not-found --wait=false
+}
+
 # app_negs PROJECT -> network endpoint groups (zonal NEGs of the Gateway controller, k8s1-*) whose
 # name contains dx03v2, one "name zone" per line.
 app_negs() {
@@ -98,6 +109,7 @@ main() {
   kubectl get --raw /readyz >/dev/null ||
     die "the DNS endpoint of $CLUSTER_NAME does not answer, or this identity has no Kubernetes access"
 
+  stop_gitops
   delete_app_namespace
   wait_for_negs "$project"
 

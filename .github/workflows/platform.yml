@@ -1,8 +1,8 @@
-# Installs (or removes) the platform layer on the lab cluster: External Secrets Operator and
-# platform/manifests (namespace dx03v2, deployer RBAC, ClusterSecretStore). The GKE Gateway
-# controller is managed by Google. CLOUD-MUTATING: dispatch manually after terraform-apply. Runs as
-# tx03v2-gha-apply (roles/container.admin) through the IAM-only DNS endpoint of the cluster, so
-# GitHub-hosted runners need no IP allowlist. Not run in the cloud yet (v2).
+# Installs (or removes) the platform layer on the lab cluster. The optional full profile adds the
+# pinned charts in platform/full/charts.txt and GitOps; the core profile stays the default. The GKE
+# Gateway controller is managed by Google. CLOUD-MUTATING: dispatch manually after terraform-apply.
+# Runs as tx03v2-gha-apply (roles/container.admin) through the IAM-only DNS endpoint. Not run in the
+# cloud yet (v2).
 name: platform
 
 on:
@@ -15,6 +15,13 @@ on:
           - install
           - uninstall
         default: install
+      profile:
+        description: core or full (full installs the optional cloud platform charts)
+        type: choice
+        options:
+          - core
+          - full
+        default: core
 
 permissions:
   contents: read
@@ -36,6 +43,8 @@ jobs:
       REGION: ${{ vars.GCP_REGION }}
       # A secret, not a variable: the logs of a public repository are public, and a secret is masked.
       APP_DEPLOYER_MEMBERS: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      PROFILE: ${{ inputs.profile }}
     steps:
       - name: Check repository variables
         env:
@@ -94,7 +103,7 @@ jobs:
           ACTION: ${{ inputs.action }}
         run: |
           case "$ACTION" in
-            install) bash platform/install.sh ;;
+            install) bash platform/install.sh --profile "$PROFILE" --github-owner "$GITHUB_REPOSITORY_OWNER" ;;
             uninstall) bash platform/uninstall.sh ;;
             *) echo "::error::unknown action: $ACTION"; exit 1 ;;
           esac

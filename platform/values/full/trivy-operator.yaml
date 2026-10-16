@@ -1,0 +1,8 @@
+# Overlay of platform/local/values/trivy-operator.yaml for GKE Autopilot. The mirror and plain-HTTP
+# registry belong only to the local lab. Autopilot node scans stay disabled by the base values
+# (infraAssessmentScannerEnabled=false): the node collector requires hostPath access that Autopilot
+# restricts. Without Artifact Registry credentials, reports for private app images can be missing.
+trivy:
+  registry:
+    mirror: null
+  nonSslRegistries: null

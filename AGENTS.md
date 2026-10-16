@@ -9,10 +9,10 @@ is the source of truth. The full rule list (pt-BR) is [docs/GUARDRAILS.md](docs/
   `tx01v2` + `dx01v2` on AWS, `tx02v2` + `dx02v2` on Azure, `tx03v2` + `dx03v2` on Google Cloud).
 - It must stay healthy without any cloud account: every claim is backed by the local harness or
   carries a status label (`verified in CI`, `verified locally`, `not run in the cloud (v2)`, `planned`).
-- Current status: the harness (`HARNESS_STRICT=1 make verify`) passes locally in a Linux container
-  (38 checks with the local lab) and in CI (jobs `static`, `test`; 32 checks before the local lab).
-  **Nothing of v2 has run in Google Cloud** (bootstrap, apply, plan, platform and destroy are
-  `not run in the cloud (v2)`).
+- Baseline before the R4 cloud-profile changes: the harness passed in CI (jobs `static`, `test`)
+  and locally with the local lab. The R4 chart, contract and sizing checks are being added in this
+  PR; consult `docs/HARNESS.md` for their latest evidence. **Nothing of v2 has run in Google Cloud**
+  (bootstrap, apply, plan, platform and destroy are `not run in the cloud (v2)`).
 - The local lab ([docs/LAB_LOCAL.md](docs/LAB_LOCAL.md)) rebuilds the whole v1 platform on Docker:
   `terraform/envs/local` (kind + emulated Artifact Registry, Cloud SQL, Cloud Storage through an S3
   API emulator, load balancer, git server) and `platform/local` (Istio ambient, cert-manager, ESO,

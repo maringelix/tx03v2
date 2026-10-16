@@ -1,4 +1,4 @@
-# Contrato tx03v2 <-> dx03v2 — versão 2 (2026-10-14)
+# Contrato tx03v2 <-> dx03v2 — versão 2 (2026-10-16)
 
 Versão 2: o OpenTelemetry Collector da camada de plataforma (namespace `observability`, traces para o
 Cloud Trace). A versão 1 (2026-10-11) não tinha traces.
@@ -190,6 +190,21 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   tem só `roles/cloudtrace.agent` no projeto; o Cloud Trace não tem IAM por recurso), requests para o
   Autopilot. O app manda OTLP/HTTP para `http://opentelemetry-collector.observability.svc:4318`; o
   Collector grava os spans no Cloud Trace do projeto. O app não recebe nenhum papel do IAM para isso.
+- O perfil `full` não altera as 15 chaves do contrato nem os nomes do serviço: `platform/install.sh
+  --profile full --github-owner <dono>` acrescenta os charts fixados, Gatekeeper, Trivy Operator,
+  Velero e Argo CD. O namespace `dx03v2` recebe `policy.lab/enforce: "true"` e continua sujeito às
+  constraints de imagem, recursos, probes, labels e portas.
+- GitOps no perfil `full`: a Application `platform` (AppProject `platform`, namespace `argocd`) lê
+  `platform/gitops` do tx e cria a Application `dx03v2` a partir de `deploy/k8s/overlays/gcp` na
+  revisão `gitops/gcp`. O instalador injeta as URLs do fork; elas não são gravadas nos manifests
+  públicos. A Role `dx03v2-gitops-sync`/RoleBinding usa os mesmos sujeitos `kind: User` do contrato
+  (`dx03v2-gha-deploy` e `app_deployer_members`) e só permite `get`, `watch` e `patch` na
+  Application chamada `dx03v2`, para pedir refresh; não permite alterar outras Applications.
+- Velero no perfil `full`: ServiceAccount `velero` no namespace `velero`, sem chave nem Secret. O
+  bucket regional chama-se `<LAB_NAME>-velero-<PROJECT_ID>` e não adiciona uma chave ao contrato. O
+  principal WIF `principal://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<PROJECT_ID>.svc.id.goog/subject/ns/velero/sa/velero`
+  recebe `roles/storage.objectAdmin` só no bucket. O backup inclui objetos Kubernetes, não Cloud SQL
+  nem snapshots de volumes; o ciclo de vida dos objetos é de 35 dias.
 - `platform/uninstall.sh` apaga o namespace `dx03v2` antes de qualquer destroy e espera o finalizer do
   Gateway e o sumiço dos NEGs `k8s1-*` do app: o load balancer criado pelo controlador fica fora do
   state do Terraform e vazaria se o cluster sumisse antes.

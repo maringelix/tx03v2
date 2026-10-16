@@ -1,0 +1,16 @@
+# GKE Autopilot does not expose host-level node metrics to an unprivileged exporter. This is the
+# dependency condition in kube-prometheus-stack 92.3.0; the child key alone does not disable it.
+nodeExporter:
+  enabled: false
+defaultRules:
+  rules:
+    node: false
+alertmanager:
+  alertmanagerSpec:
+    secrets: []
+  config:
+    route:
+      receiver: "null"
+      routes: null
+    receivers:
+      - name: "null"

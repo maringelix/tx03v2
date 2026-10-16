@@ -8,7 +8,7 @@
 #   3. OpenTelemetry Collector (namespace observability, contract v2): OTLP from the app, traces to
 #      Cloud Trace (its ServiceAccount is the IAM principal with roles/cloudtrace.agent)
 # The GKE Gateway controller (GatewayClass gke-l7-global-external-managed) is managed by Google:
-# nothing to install for it.
+# nothing to install for it. The optional full profile adds the cloud-safe charts of the local lab.
 # CLOUD-MUTATING: run it only when you mean to (docs/RUNBOOK.md). Needs gcloud logged in (gcloud
 # auth login, or google-github-actions/auth + setup-gcloud in the platform workflow) with the
 # gke-gcloud-auth-plugin component, kubectl and helm (scripts/install-tools.sh kubectl helm), jq,
@@ -18,6 +18,7 @@
 #   APP_DEPLOYER_MEMBERS  JSON list of extra deployers (the Terraform variable app_deployer_members,
 #                         e.g. ["user:you@example.com"]), default []; they become RoleBinding
 #                         subjects by e-mail, without the user:/serviceAccount: prefix
+#   SLACK_WEBHOOK_URL     optional Slack incoming webhook for warning/critical alerts (full only)
 # Re-running it upgrades in place. It installs only on the contract cluster tx03v2-lab, and only when
 # that cluster carries the label project=tx03v2; the kubeconfig is a temporary file (~/.kube/config
 # and its current context stay as they were).
@@ -28,6 +29,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../scripts/lib/common.sh"
 # shellcheck source=scripts/lib/gcp.sh
 source "$REPO_ROOT/scripts/lib/gcp.sh"
+# shellcheck source=scripts/lib/platform.sh
+source "$REPO_ROOT/scripts/lib/platform.sh"
 export PATH="$REPO_ROOT/.tools/bin:$PATH"
 
 ESO_NAMESPACE=external-secrets
@@ -35,6 +38,12 @@ OTEL_NAMESPACE=observability
 OTEL_CHART_REPO="https://open-telemetry.github.io/opentelemetry-helm-charts"
 SECRET_STORE=gcp-secret-manager
 WORK_DIR=""
+PROFILE=core
+OWNER=""
+OWNER_RE='^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$'
+CONTRACT_PROJECT=""
+DEPLOYERS=""
+VELERO_BUCKET=""
 
 cleanup() {
   [[ -z "$WORK_DIR" ]] || rm -rf "$WORK_DIR"
@@ -112,8 +121,139 @@ apply_manifests() {
   die "could not apply platform/manifests"
 }
 
+usage() {
+  echo "usage: $0 [--profile core|full] [--github-owner OWNER]" >&2
+  exit 2
+}
+
+# apply_full FILE -> apply one rendered full-profile manifest after its CRDs have been installed.
+apply_full() {
+  local file=$1 attempt
+  for attempt in 1 2 3 4 5; do
+    if "$HERE/render-manifests.sh" "$CONTRACT_PROJECT" "$DEPLOYERS" --full "$OWNER" --only "$file" | kubectl apply -f - >/dev/null; then
+      return 0
+    fi
+    log "kubectl apply of platform/manifests/$file failed (attempt $attempt/5); retrying in 15 s"
+    sleep 15
+  done
+  die "could not apply platform/manifests/$file"
+}
+
+# install_chart CHART [HELM_ARG...] -> installs a SHA256-verified archive from the full-profile table.
+install_chart() {
+  local chart=$1 repo_key version_key sha_key name release ns values tgz f out content n=0
+  local -a files=() args=() post_renderer=()
+  shift
+  read -r repo_key version_key sha_key name release ns values <<<"$(chart_entry "$chart")"
+  IFS=, read -ra files <<<"$values"
+  mkdir -p "$WORK_DIR/values/$chart"
+  for f in "${files[@]}"; do
+    [[ -f "$HERE/$f" ]] || die "platform/full/charts.txt: platform/$f does not exist"
+    n=$((n + 1))
+    out="$WORK_DIR/values/$chart/$n-$(basename "$f")"
+    content="$(<"$HERE/$f")"
+    content="${content//__VELERO_BUCKET__/$VELERO_BUCKET}"
+    printf '%s\n' "$content" >"$out"
+    args+=(--values "$out")
+  done
+  tgz="$(pull_chart "$WORK_DIR/charts" "${!repo_key}" "$name" "${!version_key}" "${!sha_key}")"
+  if [[ "$chart" == chaos-mesh ]]; then
+    post_renderer=(--post-renderer chaos-mesh-no-daemon)
+  fi
+  log "installing $release ($name ${!version_key}, SHA256 verified) in $ns"
+  BASH="$BASH" HELM_PLUGINS="$HERE/full/helm-plugins" helm upgrade --install "$release" "$tgz" --namespace "$ns" "${args[@]}" "${post_renderer[@]}" "$@" \
+    --wait=watcher --rollback-on-failure --timeout 10m >/dev/null
+}
+
+install_observability() {
+  local hook="${SLACK_WEBHOOK_URL:-}"
+  local -a slack=()
+  if ! kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1; then
+    openssl rand -hex 16 | tr -d '\n' | kubectl -n monitoring create secret generic grafana-admin \
+      --from-literal=admin-user=admin --from-file=admin-password=/dev/stdin >/dev/null
+  fi
+  if [[ -n "$hook" ]]; then
+    [[ "$hook" =~ ^https://[A-Za-z0-9.-]+/[A-Za-z0-9/_-]+$ ]] || die "SLACK_WEBHOOK_URL must be an https Slack incoming webhook URL"
+    printf '%s' "$hook" | kubectl -n monitoring create secret generic alertmanager-slack \
+      --from-file=webhook-url=/dev/stdin --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    slack=(--values "$HERE/values/full/kube-prometheus-stack-slack.yaml")
+  fi
+  # Prometheus Operator validates PrometheusRules with an admission webhook from its own release.
+  if ! helm -n monitoring status kube-prometheus-stack >/dev/null 2>&1; then
+    install_chart kube-prometheus-stack "${slack[@]}" --set defaultRules.create=false
+  fi
+  kubectl -n monitoring rollout status deployment/kube-prometheus-stack-operator --timeout=300s >/dev/null
+  install_chart kube-prometheus-stack "${slack[@]}"
+  retry 30 5 kubectl -n monitoring get statefulset prometheus-kube-prometheus-stack-prometheus alertmanager-kube-prometheus-stack-alertmanager >/dev/null 2>&1 ||
+    die "Prometheus Operator did not create Prometheus and Alertmanager"
+  kubectl -n monitoring rollout status statefulset/prometheus-kube-prometheus-stack-prometheus --timeout=300s >/dev/null
+  kubectl -n monitoring rollout status statefulset/alertmanager-kube-prometheus-stack-alertmanager --timeout=300s >/dev/null
+  install_chart loki
+  install_chart alloy
+  install_chart tempo
+  install_chart opentelemetry-collector --set-string "config.exporters.googlecloud.project=$CONTRACT_PROJECT"
+}
+
+install_gitops() {
+  install_chart argo-cd
+  kubectl wait --for=condition=Established --timeout=120s \
+    crd/applications.argoproj.io crd/appprojects.argoproj.io >/dev/null
+  apply_full full/argocd-platform.yaml
+  apply_full full/rbac-argocd-deployer.yaml
+}
+
+install_policies() {
+  local repository=$1 repos="$WORK_DIR/allowed-repos.yaml" f kind
+  install_chart gatekeeper
+  retry 10 6 kubectl apply -f "$HERE/local/policies/templates/" >/dev/null || die "could not apply Gatekeeper ConstraintTemplates"
+  while read -r kind; do
+    retry 30 2 kubectl get crd "${kind,,}.constraints.gatekeeper.sh" >/dev/null 2>&1 || die "Gatekeeper did not create the CRD of $kind"
+    kubectl wait --for=condition=Established "crd/${kind,,}.constraints.gatekeeper.sh" --timeout=60s >/dev/null
+  done < <(sed -n 's/^        kind: \(Lab[A-Za-z]*\)$/\1/p' "$HERE"/local/policies/templates/*.yaml)
+  for f in "$HERE"/local/policies/constraints/*.yaml; do
+    [[ "$(basename "$f")" != allowed-repos.yaml ]] || continue
+    retry 10 6 kubectl apply -f "$f" >/dev/null || die "could not apply Gatekeeper constraint $(basename "$f")"
+  done
+  sed "s|__ARTIFACT_REGISTRY_REPOSITORY__|$repository/|" "$HERE/full/policies/constraints/allowed-repos.yaml" >"$repos"
+  retry 10 6 kubectl apply -f "$repos" >/dev/null || die "could not apply Gatekeeper constraint allowed-repos"
+}
+
+install_backup() {
+  install_chart velero
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  retry 30 5 bash -c '[[ "$(kubectl -n velero get backupstoragelocation default -o jsonpath="{.status.phase}")" == Available ]]' ||
+    die "Velero backup storage location is not Available (check the GKE Workload Identity bucket binding)"
+}
+
+install_full() {
+  local repository
+  require_cmd openssl curl
+  load_pins "$HERE/local/versions.env" "$HERE/versions.env"
+  VELERO_BUCKET="$LAB_NAME-velero-$CONTRACT_PROJECT"
+  repository="$(contract artifact-registry/repository)"
+  [[ "$repository" == *"-docker.pkg.dev/$CONTRACT_PROJECT/dx03v2" ]] ||
+    die "contract key artifact-registry/repository is not the dx03v2 Artifact Registry repository"
+
+  apply_full full/namespaces.yaml
+  install_chart cert-manager
+  install_observability
+  install_gitops
+  install_policies "$repository"
+  install_chart trivy-operator
+  install_backup
+  install_chart chaos-mesh
+  log "profile full ready (GKE Autopilot: Istio ambient, node-exporter and Chaos Mesh daemon are not installed)"
+}
+
 main() {
-  (($# == 0)) || die "usage: $0 (configuration through environment variables, see the header)"
+  while (($# > 0)); do
+    case "$1" in
+      --profile) [[ "${2:-}" == core || "${2:-}" == full ]] || usage; PROFILE=$2; shift 2 ;;
+      --github-owner) [[ "${2:-}" =~ $OWNER_RE ]] || usage; OWNER=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [[ "$PROFILE" == core || -n "$OWNER" ]] || die "profile full requires --github-owner"
   local project contract_project region cluster deployer store deployers email extra
   require_cmd gcloud kubectl helm jq gke-gcloud-auth-plugin
   require_gcloud_login
@@ -144,6 +284,8 @@ main() {
     mask "$email"
     deployers+=",$email"
   done <<<"$extra"
+  CONTRACT_PROJECT="$project"
+  DEPLOYERS="$deployers"
 
   # Rendered before anything is installed: a malformed contract value stops the script here.
   "$HERE/render-manifests.sh" "$project" "$deployers" >"$WORK_DIR/manifests.yaml"
@@ -157,6 +299,9 @@ main() {
   # Ready means ESO reached Secret Manager with the identity of its controller ServiceAccount.
   kubectl wait --for=condition=Ready "clustersecretstore/$store" --timeout=180s
   log "platform ready: ClusterSecretStore $store, namespace dx03v2, OTLP endpoint opentelemetry-collector.$OTEL_NAMESPACE.svc:4318 (GatewayClass gke-l7-global-external-managed is managed by GKE)"
+  if [[ "$PROFILE" == full ]]; then
+    install_full
+  fi
 }
 
 main "$@"

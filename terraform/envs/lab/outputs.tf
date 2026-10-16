@@ -35,6 +35,11 @@ output "artifact_registry_repository" {
   value       = module.artifact_registry.repository_path
 }
 
+output "velero_bucket_name" {
+  description = "Regional Cloud Storage bucket for Velero backups (the platform installer derives the same name)."
+  value       = module.velero.bucket_name
+}
+
 output "gateway_address" {
   description = "Global IPv4 of the Gateway (the app answers there once dx03v2 is deployed)."
   value       = module.network.gateway_address

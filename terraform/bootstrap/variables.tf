@@ -77,7 +77,7 @@ variable "billing_account" {
 variable "budget_amount" {
   description = "Monthly budget of the project, in the currency of the billing account (whole units)."
   type        = number
-  default     = 10
+  default     = 5
 
   validation {
     condition     = var.budget_amount >= 1 && var.budget_amount <= 1000 && floor(var.budget_amount) == var.budget_amount

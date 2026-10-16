@@ -6,12 +6,11 @@ você será a primeira evidência. Os tempos abaixo são estimativas, não medi�
 segue o [runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)
 (também `não executado em nuvem (v2)`).
 
-> **Custo**: com os padrões, cerca de US$0,12 por hora em `us-central1` enquanto o free tier da GKE
-> cobre a taxa do cluster, cerca de US$0,22 por hora sem ele. Os maiores itens são a taxa do cluster
-> (sem o free tier), o Cloud SQL e o load balancer. Uma rodada de 3 horas fica perto de
-> US$0,40-0,70 mais dados; um lab esquecido custa cerca de US$90-160 por mês. Estimativas com os
-> preços de tabela lidos em 2026-10-11, não verificadas numa fatura (`docs/CUSTOS.md`). Destrua no
-> mesmo dia.
+> **Custo**: o perfil `core` fica perto de US$0,12/h com o free tier da GKE ou US$0,22/h sem ele;
+> `full` fica perto de US$0,16/h ou US$0,26/h, respectivamente. Uma rodada de três horas custa
+> aproximadamente US$0,37–0,67 no `core` e US$0,49–0,79 no `full`, mais dados e armazenamento de
+> backup. São estimativas de preço de tabela conferidas em 2026-10-16, não medidas em fatura
+> (`docs/CUSTOS.md`). Destrua no mesmo dia.
 
 ## 1. Pré-requisitos
 
@@ -65,7 +64,7 @@ uniforme, prevenção de acesso público), o pool `tx03v2-github` com o provider
 `tx03v2-gha-plan`, `tx03v2-gha-apply` e `dx03v2-gha-deploy` com um vínculo por sujeito exato e os
 papéis do contrato (o apply sem Editor: o admin de cada serviço do lab e o papel personalizado
 `tx03v2LabSecrets`, que cria e concede segredos sem ler valores), a conta dos nós `tx03v2-lab-nodes`
-(o apply só pode agir como ela: `iam.serviceAccountUser` nela e em mais nenhuma conta) e o budget mensal (padrão 10 na moeda da conta de faturamento, sem descontar
+(o apply só pode agir como ela: `iam.serviceAccountUser` nela e em mais nenhuma conta) e o budget mensal (padrão 5 na moeda da conta de faturamento, sem descontar
 créditos, alertas de 50, 90 e 100 % do gasto e de 100 % da previsão para os e-mails que você nomeia e
 para os administradores da conta).
 
@@ -132,6 +131,7 @@ abaixo (`gh secret set LAB_APP_DEPLOYER_MEMBERS -R <você>/tx03v2`).
 | `TF_STATE_BUCKET` | `tx03v2-tfstate-00000000` | plan, apply, destroy | idem (`state_bucket_name`) |
 | `LAB_DEPLOY_SERVICE_ACCOUNT` | `dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com` | plan, apply, destroy (`TF_VAR_deploy_service_account`) | idem (`deploy_service_account`) |
 | `LAB_APP_DEPLOYER_MEMBERS` (**secret**) | `["user:you@example.com"]` | `TF_VAR_app_deployer_members` e o workflow `platform` (RoleBinding) | opcional, padrão `[]`; lista JSON de `user:<e-mail>` ou `serviceAccount:<e-mail>` (sem `group:`) de quem faz deploy do dx03v2 de um laptop |
+| `SLACK_WEBHOOK_URL` (**secret**) | — | workflow `platform`, alertas do perfil full | opcional; webhook de entrada do Slack, nunca use variável pública |
 | `LAB_ENABLE_WAF` | `true` | `TF_VAR_enable_waf` | opcional, padrão `true` (`docs/CUSTOS.md`) |
 | `LAB_DB_TIER` | `db-g1-small` | `TF_VAR_db_tier` | opcional, padrão `db-g1-small` (a validação recusa `db-f1-micro`) |
 
@@ -197,9 +197,30 @@ precisam de lista de IPs. O `platform/install.sh`:
 6. espera o `gcp-secret-manager` ficar `Ready` (o ESO alcançou o Secret Manager com a identidade do
    próprio ServiceAccount).
 
+### Perfil full (opcional)
+
+O input `profile` do workflow `platform` vem como `core` por padrão. Escolha `full` para instalar
+observabilidade in-cluster, cert-manager, Argo CD, Gatekeeper, Trivy Operator, Velero e o controller
+do Chaos Mesh. O GKE Autopilot deste fork não instala Istio ambient, node-exporter, Trivy node
+collector nem o daemon privilegiado do Chaos Mesh. O Chaos Mesh fica limitado a `PodChaos pod-kill`.
+O perfil full usa a revisão pública `gitops/gcp` do dx03v2; o primeiro deploy escreve a imagem nela
+e a Application do Argo CD sincroniza o app. O acesso à UI do Argo CD é por `kubectl port-forward`.
+Sem credenciais de leitura do Artifact Registry, os relatórios do Trivy Operator para imagens
+privadas do app podem faltar.
+
+Para alertas no Slack, grave o webhook como secret opcional `SLACK_WEBHOOK_URL` no repositório
+tx03v2. O perfil full usa o mesmo bucket regional do Velero criado pelo Terraform. Seus objetos
+expiram em 35 dias; Velero salva recursos Kubernetes, não Cloud SQL nem volumes persistentes. Não há
+transição suportada de `full` para `core`: destrua o lab e aplique-o de novo com `core`.
+
 Ao atualizar um lab criado antes do contrato v2: `roles/cloudtrace.agent` entrou na condição IAM de
 `tx03v2-gha-apply` e a API `cloudtrace.googleapis.com` na lista do bootstrap, então aplique o
 bootstrap de novo (seção 2) antes do apply.
+
+Na primeira atualização do bootstrap para esta rodada R4, aplique-o antes do root `terraform/envs/lab`
+para criar o papel `tx03v2VeleroBucket` e sua concessão condicionada ao bucket derivado. O root do lab
+usa essa identidade para criar e gerir somente os metadados do bucket do Velero (SEC-21); esse papel
+não lê nem altera os objetos de backup.
 
 Ao atualizar um lab criado antes da R3.16 (o apply perdeu Editor, Secret Manager Admin e Service
 Account User no projeto): a conta `tx03v2-lab-nodes` passou do root do lab para o bootstrap. Tire-a do
@@ -232,7 +253,8 @@ Terraform dá os papéis IAM, a plataforma dá a RoleBinding.
 ## 6. Deploy do app (dx03v2, `não executado em nuvem (v2)`)
 
 Dispare o workflow `deploy-gcp` do [dx03v2](https://github.com/maringelix/dx03v2) e aprove o
-environment `lab` de lá (ou rode `scripts/deploy-gcp.sh` de um laptop; passo a passo no
+environment `lab` de lá (ou rode
+[`scripts/deploy-gcp.sh`](https://github.com/maringelix/dx03v2/blob/main/scripts/deploy-gcp.sh) de um laptop; passo a passo no
 [runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)). O script lê as
 15 chaves de `tx03v2-lab-contract`, publica `dx03v2/api` e `dx03v2/web` no Artifact Registry (tag =
 SHA do commit, nunca sobrescrita), cria o ConfigMap `cloudsql-ca` com o bundle da região (só com a
@@ -266,6 +288,27 @@ projeto mostra o serviço `dx03v2-api` (span da rota e da consulta ao PostgreSQL
 minutos: `kubectl -n observability logs deployment/opentelemetry-collector` (um `PermissionDenied` do
 exporter `googlecloud` aponta para a concessão `roles/cloudtrace.agent` do principal do Collector).
 
+### Ensaio de restore do Velero (somente no perfil full)
+
+Faça o ensaio em um namespace descartável, sem dados do app. Ele comprova backup e restore de
+objetos Kubernetes na conta do fork; não testa Cloud SQL nem snapshots de volumes.
+
+```bash
+kubectl create namespace velero-restore-drill
+kubectl -n velero-restore-drill create configmap restore-proof --from-literal=proof=tx03v2
+velero backup create tx03v2-restore-drill --include-namespaces velero-restore-drill --wait
+kubectl delete namespace velero-restore-drill
+kubectl wait --for=delete namespace/velero-restore-drill --timeout=180s
+velero restore create --from-backup tx03v2-restore-drill --wait
+kubectl -n velero-restore-drill get configmap restore-proof -o jsonpath='{.data.proof}'; echo
+kubectl delete namespace velero-restore-drill
+velero backup delete tx03v2-restore-drill --confirm
+```
+
+O resultado esperado é `tx03v2`. Se uma etapa falhar, leia `velero backup describe` e
+`velero restore describe`, confira o `BackupStorageLocation` e a permissão WIF do ServiceAccount
+`velero`, corrija e repita com um nome de backup novo.
+
 ## 8. Destroy
 
 Dispare `terraform-destroy` com a confirmação `destroy tx03v2-lab` e aprove o environment `lab`. O
@@ -281,8 +324,17 @@ job roda `scripts/destroy.sh --project <id>`:
    proxy, URL map, backend service, health check, NEG e regra de firewall do load balancer. São só as
    do lab, pelo nome (`gkegw1-…-dx03v2-…`, `k8s1-…-dx03v2-…`) e pela rede `tx03v2-lab`; nada mais do
    projeto é alvo. Um aviso `warning: platform/uninstall.sh did not finish` marca esse caminho.
-3. `terraform destroy`, também depois de um passo 1 que falhou.
-4. `scripts/leftovers.sh --project <id> --retry-for 900`, o que quer que tenha acontecido antes (depois
+3. Se o perfil `full` criou o bucket do Velero, revise os backups e esvazie-o como Owner antes do
+   destroy. `force_destroy=false` impede o Terraform de apagar dados silenciosamente:
+
+   ```bash
+   VELERO_BUCKET="$(terraform -chdir=terraform/envs/lab output -raw velero_bucket_name)"
+   gcloud storage rm --recursive "gs://${VELERO_BUCKET}/**"
+   gcloud storage ls "gs://${VELERO_BUCKET}/"
+   ```
+
+4. `terraform destroy`, também depois de um passo 1 que falhou.
+5. `scripts/leftovers.sh --project <id> --retry-for 900`, o que quer que tenha acontecido antes (depois
    de um destroy que falhou, ele diz o que ainda custa).
 
 Qualquer erro aparece no log e falha o job: leia, corrija e rode de novo. O fluxo é testado sem

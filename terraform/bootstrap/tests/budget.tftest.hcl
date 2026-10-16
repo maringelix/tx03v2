@@ -36,8 +36,8 @@ run "budget_is_on_and_scoped_to_the_project" {
   }
 
   assert {
-    condition     = google_billing_budget.monthly.amount[0].specified_amount[0].units == "10"
-    error_message = "Default budget: 10 units of the billing account currency."
+    condition     = google_billing_budget.monthly.amount[0].specified_amount[0].units == "5"
+    error_message = "Default budget: 5 units of the billing account currency."
   }
 
   assert {

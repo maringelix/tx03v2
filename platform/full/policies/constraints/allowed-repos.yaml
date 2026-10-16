@@ -1,0 +1,19 @@
+# The cloud twin of platform/local/policies/constraints/allowed-repos.yaml: app images must come from
+# this lab's Artifact Registry repository, not the local registry. platform/install.sh replaces the
+# placeholder with contract key artifact-registry/repository.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: LabAllowedRepos
+metadata:
+  name: allowed-repos
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: [Pod]
+    namespaceSelector:
+      matchLabels:
+        policy.lab/enforce: "true"
+  parameters:
+    repos:
+      - "__ARTIFACT_REGISTRY_REPOSITORY__/"

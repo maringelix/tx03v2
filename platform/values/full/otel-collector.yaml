@@ -1,0 +1,46 @@
+# Extend the core profile's Google Cloud Trace exporter with the same in-cluster Tempo and RED
+# spanmetrics pipeline used by the local lab. The Google Cloud exporter remains the first destination.
+ports:
+  spanmetrics:
+    enabled: true
+    containerPort: 8889
+    servicePort: 8889
+    protocol: TCP
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
+      interval: 30s
+    - port: spanmetrics
+      interval: 10s
+config:
+  connectors:
+    spanmetrics:
+      namespace: traces.span.metrics
+      metrics_flush_interval: 15s
+      histogram:
+        unit: s
+        explicit:
+          buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s]
+      dimensions:
+        - name: http.request.method
+        - name: http.response.status_code
+        - name: http.route
+      exemplars:
+        enabled: true
+  exporters:
+    otlp_grpc/tempo:
+      endpoint: tempo.monitoring.svc:4317
+      tls:
+        insecure: true
+    prometheus:
+      endpoint: ${env:MY_POD_IP}:8889
+      enable_open_metrics: true
+  service:
+    pipelines:
+      traces:
+        exporters: [googlecloud, otlp_grpc/tempo, spanmetrics]
+      metrics/spanmetrics:
+        receivers: [spanmetrics]
+        processors: [batch]
+        exporters: [prometheus]
