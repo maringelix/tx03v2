@@ -1,0 +1,7 @@
+# Gator evaluates the cloud constraint in the app namespace used by tx03v2.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dx03v2
+  labels:
+    policy.lab/enforce: "true"

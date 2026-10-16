@@ -33,8 +33,8 @@ run "velero_bucket_is_private_regional_and_expires_backups" {
   assert {
     condition = (
       one(google_storage_bucket.this.versioning).enabled == false &&
-      one(google_storage_bucket.this.lifecycle_rule).condition[0].age == 35 &&
-      one(google_storage_bucket.this.lifecycle_rule).action[0].type == "Delete"
+      one(one(google_storage_bucket.this.lifecycle_rule).condition).age == 35 &&
+      one(one(google_storage_bucket.this.lifecycle_rule).action).type == "Delete"
     )
     error_message = "Object versioning is off and backup objects expire after 35 days."
   }
