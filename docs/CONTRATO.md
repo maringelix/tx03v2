@@ -1,7 +1,9 @@
-# Contrato tx03v2 <-> dx03v2 — versão 2 (2026-10-16)
+# Contrato tx03v2 <-> dx03v2 — versão 3 (2026-10-16)
 
-Versão 2: o OpenTelemetry Collector da camada de plataforma (namespace `observability`, traces para o
-Cloud Trace). A versão 1 (2026-10-11) não tinha traces.
+Versão 3: o perfil `full` registra no Argo CD a Application `dx03v2`, que acompanha a branch
+`gitops/gcp`; a identidade de deploy pode pedir refresh somente dessa Application. A versão 2
+(2026-10-14) adicionou o OpenTelemetry Collector da camada de plataforma (namespace `observability`,
+traces para o Cloud Trace). A versão 1 (2026-10-11) não tinha traces.
 
 Interface entre a infraestrutura (este repositório) e a aplicação (`dx03v2`). Esta é a fonte da
 verdade: `dx03v2/docs/CONTRATO.md` repete a parte que o app usa e aponta para cá. Qualquer mudança
