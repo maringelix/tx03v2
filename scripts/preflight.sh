@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Refuses a project that holds work that is not the lab's. Read-only (gcloud list calls).
-# The CI identity that applies the lab (tx03v2-gha-apply) has Editor, Secret Manager Admin, Artifact
-# Registry Admin, Kubernetes Engine Admin and Service Account User on the whole project: it could
-# change or delete a cluster, a database or a secret of other work in the same project. The lab
+# The CI identity that applies the lab (tx03v2-gha-apply) has the admin role of each service the lab
+# uses (Kubernetes Engine, Cloud SQL, Compute networking, DNS, Artifact Registry, Parameter Manager)
+# and a Secret Manager role on the whole project: it could change or delete a cluster, a database or
+# a secret of other work in the same project (a role cannot be tied to names that do not exist yet,
+# docs/GUARDRAILS.md, SEC-20). The lab
 # therefore belongs in a project of its own (docs/RUNBOOK.md, section 1), and this script says so
 # before the bootstrap and before every apply (terraform-apply runs it first).
 # It lists the GKE clusters, the Cloud SQL instances and the Secret Manager secrets of the project;
@@ -96,7 +98,7 @@ main() {
     --format='value[separator="|"](name.basename(),labels.project)'
 
   if ((OTHERS > 0)); then
-    echo "error: the project holds $OTHERS resource(s) that are not the lab's (above). tx03v2-gha-apply has Editor, Secret Manager Admin and Service Account User on the whole project and could change or delete them: use a project dedicated to the lab (docs/RUNBOOK.md, section 1)." >&2
+    echo "error: the project holds $OTHERS resource(s) that are not the lab's (above). tx03v2-gha-apply has the admin role of each service of the lab on the whole project and could change or delete them: use a project dedicated to the lab (docs/RUNBOOK.md, section 1)." >&2
     exit 1
   fi
   log "result: the project holds nothing that is not the lab's."

@@ -16,6 +16,26 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- The apply identity has no Editor, no Secret Manager Admin and no Service Account User on the whole
+  project any more (roadmap R3.16, Google Cloud):
+  - It has the admin role of each service the lab root uses (Artifact Registry, Cloud SQL, Compute
+    networking and security policies, Cloud DNS, Kubernetes Engine, Parameter Manager) plus Browser
+    and Service Usage Consumer; no VMs, no buckets but the state (it no longer reaches the other
+    buckets of the project, the state bucket included), no BigQuery, Pub/Sub or KMS.
+  - Secret Manager comes as the custom role `tx03v2LabSecrets`: create, grant and version the lab
+    secrets, never `secretmanager.versions.access` (Secret Manager Admin could read every value).
+  - The node service account `tx03v2-lab-nodes` moved from the lab root to the bootstrap, so that
+    `roles/iam.serviceAccountUser` is granted on that account and nowhere else; the lab root builds
+    its e-mail from the contract name. Trivy finding `GCP-0011` is gone. A lab created before this
+    change needs the `state rm` and `import` of `docs/RUNBOOK.md`, section 5.
+  - New bootstrap variable `apply_extra_project_roles` (empty by default; Owner, Project IAM Admin
+    and service account roles refused) for the case where a real apply fails with
+    `PERMISSION_DENIED`: the roles come from the documentation of each service, not from an apply.
+  - The roles are still project-wide, not tied to `tx03v2-lab-*` names (a role cannot be tied to a
+    resource that does not exist yet): the project must be the lab's own, as `scripts/preflight.sh`
+    checks. `docs/GUARDRAILS.md` (SEC-20 and "Limites") and `docs/ARQUITETURA.md` (ADR 15) say so.
+    New tests in `terraform/bootstrap/tests/roles.tftest.hcl`; `leftovers.sh` lists the node account
+    as a bootstrap resource that stays.
 - The cloud path no longer trusts anyone who registers a deleted account name, it works for the
   repositories GitHub creates now, and the project must be the lab's own (roadmap R3.13 to R3.17):
   - The Workload Identity provider condition checks `repository_owner_id` and `repository_id`, and the

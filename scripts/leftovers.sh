@@ -163,7 +163,7 @@ scan() {
   gcloud_items items "service accounts" iam service-accounts list --filter='email~^(tx03v2-gha-|dx03v2-gha-)' --format='value(email)'
   found INFO "bootstrap: service account (kept)" "${items[@]}"
   gcloud_items items "lab node service account" iam service-accounts list --filter="email~^$LAB_NAME-nodes@" --format='value(email)'
-  found ORPHANED "service account of the lab nodes" "${items[@]}"
+  found INFO "bootstrap: service account of the lab nodes (kept)" "${items[@]}"
 }
 
 main() {

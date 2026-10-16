@@ -105,6 +105,27 @@ variable "budget_alert_emails" {
   }
 }
 
+variable "apply_extra_project_roles" {
+  description = "Extra project roles for tx03v2-gha-apply, only for the case where a real apply fails with PERMISSION_DENIED for a permission that none of the lab roles has (docs/RUNBOOK.md, section 12; the error names the permission). Empty by default. Owner, Project IAM Admin and Service Account roles are refused: the node service account has its own grant, and Editor, the broad role the apply had before the narrowing, stays possible but is a decision you take on purpose."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for r in var.apply_extra_project_roles : can(regex("^roles/[A-Za-z0-9._]+$", r))])
+    error_message = "Every apply_extra_project_roles entry must be a predefined role such as roles/compute.admin."
+  }
+
+  validation {
+    condition     = !anytrue([for r in var.apply_extra_project_roles : can(regex("^roles/(owner|resourcemanager\\.projectIamAdmin|iam\\.service[A-Za-z]*)$", r))])
+    error_message = "Owner, Project IAM Admin and the service account roles cannot be added to the apply identity."
+  }
+
+  validation {
+    condition     = length(distinct(var.apply_extra_project_roles)) == length(var.apply_extra_project_roles)
+    error_message = "The apply_extra_project_roles entries must be unique."
+  }
+}
+
 variable "state_protection" {
   description = "Refuse to destroy the state bucket (deletion_policy = PREVENT). Set false only for the final teardown."
   type        = bool

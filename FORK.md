@@ -197,6 +197,7 @@ request. Run `scripts/repo-guardrails.sh` again when `.github/rulesets/main.json
 | Port 5003 is already in use | another local lab or registry is running: `make local-down`, `docker ps` |
 | Something of the local lab is left after an interruption | `make local-down` (destroy and leftover check) |
 | Bootstrap: `Set github_owner ...`, `Replace the placeholder ...` or a numeric ID is refused | put your values in `terraform/bootstrap/terraform.tfvars` (the IDs: step 7) |
+| The apply fails with `PERMISSION_DENIED` and names a permission | the roles of the apply identity come from the documentation of each service, not from a real apply: add the role that has the permission to `apply_extra_project_roles`, apply the bootstrap again and open a cloud run report ([docs/RUNBOOK.md](docs/RUNBOOK.md), section 12) |
 | `scripts/preflight.sh` refuses the project | it holds a cluster, a database or a secret that is not the lab's: use a project of its own ([docs/RUNBOOK.md](docs/RUNBOOK.md), section 1) |
 | `scripts/local-lab.sh` refuses to start (pre-flight) | its message names the cause: another Docker daemon than the provider's, a network or a route (VPN) that overlaps the lab network, a taken registry port or a lab of another `LOCAL_STATE_DIR`; each one says which variable to set |
 | Bootstrap: `SERVICE_DISABLED` right after the APIs were enabled | wait a few minutes and run `terraform apply` again |

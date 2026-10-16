@@ -2,7 +2,7 @@
 # modules/project-roles, which is also the list the IAM condition of tx03v2-gha-apply allows
 # (terraform/bootstrap/roles.tf): tests/roles.tftest.hcl proves both sides match, and a
 # precondition refuses any other project role at plan time. The other grants are on single
-# resources (the dx03v2 repository, the two secrets). Nothing ever goes to roles/owner or editor.
+# resources (the dx03v2 repository, the two secrets). Nothing ever goes to Owner or Editor.
 locals {
   # Contract: dx03v2-gha-deploy and every app_deployer_members entry (people deploying dx03v2 from
   # a laptop) get the same roles: push images, get cluster credentials through the DNS endpoint,
@@ -22,7 +22,7 @@ locals {
       # Logs, metrics and metadata of the Autopilot nodes.
       "nodes-default-node-service-account" = {
         role   = "roles/container.defaultNodeServiceAccount"
-        member = google_service_account.nodes.member
+        member = local.nodes_member
       }
     },
     {
@@ -35,7 +35,7 @@ locals {
 
   repository_grants = merge(
     # Nodes pull the dx03v2 images.
-    { "nodes-reader" = { role = "roles/artifactregistry.reader", member = google_service_account.nodes.member } },
+    { "nodes-reader" = { role = "roles/artifactregistry.reader", member = local.nodes_member } },
     { for k, m in local.deployers : "${k}-writer" => { role = "roles/artifactregistry.writer", member = m } },
   )
 

@@ -28,6 +28,7 @@ humana/agente). Os testes citados ficam em `terraform/*/tests/` e rodam com `mak
 | SEC-17 | `scripts/leftovers.sh` recebe o projeto (`--project`, nenhuma variável do shell nem configuração do gcloud o escolhe) e só conta como sobra o que é do lab: label `project=tx03v2`, nome `tx03v2-lab*`, rede `tx03v2-lab` ou peça do load balancer do Gateway do namespace `dx03v2`; o resto do projeto aparece como `INFO` ("not the lab's") | num projeto onde há outro trabalho, a checagem não pode mandar apagar o que não é do lab (`docs/RUNBOOK.md`, seção 9) | check `leftovers-flow` (`scripts/tests/leftovers-flow.sh`, `gcloud` simulado num projeto com recursos do lab e de outro trabalho); `lab_resource` em `scripts/lib/gcp.sh` | bloqueante |
 | SEC-18 | Antes do apply (e do bootstrap), `scripts/preflight.sh` recusa um projeto com cluster GKE, instância Cloud SQL ou segredo que não é do lab; um projeto que não pôde ser conferido nunca é dado como dedicado | `tx03v2-gha-apply` tem Editor, Secret Manager Admin e Service Account User no projeto inteiro: num projeto compartilhado poderia alterar ou apagar o trabalho dos outros | check `preflight-flow` (`scripts/tests/preflight-flow.sh`); o passo `Pre-flight` de `terraform-apply.yml` | bloqueante |
 | SEC-19 | A lista de pessoas que operam o lab (`LAB_APP_DEPLOYER_MEMBERS`) é um secret e cada workflow de nuvem mascara cada elemento (o item e o e-mail); o resumo do job e o artefato do plan trocam o que foi mascarado | os logs, o resumo e os artefatos de um repositório público são públicos (o e-mail de quem faz fork) | `policy-workflows` | bloqueante |
+| SEC-20 | O apply não tem Editor, Secret Manager Admin nem Service Account User no projeto: tem o papel de admin de cada serviço do lab, um papel personalizado de segredos sem `secretmanager.versions.access` e `iam.serviceAccountUser` só na conta `tx03v2-lab-nodes` (criada pelo bootstrap); `apply_extra_project_roles` (vazia) recusa Owner, Project IAM Admin e papéis de conta de serviço | um apply comprometido (um workflow alterado e aprovado no environment) não alcança as VMs, os buckets (nem o do state), o BigQuery nem o valor de segredo algum, e não age como outra conta de serviço | testes `apply_identity_has_the_service_roles_of_the_lab_and_no_editor`, `secrets_can_be_managed_but_not_read`, `apply_acts_as_the_node_account_only`, `extra_roles_*`; `policy-terraform` recusa `roles/editor` e `roles/secretmanager.admin` nos `.tf` | bloqueante |
 | SUP-01 | Ferramentas do harness com versão e SHA256 fixados; divergência é erro fatal | cadeia de suprimentos | `scripts/install-tools.sh`, `tools/checksums.txt`; `tool-versions` | bloqueante |
 | SUP-02 | Toda action fixada por SHA de 40 caracteres com comentário `# vX.Y.Z`; um SHA por action | tags podem ser movidas | `policy-workflows`, `version-consistency` | bloqueante |
 | SUP-03 | Providers com `.terraform.lock.hcl` gerado para 4 plataformas (o check exige pelo menos 4 hashes `h1:` por provider); roots iniciam com `-lockfile=readonly` | builds reprodutíveis | `terraform-lockfiles`, `terraform-validate:*` | bloqueante |
@@ -96,9 +97,6 @@ Uma exceção é um ignore de scanner. Para adicionar uma:
 Exceções atuais: nenhuma (`misconfigurations: []`, verificado em 2026-10-11). Achados MEDIUM/LOW
 conhecidos e aceitos, que não falham o scan (trivy 0.75.0, `--severity LOW,MEDIUM`):
 
-- `GCP-0011` (MEDIUM): `roles/iam.serviceAccountUser` no nível do projeto para `tx03v2-gha-apply`. A
-  GKE precisa dele para rodar os nós como `tx03v2-lab-nodes`, conta que só nasce no apply do lab
-  (`docs/ARQUITETURA.md`, ADR 15).
 - `GCP-0014`, `GCP-0016`, `GCP-0020`, `GCP-0022`, `GCP-0025` (MEDIUM): flags de log do PostgreSQL
   (arquivos temporários, conexões, esperas de lock, desconexões, checkpoints) não definidas; logs do
   Cloud SQL têm custo e o lab é descartável.
@@ -112,15 +110,21 @@ conhecidos e aceitos, que não falham o scan (trivy 0.75.0, `--severity LOW,MEDI
 
 - Nada do v2 rodou no Google Cloud: os testes usam um provider google mockado e provam a
   configuração, não que o Google Cloud aceita cada chamada nem que os recursos funcionam juntos.
-- `tx03v2-gha-apply` é poderoso dentro do projeto (Editor, os papéis de admin de Kubernetes Engine,
-  Secret Manager, Artifact Registry e Parameter Manager, Service Account User). A condição IAM limita
-  só as concessões no nível do projeto: concessões em recursos (segredos, repositório, parâmetro)
-  dependem dos papéis de admin e da revisão de PR. Por isso: projeto dedicado, environment `lab` com
-  revisor obrigatório e deploy só a partir de `main`. O `scripts/preflight.sh` (SEC-18) recusa um
-  projeto com cluster, banco ou segredo de outro trabalho, mas a concessão continua sendo do projeto
-  inteiro: papéis presos aos recursos `tx03v2-lab-*` e à conta dos nós **não** foram feitos, porque a
-  restrição por nome depende de condições IAM que cada serviço trata de um jeito e que não dá para
-  validar sem a nuvem. Um projeto compartilhado continua não sendo suportado.
+- `tx03v2-gha-apply` ainda é poderoso dentro do projeto (SEC-20): o papel de admin de Kubernetes
+  Engine, Cloud SQL, Compute (rede e política de segurança), DNS, Artifact Registry e Parameter
+  Manager, e um papel que cria e concede segredos sem ler valores. Esses papéis são do projeto
+  inteiro, **não** presos aos recursos `tx03v2-lab-*`: um papel não pode ser preso ao nome de um
+  recurso que ainda não existe (a condição por nome vale para um recurso que já existe, não para a
+  chamada que o cria, e há relato de que ela falha ao criar um segredo; o suporte a condições nos
+  recursos de rede e de banco não pôde ser conferido sem a nuvem). Só o Service Account User é preso,
+  à conta dos nós. A condição IAM limita as concessões no nível do projeto; as concessões em recursos (segredos,
+  repositório, parâmetro) dependem desses papéis e da revisão de PR. Por isso: projeto dedicado (o
+  `scripts/preflight.sh`, SEC-18, recusa um projeto com cluster, banco ou segredo de outro trabalho),
+  environment `lab` com revisor obrigatório e deploy só a partir de `main`. Um projeto compartilhado
+  continua não sendo suportado.
+- Os papéis do apply foram escolhidos pela documentação dos serviços (que papel cria o quê), não por
+  um apply real: se um apply falhar com `PERMISSION_DENIED`, a mensagem nomeia a permissão que falta
+  e `apply_extra_project_roles` acrescenta o papel que a tem (`docs/RUNBOOK.md`, seção 12).
 - `tx03v2-gha-plan` lê a configuração do projeto, as políticas IAM e o payload do parâmetro do
   contrato (nada secreto). Ele roda em PRs do próprio repositório: quem pode criar branches nele pode,
   em tese, alterar o workflow numa PR e usar essa leitura. Forks não recebem a credencial.

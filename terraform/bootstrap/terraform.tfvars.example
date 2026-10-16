@@ -25,3 +25,7 @@ dx03v2_repository_id = "3000000"
 # (the placeholder is refused); the billing account administrators get the alerts as well.
 budget_amount       = 10
 budget_alert_emails = ["you@example.com"]
+
+# Only if a real apply fails with PERMISSION_DENIED for a permission that none of the roles of
+# tx03v2-gha-apply has (docs/RUNBOOK.md, section 12). Empty by default.
+# apply_extra_project_roles = []
