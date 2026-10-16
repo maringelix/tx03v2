@@ -91,6 +91,7 @@ REQUIRED_FILES=(
   platform/full/policies/constraints/allowed-repos.yaml
   platform/full/policies/tests/suite.yaml platform/full/policies/tests/pod-artifact-registry.yaml
   platform/full/policies/tests/pod-other-project.yaml
+  platform/full/policies/tests/namespace-dx03v2.yaml
   platform/gitops/Chart.yaml platform/gitops/values.yaml
   platform/gitops/templates/appproject.yaml platform/gitops/templates/application.yaml
   platform/manifests/full/namespaces.yaml platform/manifests/full/argocd-platform.yaml
@@ -98,7 +99,7 @@ REQUIRED_FILES=(
   platform/values/full/chaos-mesh.yaml platform/values/full/gatekeeper.yaml
   platform/values/full/kube-prometheus-stack.yaml platform/values/full/kube-prometheus-stack-slack.yaml
   platform/values/full/otel-collector.yaml platform/values/full/trivy-operator.yaml platform/values/full/velero.yaml
-  terraform/modules/velero/.terraform.lock.hcl terraform/modules/velero/main.tf
+  terraform/modules/velero/main.tf
   terraform/modules/velero/outputs.tf terraform/modules/velero/variables.tf terraform/modules/velero/versions.tf
   terraform/envs/lab/tests/velero.tftest.hcl
   platform/values/external-secrets.yaml
