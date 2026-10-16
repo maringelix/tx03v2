@@ -90,8 +90,9 @@ make local-check                   # the probes of what is installed
 make local-down                    # destroy, then the leftover check
 ```
 
-The app comes next: in your `dx03v2` clone, `make e2e-platform` deploys it on this platform the
-GitOps way (see its [FORK.md](https://github.com/maringelix/dx03v2/blob/main/FORK.md)).
+The app comes next: in your `dx03v2` clone, [`make e2e-platform`](https://github.com/maringelix/dx03v2/blob/main/Makefile)
+deploys it on this platform the GitOps way (see its
+[`FORK.md`](https://github.com/maringelix/dx03v2/blob/main/FORK.md)).
 
 ## 5. Make the fork yours
 
@@ -105,7 +106,7 @@ repositories: change them if you like, nothing depends on them.
 Every pull request of your fork runs the same harness as the original, so
 `HARNESS_STRICT=1 make verify` before a push saves a CI round. A change to `platform/local` or
 `terraform/envs/local` is proven only by `make e2e`. To try such a change with the app, run
-`make e2e-platform` in `dx03v2` with `TX03V2_DIR=../tx03v2` (your checkout as it is), or let the CI
+[`make e2e-platform`](https://github.com/maringelix/dx03v2/blob/main/Makefile) in `dx03v2` with `TX03V2_DIR=../tx03v2` (your checkout as it is), or let the CI
 of your `dx03v2` fork clone your `tx03v2` (its FORK.md, step 5).
 
 ## 7. Your own Google Cloud project (costs money)
@@ -113,10 +114,11 @@ of your `dx03v2` fork clone your `tx03v2` (its FORK.md, step 5).
 Before the first apply:
 
 - Read the [cost section of the README](README.md#cloud-path-costs-money) and [docs/CUSTOS.md](docs/CUSTOS.md) (reference
-  prices: check the current ones). The GKE cluster fee (unless the GKE free tier covers it), Cloud
-  SQL and the load balancer bill by the hour while the lab is up, and trial credits come with their
-  own limits: check your quotas before the round. The bootstrap creates a monthly budget with alerts,
-  but a budget only warns, it stops nothing. Destroy on the same day.
+  prices: check the current ones). The default `core` profile is estimated at US$0.12/hour with the
+  GKE free tier or US$0.22/hour without it; optional `full` is about US$0.16/hour or US$0.26/hour.
+  Cloud SQL and the load balancer bill by the hour while the lab is up, and trial credits come with
+  their own limits: check your quotas before the round. The bootstrap budget defaults to 5 units in
+  the billing account currency. It only warns; destroy on the same day.
 - Use a **dedicated project** with billing linked, where you are **Owner**, plus a role on the
   billing account that can create budgets (Owner of the project is not enough), the Google Cloud CLI
   with `gke-gcloud-auth-plugin`, and `jq` ([docs/RUNBOOK.md](docs/RUNBOOK.md), section 1).
@@ -167,9 +169,20 @@ Then, from the root of your `tx03v2` clone:
    `["user:you@example.com"]`. Variables are not secret: never put a credential or an address of
    yours in one.
 3. **Run**: from the Actions tab, `terraform-plan`, `terraform-apply` and `platform` (each one waits
-   for your approval of the `lab` environment), the app deploy from your `dx03v2`, the smoke test,
-   then `terraform-destroy`, which ends with the leftover check: [docs/RUNBOOK.md](docs/RUNBOOK.md),
-   sections 4 to 9. The workflows take `github_owner` from the owner of the repository.
+   for your approval of the `lab` environment). Choose `core` or `full` in the platform workflow;
+   `core` is the default. The final deploy flow commits the image revision to `gitops/gcp`, waits
+   for Argo CD to sync and become healthy, and runs the smoke test. Then run `terraform-destroy` and
+   the leftover check: [docs/RUNBOOK.md](docs/RUNBOOK.md), sections 4 to 9. The workflows take
+   `github_owner` from the owner of the repository.
+
+In `full`, GKE Autopilot omits Istio ambient, node-exporter, the Trivy node collector and the
+privileged Chaos Mesh daemon; Chaos Mesh is limited to `PodChaos pod-kill`. The optional Slack
+incoming webhook is the repository secret `SLACK_WEBHOOK_URL`. Follow the Velero restore drill in
+the runbook using a disposable namespace. Velero backs up Kubernetes objects only, not Cloud SQL or
+persistent volume data. Without Artifact Registry read credentials, Trivy reports for private app
+images may be missing. A transition from `full` back to `core` is unsupported: destroy the lab and
+apply it again with `core`. Before destroying a `full` lab, review and explicitly empty the Velero
+bucket as Owner; Terraform sets `force_destroy=false`.
 
 Your fork is public, and so are its workflow logs. The workflows mask the project ID and number
 ([docs/GUARDRAILS.md](docs/GUARDRAILS.md), CI-07); never paste credentials or those values into an

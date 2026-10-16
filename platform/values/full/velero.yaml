@@ -1,0 +1,40 @@
+# Velero 1.18.4 + the GCP plugin 1.14.4, backed by the dedicated regional Cloud Storage bucket.
+# Workload Identity Federation for GKE binds the KSA principal directly to bucket-level
+# roles/storage.objectAdmin; there is no Google service account, key or Kubernetes Secret.
+image:
+  repository: docker.io/velero/velero
+  tag: v1.18.4@sha256:c89fb5b6d1fd6afd368e0f483e6f5555fd62851a1eada8ac5c72482e674ca17b
+initContainers:
+  - name: velero-plugin-for-gcp
+    image: docker.io/velero/velero-plugin-for-gcp:v1.14.4@sha256:9ff587ba5815f07c2cd1d7e446f12c46aba0218bdc583d19f272b2879232ad9d
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        memory: 64Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+snapshotsEnabled: false
+deployNodeAgent: false
+credentials:
+  useSecret: false
+  existingSecret: null
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: gcp
+      bucket: __VELERO_BUCKET__
+      default: true
+      config: {}
+serviceAccount:
+  server:
+    create: true
+    name: velero

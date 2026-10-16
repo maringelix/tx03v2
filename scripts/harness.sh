@@ -12,6 +12,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/tools.sh
 source "$REPO_ROOT/scripts/lib/tools.sh"
+# shellcheck source=scripts/lib/platform.sh
+source "$REPO_ROOT/scripts/lib/platform.sh"
 
 export PATH="$REPO_ROOT/.tools/bin:$PATH"
 export TFLINT_PLUGIN_DIR="$REPO_ROOT/.tools/tflint-plugins"
@@ -82,7 +84,24 @@ REQUIRED_FILES=(
   scripts/install-tools.sh scripts/update-tool-checksums.sh scripts/harness.sh scripts/repo-guardrails.sh scripts/leftovers.sh
   scripts/destroy.sh scripts/preflight.sh scripts/tests/destroy-flow.sh scripts/tests/leftovers-flow.sh scripts/tests/preflight-flow.sh scripts/tests/local-preflight.sh
   scripts/lib/common.sh scripts/lib/tools.sh scripts/lib/gcp.sh
+  scripts/lib/platform.sh scripts/platform-sizing.sh scripts/platform-sizing.awk
   platform/install.sh platform/uninstall.sh platform/render-manifests.sh platform/versions.env
+  platform/full/charts.txt platform/full/helm-plugins/chaos-mesh-no-daemon/plugin.yaml
+  platform/full/helm-plugins/chaos-mesh-no-daemon/no-daemon.sh
+  platform/full/policies/constraints/allowed-repos.yaml
+  platform/full/policies/tests/suite.yaml platform/full/policies/tests/pod-artifact-registry.yaml
+  platform/full/policies/tests/pod-other-project.yaml
+  platform/full/policies/tests/namespace-dx03v2.yaml
+  platform/gitops/Chart.yaml platform/gitops/values.yaml
+  platform/gitops/templates/appproject.yaml platform/gitops/templates/application.yaml
+  platform/manifests/full/namespaces.yaml platform/manifests/full/argocd-platform.yaml
+  platform/manifests/full/rbac-argocd-deployer.yaml
+  platform/values/full/chaos-mesh.yaml platform/values/full/gatekeeper.yaml
+  platform/values/full/kube-prometheus-stack.yaml platform/values/full/kube-prometheus-stack-slack.yaml
+  platform/values/full/otel-collector.yaml platform/values/full/trivy-operator.yaml platform/values/full/velero.yaml
+  terraform/modules/velero/main.tf
+  terraform/modules/velero/outputs.tf terraform/modules/velero/variables.tf terraform/modules/velero/versions.tf
+  terraform/envs/lab/tests/velero.tftest.hcl
   platform/values/external-secrets.yaml
   terraform/bootstrap/.terraform.lock.hcl terraform/envs/lab/.terraform.lock.hcl
   terraform/bootstrap/terraform.tfvars.example terraform/envs/lab/terraform.tfvars.example
@@ -750,7 +769,7 @@ trivy_config() {
   trivy config --quiet --skip-check-update --exit-code 1 --severity HIGH,CRITICAL \
     --cache-dir "$HARNESS_WORK_DIR/trivy-cache" --ignorefile .trivyignore.yaml \
     --skip-dirs .tools --skip-dirs .cache --skip-dirs '**/.terraform' \
-    --skip-dirs platform/local/policies/tests "$@"
+    --skip-dirs platform/local/policies/tests --skip-dirs platform/full/policies/tests "$@"
   # platform/local/policies/tests holds the gator fixtures: pods that break the policies on purpose
   # (never applied to a cluster). Everything that is applied is scanned.
 }
@@ -938,15 +957,20 @@ check_shellcheck() {
 
 check_kubeconform() {
   local rendered="$HARNESS_WORK_DIR/platform-manifests.yaml"
-  need kubeconform
+  local full="$HARNESS_WORK_DIR/platform-manifests-full.yaml"
+  local gitops="$HARNESS_WORK_DIR/platform-gitops.yaml"
+  need kubeconform helm
   mkdir -p "$HARNESS_WORK_DIR/kubeconform-cache"
   render_platform >"$rendered"
+  bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[0]}" --full example-owner >"$full"
+  helm template platform platform/gitops --namespace argocd --kube-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
+    --set-string dxRepoURL=https://github.com/example-owner/dx03v2.git --set-string dxRevision=gitops/gcp >"$gitops"
   kubeconform -strict -summary -output text \
     -kubernetes-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
     -cache "$HARNESS_WORK_DIR/kubeconform-cache" \
     -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/$K8S_SCHEMA_REF/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
     -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRD_SCHEMA_REF/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
-    "$rendered"
+    "$rendered" "$full" "$gitops"
 }
 
 # The platform layer of contract v2, parsed from the rendered manifests (kubectl, no cluster):
@@ -1098,6 +1122,88 @@ check_contract_parameter() {
   return "$rc"
 }
 
+# The cloud full profile is rendered with example fork values; it creates no credential Secret and
+# keeps the Autopilot exception visible (no Istio ambient or node-level agents).
+check_contract_platform_full() {
+  local rc=0 full apps e got want
+  local IFS=,
+  need helm kubectl
+  full="$HARNESS_WORK_DIR/platform-manifests-full.yaml"
+  apps="$HARNESS_WORK_DIR/platform-gitops.yaml"
+  bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[*]}" --full example-owner >"$full"
+  local -a expect=(
+    "name: dx03v2" 'policy.lab/enforce: "true"'
+    "name: cert-manager" "name: monitoring" "name: argocd" "name: gatekeeper-system"
+    "name: trivy-system" "name: velero" "name: chaos-mesh"
+    "kind: AppProject" "name: platform" "kind: Application" "repoURL: https://github.com/example-owner/tx03v2.git"
+    "dxRepoURL: https://github.com/example-owner/dx03v2.git" "dxRevision: gitops/gcp"
+    "kind: Role" "name: dx03v2-gitops-sync" "kind: RoleBinding" "name: dx03v2-gitops-sync"
+    'RespectIgnoreDifferences=true' '/spec/source/path'
+    '/spec/source/kustomize/images' '/spec/source/kustomize/patches'
+  )
+  for e in "${expect[@]}"; do
+    grep -qF -- "$e" "$full" || {
+      echo "platform/manifests/full: missing '$e'"
+      rc=1
+    }
+  done
+  got="$(kubectl_local "$full" '{{if and (eq .kind "RoleBinding") (eq .metadata.name "dx03v2-gitops-sync")}}{{range .subjects}}{{.kind}} {{.name}} {{.apiGroup}}{{"\n"}}{{end}}{{end}}')"
+  want="User ${RENDER_DEPLOYERS[0]} rbac.authorization.k8s.io"
+  want+=$'\n'"User ${RENDER_DEPLOYERS[1]} rbac.authorization.k8s.io"
+  [[ "$got" == "$want" ]] || {
+    printf 'Argo CD RoleBinding must bind only the contract User identities:\n%s\ngot:\n%s\n' "$want" "$got"
+    rc=1
+  }
+  if grep -qE '^kind: Secret$|__[A-Z0-9_]+__' "$full"; then
+    echo "platform/manifests/full must have no Secret or unresolved placeholder"
+    rc=1
+  fi
+  if grep -qE '^  name: (istio-system|monitoring-agents)$' "$full"; then
+    echo "GKE Autopilot full profile must keep Istio ambient and privileged node agents disabled"
+    rc=1
+  fi
+  helm template platform platform/gitops --namespace argocd \
+    --set-string dxRepoURL=https://github.com/example-owner/dx03v2.git --set-string dxRevision=gitops/gcp >"$apps" || return 1
+  for e in 'kind: AppProject' 'kind: Application' 'name: dx03v2' 'project: dx03v2' \
+    'path: "deploy/k8s/overlays/gcp"' 'targetRevision: "gitops/gcp"'; do
+    grep -qF -- "$e" "$apps" || {
+      echo "platform/gitops: missing '$e'"
+      rc=1
+    }
+  done
+  for e in 'kind: Gateway' 'kind: HTTPRoute' 'kind: HealthCheckPolicy' 'kind: GCPBackendPolicy'; do
+    grep -qF -- "$e" "$apps" || {
+      echo "platform/gitops AppProject must allow the app's GKE resource '$e'"
+      rc=1
+    }
+  done
+  if grep -qE '^kind: Secret$|finalizers:' "$apps"; then
+    echo "platform/gitops must not create credentials or an Application deletion finalizer"
+    rc=1
+  fi
+  # shellcheck disable=SC2016 # Match the literal parameter expansion in the installer.
+  grep -qF 'VELERO_BUCKET="$LAB_NAME-velero-$CONTRACT_PROJECT"' platform/install.sh || {
+    echo "platform/install.sh must derive the Velero bucket from the lab name and project ID"
+    rc=1
+  }
+  # shellcheck disable=SC2016 # Match literal Terraform interpolation.
+  grep -qF 'bucket_name = "${var.name}-velero-${var.project_id}"' terraform/modules/velero/main.tf || {
+    echo "terraform/modules/velero must derive the same Velero bucket name"
+    rc=1
+  }
+  # shellcheck disable=SC2016 # Match the literal workflow command.
+  grep -qF 'bash platform/install.sh --profile "$PROFILE" --github-owner "$GITHUB_REPOSITORY_OWNER"' .github/workflows/platform.yml || {
+    echo "platform.yml must pass profile and owner to install.sh"
+    rc=1
+  }
+  # shellcheck disable=SC2016 # Match the literal GitHub Actions expression.
+  grep -qF 'SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}' .github/workflows/platform.yml || {
+    echo "platform.yml must pass the optional Slack webhook through a secret"
+    rc=1
+  }
+  return "$rc"
+}
+
 # Pulls the pinned ESO chart by tag and manifest digest (no cluster needed), checks the archive
 # SHA256 of platform/versions.env (what platform/install.sh refuses otherwise) and renders it with
 # platform/values/external-secrets.yaml.
@@ -1182,6 +1288,246 @@ check_helm_template() {
     rc=1
   }
   echo "rendered external-secrets ${PV[ESO_CHART_VERSION]} (digest and SHA256 verified, $(wc -l <<<"$eso") lines) and opentelemetry-collector ${PV[OTEL_COLLECTOR_CHART_VERSION]} (SHA256 verified, $(wc -l <<<"$otel") lines)"
+  return "$rc"
+}
+
+# full_chart_values VALUES -> arguments for the ordered local-base + GKE-overlay values list.
+full_chart_values() {
+  local list=$1 value out="$HARNESS_WORK_DIR/full-values" file
+  local -a parts=()
+  mkdir -p "$out"
+  local i=0
+  IFS=, read -ra parts <<<"$list"
+  for value in "${parts[@]}"; do
+    i=$((i + 1))
+    file="platform/$value"
+    sed \
+      -e 's|__S3_BUCKET__|tx03v2-local-velero|g' \
+      -e 's|__S3_ENDPOINT__|http://10.252.0.12:7070|g' \
+      -e 's|__REGISTRY_ENDPOINT__|10.252.0.10:5000|g' \
+      -e 's|__VELERO_BUCKET__|tx03v2-lab-velero-tx03v2-lab-example|g' \
+      -e 's|__ARTIFACT_REGISTRY_REPOSITORY__|us-central1-docker.pkg.dev/tx03v2-lab-example/dx03v2|g' \
+      "$file" >"$out/$i-$(basename "$value")"
+    printf -- '--values\n%s\n' "$out/$i-$(basename "$value")"
+  done
+}
+
+# Render the pinned full chart table plus the core ESO release; no cluster or cloud account is needed.
+render_full_charts() {
+  local entry repo_key version_key sha_key chart release namespace values tgz out eso_sha
+  local -a args=() post_renderer=()
+  load_local_versions
+  export HELM_CACHE_HOME="$HARNESS_WORK_DIR/helm/cache" HELM_CONFIG_HOME="$HARNESS_WORK_DIR/helm/config" HELM_DATA_HOME="$HARNESS_WORK_DIR/helm/data"
+  export HELM_PLUGINS="$REPO_ROOT/platform/full/helm-plugins"
+  export HELM_REPOSITORY_CONFIG="$HARNESS_WORK_DIR/helm/repositories.yaml" HELM_REPOSITORY_CACHE="$HARNESS_WORK_DIR/helm/repository"
+  out="$HARNESS_WORK_DIR/full-charts"
+  mkdir -p "$HARNESS_WORK_DIR/helm/repository" "$out/renders"
+  [[ -f "$HELM_REPOSITORY_CONFIG" ]] || printf 'apiVersion: v1\nrepositories: []\n' >"$HELM_REPOSITORY_CONFIG"
+  rm -f "$out/renders"/*.yaml
+  while IFS= read -r entry; do
+    read -r repo_key version_key sha_key chart release namespace values <<<"$entry"
+    tgz="$(pull_chart "$out/charts" "${LV[$repo_key]}" "$chart" "${LV[$version_key]}" "${LV[$sha_key]}")"
+    mapfile -t args < <(full_chart_values "$values")
+    post_renderer=()
+    if [[ "$chart" == chaos-mesh ]]; then
+      post_renderer=(--post-renderer chaos-mesh-no-daemon)
+    fi
+    BASH="$BASH" helm template "$release" "$tgz" --namespace "$namespace" --kube-version "$K8S_SCHEMA_KUBERNETES_VERSION" "${args[@]}" "${post_renderer[@]}" >"$out/renders/$chart.yaml" || {
+      echo "$chart: helm template failed"
+      return 1
+    }
+  done < <(chart_table)
+
+  local eso="$out/charts/external-secrets"
+  mkdir -p "$eso"
+  helm pull "${LV[ESO_CHART_OCI]}:${LV[ESO_CHART_VERSION]}@sha256:${LV[ESO_CHART_DIGEST]}" --destination "$eso"
+  tgz="$(find "$eso" -maxdepth 1 -name 'external-secrets*.tgz' -print -quit)"
+  eso_sha="$(sha256_of "$tgz")"
+  [[ -n "$tgz" && -f "$tgz" && "$eso_sha" == "${LV[ESO_CHART_SHA256]}" ]] || {
+    echo "external-secrets ${LV[ESO_CHART_VERSION]}: chart archive SHA256 differs from platform/versions.env"
+    return 1
+  }
+  helm template external-secrets "$tgz" --namespace external-secrets --kube-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
+    --values platform/values/external-secrets.yaml >"$out/renders/external-secrets.yaml" || {
+    echo "external-secrets: helm template failed"
+    return 1
+  }
+}
+
+chart_render_images() {
+  awk '/^---/ { flush(); next } { doc = doc $0 "\n" } /^kind: ConfigMap$/ { skip = 1 }
+    function flush() { if (!skip) printf "%s", doc; doc = ""; skip = 0 } END { flush() }' "$1" |
+    grep -hoE "^[[:space:]-]*image:[[:space:]]*[\"']?[^\"'[:space:]]+" |
+    sed -E "s/^[[:space:]-]*image:[[:space:]]*[\"']?//" | sort -u || :
+}
+
+assert_chart_render() {
+  local label=$1 rendered=$2 images bad services rc=0
+  images="$(chart_render_images "$rendered")"
+  bad=""
+  [[ -z "$images" ]] || bad="$(grep -vE '@sha256:[0-9a-f]{64}$' <<<"$images")" || bad=""
+  if [[ -n "$bad" ]]; then
+    printf '%s: images not pinned by digest:\n%s\n' "$label" "$bad"
+    rc=1
+  fi
+  services="$(awk '/^kind: Service$/ { s = 1 } s && /^  type: LoadBalancer|^  type: NodePort/ { print; s = 0 } /^---/ { s = 0 }' "$rendered")"
+  if [[ -n "$services" ]]; then
+    printf '%s: Services must stay ClusterIP:\n%s\n' "$label" "$services"
+    rc=1
+  fi
+  if grep -qE '__[A-Z0-9_]+__' "$rendered"; then
+    echo "$label: unresolved placeholder in rendered chart"
+    rc=1
+  fi
+  echo "$label: $(grep -c . <<<"$images" || :) images, $(grep -c '^kind:' "$rendered" || :) objects"
+  return "$rc"
+}
+
+check_helm_template_full() {
+  local rc=0 entry version_key chart rendered out alertmanager_b64 alertmanager_config slack_render slack_b64 slack_config
+  local value
+  need helm
+  render_full_charts || return 1
+  out="$HARNESS_WORK_DIR/full-charts/renders"
+  while IFS= read -r entry; do
+    read -r _ version_key _ chart _ _ _ <<<"$entry"
+    assert_chart_render "$chart ${LV[$version_key]}" "$out/$chart.yaml" || rc=1
+  done < <(chart_table)
+  assert_chart_render "external-secrets ${LV[ESO_CHART_VERSION]}" "$out/external-secrets.yaml" || rc=1
+
+  for value in 'googlecloud:' 'otlp_grpc/tempo:' 'spanmetrics:' '- googlecloud' '- otlp_grpc/tempo' '- spanmetrics'; do
+    grep -qF -- "$value" "$out/opentelemetry-collector.yaml" || {
+      echo "OpenTelemetry Collector full render: missing '$value'"
+      rc=1
+    }
+  done
+  for value in 'provider: gcp' 'bucket: "tx03v2-lab-velero-tx03v2-lab-example"' 'serviceAccountName: velero'; do
+    grep -qF -- "$value" "$out/velero.yaml" || {
+      echo "Velero full render: missing '$value'"
+      rc=1
+    }
+  done
+  if grep -qE '^kind: Secret$|iam\.gke\.io/gcp-service-account' "$out/velero.yaml"; then
+    echo "Velero must use direct GKE Workload Identity, without a credentials Secret or Google service account"
+    rc=1
+  fi
+  grep -qF '      - "observability"' "$out/gatekeeper.yaml" || {
+    echo "Gatekeeper full render must exempt the observability namespace"
+    rc=1
+  }
+  if grep -qE 'registry\.tx03v2\.local|10\.252\.0\.10:5000|labRegistry' "$out/trivy-operator.yaml"; then
+    echo "Trivy Operator full render must not retain the local HTTP registry mirror"
+    rc=1
+  fi
+  if grep -qE '^kind: DaemonSet$' "$out/chaos-mesh.yaml"; then
+    echo "GKE Autopilot Chaos Mesh render must not include any DaemonSet"
+    rc=1
+  fi
+  grep -qF 'name: chaos-controller-manager' "$out/chaos-mesh.yaml" || {
+    echo "GKE Autopilot Chaos Mesh render must retain the API controller"
+    rc=1
+  }
+  if grep -qE '^# Source: kube-prometheus-stack/charts/prometheus-node-exporter/templates/|^  name: kube-prometheus-stack-prometheus-node-exporter$' "$out/kube-prometheus-stack.yaml"; then
+    echo "GKE Autopilot kube-prometheus-stack must not render node-exporter"
+    rc=1
+  fi
+
+  alertmanager_b64="$(awk '/^  alertmanager.yaml:/ { sub(/^  alertmanager.yaml: "/, ""); sub(/"$/, ""); print; exit }' "$out/kube-prometheus-stack.yaml")"
+  alertmanager_config="$(base64 -d <<<"$alertmanager_b64")"
+  grep -qF 'receiver: "null"' <<<"$alertmanager_config" || {
+    echo "Alertmanager without Slack must route to the null receiver"
+    rc=1
+  }
+  if grep -qE 'alert-sink|receiver: slack|alertmanager-slack' <<<"$alertmanager_config"; then
+    echo "Alertmanager without Slack must not reference the local sink or the Slack Secret"
+    rc=1
+  fi
+
+  local kps_entry kps_repo kps_version kps_sha kps_chart kps_release kps_namespace kps_values tgz
+  local -a args=()
+  kps_entry="$(chart_entry kube-prometheus-stack)"
+  read -r kps_repo kps_version kps_sha kps_chart kps_release kps_namespace kps_values <<<"$kps_entry"
+  tgz="$(pull_chart "$HARNESS_WORK_DIR/full-charts/charts" "${LV[$kps_repo]}" "$kps_chart" "${LV[$kps_version]}" "${LV[$kps_sha]}")"
+  mapfile -t args < <(full_chart_values "$kps_values")
+  slack_render="$out/kube-prometheus-stack-slack.yaml"
+  helm template "$kps_release" "$tgz" --namespace "$kps_namespace" --kube-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
+    "${args[@]}" --values platform/values/full/kube-prometheus-stack-slack.yaml >"$slack_render" || {
+    echo "kube-prometheus-stack with Slack overlay: helm template failed"
+    return 1
+  }
+  assert_chart_render 'kube-prometheus-stack (Slack overlay)' "$slack_render" || rc=1
+  slack_b64="$(awk '/^  alertmanager.yaml:/ { sub(/^  alertmanager.yaml: "/, ""); sub(/"$/, ""); print; exit }' "$slack_render")"
+  slack_config="$(base64 -d <<<"$slack_b64")"
+  for value in 'receiver: slack' 'severity =~ "warning|critical"'; do
+    grep -qF -- "$value" <<<"$slack_config" || {
+      echo "Alertmanager Slack overlay: missing '$value'"
+      rc=1
+    }
+  done
+  grep -qF 'alertmanager-slack' "$slack_render" || {
+    echo "Alertmanager Slack overlay must mount the secret supplied at install time"
+    rc=1
+  }
+  return "$rc"
+}
+
+check_platform_sizing() {
+  local nodes=1 output cpu memory render_dir
+  need helm awk
+  render_full_charts || return 1
+  render_dir="$HARNESS_WORK_DIR/full-charts/renders"
+  output="$(bash scripts/platform-sizing.sh "$nodes" "$render_dir")" || return 1
+  cpu="$(awk -F= '$1 == "cpu_millicores" { print $2 }' <<<"$output")"
+  memory="$(awk -F= '$1 == "memory_mib" { print $2 }' <<<"$output")"
+  [[ "$cpu" =~ ^[0-9]+$ && "$memory" =~ ^[0-9]+$ ]] || {
+    echo "platform-sizing must output cpu_millicores and memory_mib"
+    return 1
+  }
+  grep -qF "| full | ${cpu}m CPU / ${memory}MiB RAM |" docs/CUSTOS.md || {
+    echo "docs/CUSTOS.md must record the reproducible full-profile requests: ${cpu}m CPU / ${memory}MiB RAM"
+    return 1
+  }
+  echo "full profile including core ESO, ${nodes} sizing node(s): ${cpu}m CPU / ${memory}MiB RAM"
+}
+
+# R4.8: check scripts, workflows, Make targets, and cloud variables named in the fork path.
+check_fork_references() {
+  local rc=0 doc ref target
+  local -a docs=(FORK.md docs/RUNBOOK.md)
+  for doc in "${docs[@]}"; do
+    while IFS= read -r ref; do
+      [[ -f "$ref" ]] && continue
+      case "$ref" in
+        scripts/deploy-gcp.sh)
+          grep -qF 'https://github.com/maringelix/dx03v2/blob/main/scripts/deploy-gcp.sh' "$doc" || {
+            echo "$doc: external script '$ref' must link to its dx03v2 source"
+            rc=1
+          }
+          ;;
+        *)
+          echo "$doc: referenced script '$ref' does not exist"
+          rc=1
+          ;;
+      esac
+    done < <(grep -hoE 'scripts/[A-Za-z0-9_./-]+\.sh' "$doc" | sort -u || :)
+    while IFS= read -r ref; do
+      [[ -f "$ref" ]] || { echo "$doc: referenced workflow '$ref' does not exist"; rc=1; }
+    done < <(grep -hoE '\.github/workflows/[A-Za-z0-9_.-]+\.yml' "$doc" | sort -u || :)
+    while IFS= read -r target; do
+        grep -qE "^${target}[[:space:]]*:" Makefile && continue
+        if [[ "$target" == e2e-platform ]] && grep -qF 'https://github.com/maringelix/dx03v2/blob/main/Makefile' "$doc"; then
+          continue
+        fi
+        echo "$doc: referenced Make target '$target' does not exist in tx03v2 or a linked sibling"
+        rc=1
+    done < <(grep -hoE 'make[[:space:]]+[A-Za-z0-9_-]+' "$doc" | awk '{print $2}' | sort -u || :)
+    while IFS= read -r ref; do
+      grep -RqsF --exclude-dir=.terraform --exclude-dir=.cache --exclude-dir=.tools -- "$ref" .github/workflows terraform || {
+        echo "$doc: referenced cloud variable '$ref' is not wired to a workflow or Terraform input"
+        rc=1
+      }
+    done < <(grep -hoE '(TF_VAR|GCP|LAB|APP|SLACK)_[A-Za-z0-9_]+' "$doc" | sort -u || :)
+  done
   return "$rc"
 }
 
@@ -1380,6 +1726,7 @@ check_kubeconform_local() {
 check_policy_gator() {
   need gator
   gator verify -v platform/local/policies/tests/
+  gator verify -v platform/full/policies/tests/
 }
 
 check_local_lab_e2e() {
@@ -1404,7 +1751,9 @@ register_checks() {
   register static preflight-flow check_preflight_flow
   register static trivyignore-policy check_trivyignore_policy
   register static contract-platform check_contract_platform
+  register static contract-platform-full check_contract_platform_full
   register static contract-parameter check_contract_parameter
+  register static fork-references check_fork_references
   register static terraform-fmt check_terraform_fmt
   register static terraform-lockfiles check_terraform_lockfiles
   for d in terraform/bootstrap terraform/envs/lab terraform/envs/local "$REPO_ROOT"/terraform/modules/*/; do
@@ -1419,6 +1768,8 @@ register_checks() {
   register static shellcheck check_shellcheck
   register static kubeconform check_kubeconform
   register static helm-template check_helm_template
+  register static helm-template-full check_helm_template_full
+  register static platform-sizing check_platform_sizing
   register static local-versions check_local_versions
   register static helm-template-local check_helm_template_local
   register static kubeconform-local check_kubeconform_local
@@ -1540,6 +1891,7 @@ main() {
     echo "failed: ${FAILED[*]}"
     return 1
   fi
+  return 0
 }
 
 main "$@"

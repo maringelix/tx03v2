@@ -1,7 +1,7 @@
 # Sustentação do tx03v2
 
 Como manter o repositório saudável sem conta na nuvem: rotinas, calendário de fim de suporte e
-procedimentos passo a passo. Datas e versões verificadas em 2026-10-11.
+procedimentos passo a passo. Datas e versões verificadas em 2026-10-16.
 
 ## 1. Objetivo e escopo
 
@@ -12,9 +12,9 @@ com ele.
 
 ## 2. Estado atual
 
-- Harness completo (`HARNESS_STRICT=1 make verify`) `verificado no CI` com 32 checks (jobs `static`
-  e `test`); com os checks do lab local são 38, `verificado localmente` em container Linux (o CI
-  ainda não rodou essa versão).
+- Harness completo: o último CI verde de `main` precede os checks do perfil GCP `full`. Os novos
+  renders de charts e sizing foram conferidos localmente em 2026-10-16; o CI do PR precisa passar.
+  A nuvem segue `não executado em nuvem (v2)`.
 - Lab local (`docs/LAB_LOCAL.md`): `make e2e` com o perfil `full` (34 sondas) `verificado no CI`
   (job `e2e`); `verificado localmente` em 2026-10-13 (`full`, 26 sondas de então, destroy sem sobras)
   e 2026-10-14 (`observability`, com traces e Slack).
@@ -234,6 +234,21 @@ Os pins são os mesmos do lab local do `tx01v2`: atualize os repositórios junto
    nó do kind (`terraform/envs/local/kind-config.yaml`) segue o `GKE_KUBERNETES_MINOR` do harness
    (`local-versions` confere a minor).
 5. Rode `make verify` e `make e2e` (ou deixe o job `e2e` do CI provar no PR) e registre no CHANGELOG.
+
+### 5.15 Charts do perfil cloud full
+
+1. Atualize `platform/full/charts.txt` apenas com charts necessários ao perfil `full`; preserve as
+   versões, SHA256 e digests de imagem do lab local. Use os mesmos pins do tx01v2 e tx02v2. O GKE
+   Autopilot deste perfil exclui Istio ambient, node-exporter, Trivy node collector e o daemon do
+   Chaos Mesh.
+2. Confira a versão e os valores no upstream, baixe cada chart e registre SHA256 e digest OCI. Rode
+   `helm-template-full` com os values em `platform/values/full`; inspecione as imagens, requests,
+   Service types e comportamento do post-renderer Helm 4 do Chaos Mesh.
+3. Rode `kubeconform`, `policy-gator`, `contract-platform-full` e `platform-sizing`. Se mudar os
+   requests, réplicas ou charts, atualize a soma e os custos de core/full em `docs/CUSTOS.md`;
+   mantenha o core como padrão.
+4. Verifique o suporte no Autopilot e a documentação oficial antes de mudar uma exclusão. Registre
+   fonte e data em `docs/ARQUITETURA.md`; renders locais não provam admissão nem runtime na GKE.
 
 ## 6. Resposta a problemas
 

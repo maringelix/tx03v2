@@ -155,15 +155,16 @@ Trivy Operator 190 MiB, etcd 160 MiB e os dois pods do Gatekeeper, 264 MiB.
 
 - Nada do Google Cloud: IAM, Workload Identity Federation (do GitHub e for GKE), contas de serviço,
   o Gateway da GKE e o Cloud Armor reais, Secret Manager, Parameter Manager, Cloud SQL e o endpoint
-  Private Service Connect, quotas e custo continuam `não executado em nuvem (v2)`. O lab local mostra
-  o alvo da plataforma; a camada de plataforma em nuvem instala só o ESO (o controlador de Gateway é
-  gerenciado pelo Google; `planejado` para os demais add-ons na GKE).
+  Private Service Connect, quotas, charts e custo continuam `não executado em nuvem (v2)`. A
+  plataforma em nuvem oferece `core` (ESO e Collector) e `full` opcional; no GKE Autopilot o full
+  omite Istio ambient, node-exporter, Trivy node collector e o daemon privilegiado do Chaos Mesh
+  ([docs/ARQUITETURA.md](ARQUITETURA.md)). O controlador do Gateway é gerenciado pelo Google.
 - O kind não é Autopilot: as regras do Autopilot (requests mínimos e proporção CPU:memória,
   contêineres privilegiados e `hostPath` recusados, webhooks de terceiros limitados) não são
-  emuladas. O Istio ambient (istio-cni e ztunnel privilegiados) e o Chaos Mesh não rodariam como estão
-  no Autopilot; o v1 viu o GKE Warden recusar o ztunnel, o hostPath do node-exporter e os webhooks
-  do Trivy Operator (lição 7 de `docs/LICOES_APRENDIDAS.md`). A
-  NetworkPolicy é aplicada pelo kindnet, não pelo Dataplane V2.
+  emuladas. Istio ambient (istio-cni e ztunnel privilegiados), node-exporter, Trivy node collector e
+  o daemon do Chaos Mesh não são instalados no perfil GCP full. O v1 viu o GKE Warden recusar o
+  ztunnel, o hostPath do node-exporter e os webhooks do Trivy Operator (lição 7 de
+  `docs/LICOES_APRENDIDAS.md`). A NetworkPolicy é aplicada pelo kindnet, não pelo Dataplane V2.
 - A borda local (Istio Gateway com HTTPS da CA do lab) não é o Gateway da GKE: no Google Cloud o
   listener é HTTP na porta 80 (HTTPS `planejado`) e o WAF é o Cloud Armor, ausente aqui.
 - O emulador de objetos fala a API do S3, então o Velero usa o plugin AWS/S3 só aqui; o Cloud Storage

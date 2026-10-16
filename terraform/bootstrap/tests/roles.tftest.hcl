@@ -62,6 +62,13 @@ override_resource {
   }
 }
 
+override_resource {
+  target = google_project_iam_custom_role.velero_bucket
+  values = {
+    id = "projects/tx03v2-lab-example/roles/tx03v2VeleroBucket"
+  }
+}
+
 run "plan_identity_is_read_only" {
   command = apply
 
@@ -213,6 +220,35 @@ run "secrets_can_be_managed_but_not_read" {
   }
 }
 
+run "apply_manages_velero_bucket_metadata_but_not_backup_objects" {
+  command = apply
+
+  assert {
+    condition = toset(google_project_iam_custom_role.velero_bucket.permissions) == toset([
+      "storage.buckets.create",
+      "storage.buckets.delete",
+      "storage.buckets.get",
+      "storage.buckets.getIamPolicy",
+      "storage.buckets.setIamPolicy",
+      "storage.buckets.update",
+    ])
+    error_message = "The apply identity may manage only the dedicated backup bucket and its IAM policy."
+  }
+
+  assert {
+    condition = (
+      !contains(google_project_iam_custom_role.velero_bucket.permissions, "storage.objects.get") &&
+      !contains(google_project_iam_custom_role.velero_bucket.permissions, "storage.objects.list") &&
+      !contains(google_project_iam_custom_role.velero_bucket.permissions, "storage.objects.delete") &&
+      google_project_iam_member.apply_velero_bucket.role == "projects/tx03v2-lab-example/roles/tx03v2VeleroBucket" &&
+      google_project_iam_member.apply_velero_bucket.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com" &&
+      google_project_iam_member.apply_velero_bucket.condition[0].title == "velero-bucket-only" &&
+      google_project_iam_member.apply_velero_bucket.condition[0].expression == "resource.type == 'storage.googleapis.com/Bucket' && resource.name == 'projects/_/buckets/tx03v2-lab-velero-tx03v2-lab-example'"
+    )
+    error_message = "Terraform can manage metadata only on the exact Velero bucket, cannot read backup contents, and cannot affect other buckets."
+  }
+}
+
 run "apply_acts_as_the_node_account_only" {
   command = apply
 
@@ -319,7 +355,7 @@ run "nothing_for_the_deployer_and_no_owner" {
 
   assert {
     condition = alltrue([
-      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin, google_project_iam_member.apply_lab_secrets]) :
+      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin, google_project_iam_member.apply_lab_secrets, google_project_iam_member.apply_velero_bucket]) :
       m.member != "serviceAccount:dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
     ])
     error_message = "dx03v2-gha-deploy gets its roles from the lab root, on lab resources only (contract)."
@@ -327,7 +363,7 @@ run "nothing_for_the_deployer_and_no_owner" {
 
   assert {
     condition = alltrue([
-      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin, google_project_iam_member.apply_lab_secrets]) :
+      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin, google_project_iam_member.apply_lab_secrets, google_project_iam_member.apply_velero_bucket]) :
       m.role != "roles/owner"
     ])
     error_message = "No identity of the lab gets roles/owner."

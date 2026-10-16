@@ -1,0 +1,20 @@
+# Overlay of platform/local/values/gatekeeper.yaml for the profile full in GKE Autopilot. The webhook
+# fails closed, but excludes only the built-in Kubernetes namespaces and the named platform namespaces.
+# GKE-managed namespaces such as kube-system are controlled by Autopilot; the app namespace and every
+# other new namespace stay covered.
+validatingWebhookExemptNamespacesLabels:
+  kubernetes.io/metadata.name:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - gke-system
+    - gke-managed-system
+    - cert-manager
+    - external-secrets
+    - monitoring
+    - observability
+    - argocd
+    - gatekeeper-system
+    - trivy-system
+    - velero
+    - chaos-mesh

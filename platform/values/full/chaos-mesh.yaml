@@ -1,0 +1,9 @@
+# Autopilot cannot run the privileged Chaos Mesh daemon. The upstream chart renders it
+# unconditionally, so platform/install.sh and the chart harness filter only that DaemonSet through
+# the pinned chart's post-renderer. Keep the controller and CRDs; only PodChaos pod-kill uses the
+# Kubernetes API without the daemon. Container, network, time, filesystem, stress and node faults
+# remain exclusive to the local lab.
+dashboard:
+  create: false
+dnsServer:
+  create: false

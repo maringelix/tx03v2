@@ -23,7 +23,7 @@ dx03v2_repository_id = "3000000"
 # Monthly budget in the currency of the billing account, counted before credits (a free trial's
 # credits would hide the spend). budget_alert_emails is required: name at least one address you read
 # (the placeholder is refused); the billing account administrators get the alerts as well.
-budget_amount       = 10
+budget_amount       = 5
 budget_alert_emails = ["you@example.com"]
 
 # Only if a real apply fails with PERMISSION_DENIED for a permission that none of the roles of

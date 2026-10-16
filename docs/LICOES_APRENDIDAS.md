@@ -19,7 +19,7 @@ o dx03v2, descrevem o repositório dele (o deploy em nuvem é `não executado em
 
 - O que aconteceu na v1: `terraform/modules/billing-budget` (5 limiares, Pub/Sub, alerta de "cost spike") nunca foi chamado pelo root `dev`; a nota de sessão marca "Budget alerts ativados no GCP: pendente". O módulo também era inválido: alerta com filtro `resource.type = "global"` sem métrica, canais de e-mail criados mas não ligados ao budget, `currency_code = "USD"` fixo e conta de faturamento buscada por nome de exibição.
 - Lição: budget é o primeiro recurso do lab, aplicado e testado, não documentação.
-- Na v2: `google_billing_budget` no bootstrap (escopo do projeto, `budget_amount` padrão 10 sem `currency_code`, limiares 0.5/0.9/1.0 + 1.0 previsto, e-mail opcional via `google_monitoring_notification_channel`), coberto por `terraform test` do bootstrap.
+- Na v2: `google_billing_budget` no bootstrap (escopo do projeto, `budget_amount` padrão 5 sem `currency_code`, limiares 0.5/0.9/1.0 + 1.0 previsto, e-mail via `google_monitoring_notification_channel`), coberto por `terraform test` do bootstrap.
 
 ### 2. Números de custo inventados
 
@@ -57,7 +57,7 @@ o dx03v2, descrevem o repositório dele (o deploy em nuvem é `não executado em
 
 - O que aconteceu na v1: o GKE Warden recusou `NET_ADMIN` (sidecar e ztunnel do Istio), `patch` em `kube-system`, hostPath do node-exporter e webhooks com regra `('*','*')`/`nodes/proxy` do Trivy Operator (`GKE Admission Webhook Controller: the following (group,resource) pairs are not allowed`).
 - Lição: verificar a compatibilidade com Autopilot de cada chart antes de escrever workflow e documentação.
-- Na v2: só componentes gerenciados (controlador de Gateway da GKE) e ESO; `helm-template` e `kubeconform` no harness validam o que será instalado.
+  - Na v2, o perfil `core` instala ESO e Collector; o `full` acrescenta charts que cabem no Autopilot. Istio ambient, node-exporter, Trivy node collector e o daemon do Chaos Mesh ficam fora do perfil GCP. `helm-template-full` e `kubeconform` validam os renders; a admissão em nuvem permanece não verificada.
 
 ### 8. Ingress sem IP por mais de 3 horas
 

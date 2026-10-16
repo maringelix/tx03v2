@@ -78,6 +78,17 @@ module "artifact_registry" {
   region     = var.region
 }
 
+module "velero" {
+  source = "../../modules/velero"
+
+  name       = local.name
+  project_id = var.project_id
+  region     = var.region
+
+  # The GKE-managed workload identity pool exists after the Autopilot cluster is created.
+  depends_on = [module.gke]
+}
+
 module "secrets" {
   source = "../../modules/secrets"
 

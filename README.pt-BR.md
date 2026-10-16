@@ -39,11 +39,11 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | Workflows, scripts, manifests da plataforma e values do Helm (actionlint, shellcheck, kubeconform, helm template do chart do External Secrets fixado por digest e SHA256) | `verificado no CI` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
 | Scan de segredos e políticas do repositório (só identificadores placeholder, actions fixadas, os quatro labels do contrato, scripts que só agem no lab, regras de Terraform contra as regressões do v1) | `verificado no CI` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
 | Contrato v2 com o dx03v2 (15 chaves do parâmetro do Parameter Manager, namespaces `dx03v2` e `observability`, RBAC do deployer, ClusterSecretStore, endpoint OTLP do Collector) | `verificado no CI` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
-| Testes unitários do Terraform com provider google mockado (sujeitos do Workload Identity Federation, bucket do state, papéis do plan e do apply, condição IAM = papéis de projeto do lab, budget, GKE Autopilot, rede, Cloud SQL, segredos, Artifact Registry, Cloud Armor, parâmetro do contrato, concessões IAM, validações negativas; 63 casos) | `verificado no CI` | `make test` |
+| Testes unitários do Terraform com provider google mockado (sujeitos do Workload Identity Federation, bucket do state, limites dos papéis do plan/apply, condição IAM do bucket Velero, budget, GKE Autopilot, rede, Cloud SQL, segredos, Artifact Registry, Cloud Armor, parâmetro do contrato, concessões IAM e validações negativas) | `verificado no CI` | `make test` |
 | Bootstrap (APIs, bucket do state, pool e provider do Workload Identity Federation, contas de serviço do CI, budget) | `não executado em nuvem (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Apply do lab (VPC + Cloud NAT, GKE Autopilot no canal REGULAR, Cloud SQL PostgreSQL 17 por Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, contrato no Parameter Manager) | `não executado em nuvem (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan em pull requests | `não executado em nuvem (v2)` | `.github/workflows/terraform-plan.yml` |
-| Camada de plataforma (External Secrets Operator 2.12.0, OpenTelemetry Collector 0.162.0 enviando os traces do app ao Cloud Trace; o controlador de Gateway da GKE é gerenciado pelo Google) | `não executado em nuvem (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`; os charts são renderizados pelo `helm-template` |
+| Perfis da plataforma em nuvem: `core` (ESO + OpenTelemetry Collector 0.176.0) e `full` opcional (observabilidade no cluster, Argo CD, Gatekeeper, Trivy, Velero e controller do Chaos Mesh) | `implementado como código; não executado em nuvem (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; exclusões do Autopilot em `docs/ARQUITETURA.md` |
 | Destroy + checagem de sobras | `não executado em nuvem (v2)` | `.github/workflows/terraform-destroy.yml`, `scripts/leftovers.sh` |
 | HTTPS no Gateway | `planejado` | fora do contrato v2 (`docs/CONTRATO.md`) |
 | Configurações do repositório como código (ruleset, environment `lab`) | `verificado localmente` | `scripts/repo-guardrails.sh` aplicado; conferido com `gh api` em 2026-10-14 (`docs/PUBLICACAO.md`) |
@@ -59,7 +59,7 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | Scan dentro do cluster: Trivy Operator (relatórios de vulnerabilidade e de configuração) | `verificado no CI` | `make e2e` |
 | Ensaio de backup e restore: Velero no emulador de objetos (namespace apagado e restaurado com os dados) | `verificado no CI` | `make e2e` |
 | Chaos engineering com hipóteses: pod kill, 100 ms de latência de rede, stress de CPU e memória (Chaos Mesh); disponibilidade, latência e reinícios medidos | `verificado no CI` | `make e2e` |
-| Os mesmos add-ons na GKE | `planejado` | o lab local mostra o alvo; a camada de plataforma em nuvem instala só o ESO e o OpenTelemetry Collector (vários desses add-ons precisam de privilégios que o Autopilot recusa, `docs/LAB_LOCAL.md`) |
+| Perfil GKE full: add-ons do lab local compatíveis com a nuvem | `implementado como código; não executado em nuvem (v2)` | GKE Autopilot omite Istio ambient, node-exporter, Trivy node collector e o daemon privilegiado do Chaos Mesh; só usa PodChaos pod-kill e pode faltar relatório de imagem privada sem credencial do registry |
 
 As linhas `verificado no CI` (`HARNESS_STRICT=1 make verify`) rodam no CI (`ci.yml`, jobs `static`
 e `test`, em todo pull request, em todo push para a `main` e toda semana) e passam localmente num
@@ -91,8 +91,8 @@ flowchart LR
 - `terraform/envs/lab`: módulos `network`, `gke`, `cloudsql`, `artifact-registry`, `secrets`, `waf`,
   `contract` e `project-roles`, os segredos gerados (ephemeral, write-only), todas as concessões IAM
   do lab (`roles.tf`) e o parâmetro do contrato que o dx03v2 lê.
-- `platform/`: o chart do External Secrets Operator e os manifests, instalados depois do apply, nunca
-  pelo Terraform.
+- `platform/`: perfis core e full em nuvem, charts fixados, manifests renderizados e GitOps,
+  instalados depois do apply, nunca pelo Terraform.
 - Decisões de design, a tabela AWS / Azure / Google Cloud e a tabela v1 → v2:
   [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
@@ -142,18 +142,18 @@ Detalhes, sondas e limites: [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) e
 
 ## Caminho em nuvem (custa dinheiro)
 
-**Custo primeiro:** cerca de US$0,12 por hora em us-central1 com os padrões enquanto o free tier da
-GKE cobre a taxa do cluster (US$74,40 por mês por conta de faturamento, o bastante para um cluster
-Autopilot ou zonal), cerca de US$0,22 por hora sem ele. Os maiores itens são a taxa do cluster GKE
-(quando o free tier já é usado por outro cluster), o Cloud SQL e o load balancer. Uma rodada de 3
-horas custa cerca de US$0,40-0,70 mais dados; um lab esquecido custa cerca de US$90-160 por mês. São
-estimativas a partir dos preços de tabela lidos em 2026-10-11, não verificadas numa fatura, e a sua
-conta de faturamento pode usar outra moeda: veja o [docs/CUSTOS.md](docs/CUSTOS.md). Use um projeto
-dedicado, mantenha os alertas do budget (um budget nunca para os gastos) e destrua no mesmo dia.
+**Custo primeiro:** o perfil padrão `core` custa cerca de US$0,12/h com o free tier da GKE ou
+US$0,22/h sem ele. O `full` opcional custa cerca de US$0,16/h ou US$0,26/h, respectivamente.
+Três horas custam cerca de US$0,37–0,67 no `core` ou US$0,49–0,79 no `full`, mais dados e
+armazenamento de backup; um lab full esquecido custa aproximadamente US$119–192/mês. São estimativas
+de preços de tabela conferidos em 2026-10-16, não uma fatura, e a conta pode usar outra moeda:
+veja [docs/CUSTOS.md](docs/CUSTOS.md). O budget do bootstrap começa em 5 unidades da moeda e só
+avisa. Use um projeto dedicado e destrua no mesmo dia.
 
 Siga o [docs/RUNBOOK.md](docs/RUNBOOK.md): bootstrap → variáveis do GitHub do tx03v2 (e do dx03v2) →
-apply → plataforma → deploy do dx03v2 (workflow `deploy-gcp` de lá) → smoke test → destroy → checagem de sobras
-(local, como Owner do projeto) → issue `cloud_run_report`.
+apply → escolha `core` ou `full` no workflow da plataforma → deploy GitOps do dx03v2 → smoke test →
+revise e esvazie o bucket do Velero (só no full) → destroy → checagem de sobras (local, como Owner
+do projeto) → issue `cloud_run_report`.
 
 ## Harness
 

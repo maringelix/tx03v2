@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Optional GKE Autopilot `full` profile with pinned cloud-safe charts, GitOps app-of-apps, in-cluster
+  observability, Gatekeeper, Trivy Operator, Velero on Cloud Storage, and the Chaos Mesh controller.
+  Istio ambient, node-exporter, the Trivy node collector, and the privileged Chaos Mesh daemon are
+  excluded by design. Cloud execution is still `not run in the cloud (v2)`.
+- Reproducible chart request sizing, core/full cost estimates, the fork restore drill, and checks for
+  the full chart set, GitOps contract, policy cases, and runbook references.
+
+### Security
+
+- The Velero bucket has a project-scoped custom role limited to bucket metadata; only the Velero
+  Workload Identity principal receives object access, scoped to that bucket. No key or Kubernetes
+  Secret is used, and the bucket refuses deletion while it contains objects.
+
 ### Fixed
 
 - The External Secrets webhook of the local lab timed out (`context deadline exceeded`) because the

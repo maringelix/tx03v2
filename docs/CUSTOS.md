@@ -2,17 +2,17 @@
 
 Estimativa do custo por hora, por dia e de um mês esquecido com os padrões do lab em `us-central1`,
 para decidir antes de criar qualquer coisa. Todos os valores são **preços de tabela lidos nas páginas
-de preço do Google Cloud em 2026-10-11** (US$, sem impostos, sem créditos e sem transferência de
+de preço do Google Cloud em 2026-10-16** (US$, sem impostos, sem créditos e sem transferência de
 dados): são estimativas, não verificadas numa fatura. A sua conta de faturamento pode usar outra
 moeda, e o budget do bootstrap usa essa moeda. Nada disto foi medido: a v2 nunca rodou em nuvem
 (`não executado em nuvem (v2)`).
 
-## Estimativa por componente (padrões, us-central1)
+## Estimativa por componente (perfil core, us-central1)
 
 | Componente | Uso no lab (padrão) | Preço de referência | US$/hora | US$/dia | US$/mês esquecido (730 h) |
 |---|---|---|---|---|---|
 | Taxa de gerenciamento do cluster GKE | 1 cluster Autopilot | US$0,10/h; free tier de US$74,40/mês por conta de faturamento (um cluster Autopilot ou zonal) | 0,100 (0 com o free tier) | 2,40 (0) | 73,00 (0) |
-| Pods do Autopilot (general-purpose) | ~0,5 vCPU e ~0,9 GiB de requests (api 2 × 100m/128 Mi, web 2 × 50m/64 Mi do dx03v2; ESO 200m/512 Mi) | US$0,0445 por vCPU-hora, US$0,0049225 por GiB-hora | ~0,027 | ~0,64 | ~19,40 |
+| Pods do Autopilot (general-purpose) | 550m CPU / 1280MiB de requests: app (300m/512Mi), ESO (200m/512Mi) e Collector (50m/256Mi) | US$0,0445 por vCPU-hora, US$0,0049225 por GiB-hora | ~0,031 | ~0,74 | ~22,36 |
 | Cloud SQL `db-g1-small` (ENTERPRISE, zonal) | 1 instância | US$0,035/h | 0,035 | 0,84 | 25,55 |
 | SSD do Cloud SQL | 10 GB | US$0,000232877 por GiB-hora | 0,002 | 0,06 | 1,70 |
 | Backup do Cloud SQL | 1 backup retido (até ~10 GB) | US$0,000109589 por GiB-hora | até 0,001 | até 0,03 | até 0,80 |
@@ -24,22 +24,67 @@ moeda, e o budget do bootstrap usa essa moeda. Nada disto foi medido: a v2 nunca
 | Cloud DNS (zona privada), Secret Manager, Parameter Manager, Artifact Registry, Cloud Logging | 1 zona, 2 segredos, 1 parâmetro, 2 imagens por commit, logs da GKE | centavos por mês na zona DNS; franquias gratuitas: 6 versões de segredo e 6 de parâmetro, 0,5 GB de registry, 50 GiB de logs por projeto | ~0 | ~0 | centavos |
 | Cloud Trace (traces do app pelo OpenTelemetry Collector, contrato v2) | volume do lab (milhares de spans por rodada) | US$0,20 por milhão de spans depois de 2,5 milhões por mês por conta de faturamento ([preços do Google Cloud Observability](https://cloud.google.com/products/observability/pricing), verificado em 2026-10-14) | ~0 | ~0 | ~0 |
 | Bucket do state, VPC, Cloud Router, IAM, Workload Identity Federation, budget | — | sem cobrança relevante | 0,000 | 0,00 | 0,00 |
-| **Total com o free tier da GKE** | | | **~0,12** | **~2,90** | **~88** |
-| **Total sem o free tier** | | | **~0,22** | **~5,30** | **~160** |
+| **Total com o free tier da GKE** | | | **~0,12** | **~2,98** | **~91** |
+| **Total sem o free tier** | | | **~0,22** | **~5,38** | **~164** |
 | Sem WAF (`enable_waf = false`) | | | (~0,011 a menos) | (~0,26 a menos) | (~8 a menos) |
 
-Hipóteses: o app do dx03v2 com 2 réplicas de api e de web (o HPA pode subir as da api até 4); 2–3
-nós do Autopilot para a conta do NAT; tráfego de laboratório (centavos de processamento de dados e
-de requisições ao Cloud Armor); logs dentro da franquia. Se a regra padrão do Cloud Armor não for
-cobrada, a política custa ~US$7/mês em vez de ~US$8.
+## Perfil full e alternativa gerenciada (R4.2 e R4.7)
+
+O check `platform-sizing` baixa e renderiza os charts fixados em `platform/full/charts.txt`, inclui o
+External Secrets Operator do perfil core e soma `requests` dos Deployments/StatefulSets e dos
+recursos Prometheus e Alertmanager. O total da plataforma **não inclui o app dx03v2**. Os requests do
+app vêm dos valores atuais do dx03v2: duas réplicas da API (100m/128Mi cada) e duas da web
+(50m/64Mi cada). A conta de preço usa as tarifas do GKE Autopilot general-purpose em us-central1,
+sem desconto, conferidas em 2026-10-16 na [página oficial de preços da GKE](https://cloud.google.com/kubernetes-engine/pricing).
+
+| Perfil | Plataforma, com ESO e Collector | App dx03v2 | Requests totais estimados | Pods por hora | Total do lab com free tier | Total sem free tier |
+|---|---:|---:|---:|---:|---:|---:|
+| core | 250m CPU / 768MiB RAM | 300m CPU / 512MiB RAM | 550m CPU / 1280MiB RAM | ~US$0,031 | ~US$0,12 | ~US$0,22 |
+| full | 840m CPU / 3280MiB RAM | 300m CPU / 512MiB RAM | 1140m CPU / 3792MiB RAM | ~US$0,069 | ~US$0,16 | ~US$0,26 |
+
+O total `full` mantém os demais componentes da tabela principal e substitui apenas o custo dos pods
+do `core`. Em uma rodada de três horas, o `full` fica em cerca de US$0,49 com o crédito do cluster
+disponível ou US$0,79 sem ele; ligado por 730 horas, cerca de US$119 ou US$192. São estimativas de
+requests, sem impostos, tráfego, armazenamento de backup do Velero ou reajustes que o Autopilot faça
+para atender mínimos e proporções de CPU/memória. O GKE Autopilot administra a quantidade e o tamanho
+dos nós; este perfil não aceita `node_instance_types` nem `node_desired_size`. O argumento de nós do
+script de soma não muda o resultado GCP, pois o render não tem DaemonSet.
+
+O orçamento mensal do exemplo/bootstrap foi ajustado de US$10 para **US$5** (na moeda da conta).
+Com as tarifas em dólares, os alertas de 50%/100% do `full` chegam depois de aproximadamente 10/19
+horas sem o free tier ou 15/31 horas com ele. O budget avisa, não interrompe recursos.
+
+### In-cluster versus observabilidade gerenciada
+
+O `full` escolhe Prometheus/Alertmanager/Grafana, Loki/Alloy e Tempo no cluster. Os quatro renders
+de backend somam 175m CPU / 1056MiB RAM, aproximadamente US$0,013 por hora ou US$0,039 em três horas
+nas tarifas de Autopilot acima. O OpenTelemetry Collector e os demais componentes permanecem na soma
+da plataforma. Esse caminho permite provar scrapes, regras e entrega do Alertmanager, consulta de
+logs no Loki e consulta de traces/spanmetrics no Tempo, além da correlação em Grafana.
+
+Como cenário comparável para os serviços gerenciados do Google, considere uma rodada de três horas,
+100 séries Prometheus amostradas a cada 15 segundos (72 mil amostras), 100MiB de logs e 100 mil
+spans. O Managed Service for Prometheus custa cerca de US$0,00432 pelas amostras a US$0,06 por
+milhão; os logs ficam abaixo da franquia mensal de 50GiB por projeto e os traces abaixo dos primeiros
+2,5 milhões de spans por conta de faturamento, se esses limites ainda não tiverem sido usados.
+Nesse cenário a ingestão gerenciada custa cerca de **US$0,004 por rodada**, mais os requests dos
+coletores necessários. Ela prova a chegada e a consulta de dados no Cloud Monitoring, Cloud Logging
+e Cloud Trace, mas não prova Loki, Tempo, Grafana ou o receiver local do Alertmanager. Tarifas e
+franquias foram conferidas em 2026-10-16 na [página oficial de preços do Cloud Observability](https://cloud.google.com/products/observability/pricing).
+O volume acima é uma hipótese reproduzível, não uma medição do lab.
+
+Hipóteses: o app do dx03v2 com 2 réplicas de API e web (o HPA pode subir as da API até 4); 2–3 VMs
+de nó para estimar a linha do Cloud NAT (o Autopilot escolhe quantas usa); tráfego de laboratório
+(centavos de processamento de dados e de requisições ao Cloud Armor); logs dentro da franquia. Se a
+regra padrão do Cloud Armor não for cobrada, a política custa ~US$7/mês em vez de ~US$8.
 
 Leituras rápidas:
 
-- Uma rodada de 3 horas (apply → plataforma → deploy → smoke → destroy) custa cerca de US$0,40 com
-  o free tier e US$0,70 sem, mais dados.
-- Esquecido ligado, o lab custa cerca de US$2,90 por dia com o free tier e US$5,30 sem. Se a conta de
-  faturamento usar dólar, o budget padrão (10) passa de 50 % em 1 a 2 dias e de 100 % em 2 a 3,5
-  dias; numa moeda mais fraca que o dólar, os alertas chegam antes.
+- Uma rodada de 3 horas do `core` custa cerca de US$0,37 com o free tier e US$0,67 sem; o `full`,
+  US$0,49 ou US$0,79, mais dados e armazenamento dos backups.
+- Esquecido ligado, o `core` custa cerca de US$2,98/dia com o free tier e US$5,38 sem; o `full`,
+  US$3,90 ou US$6,30. Em 730 horas, o `full` fica em cerca de US$119 ou US$192. Com o budget de
+  US$5, o alerta de 50% chega em horas, não em dias.
 - Sem o free tier, a taxa do cluster é o maior item (~45 % do total), seguida do Cloud SQL (~17 %) e
   do load balancer (~11 %). Com o free tier, o Cloud SQL (~32 %), os pods (~22 %) e o load balancer
   (~21 %) dominam.
@@ -47,7 +92,7 @@ Leituras rápidas:
 
 ## O free tier da GKE
 
-O que foi lido em 2026-10-11 na página de preços da GKE: a taxa de gerenciamento é de US$0,10/h por
+O que foi lido em 2026-10-16 na página de preços da GKE: a taxa de gerenciamento é de US$0,10/h por
 cluster, e cada conta de faturamento recebe US$74,40 por mês de crédito, o bastante para um cluster
 Autopilot ou zonal o mês inteiro (clusters Standard regionais não são cobertos). O cluster do lab é
 Autopilot regional, então está coberto, **desde que nenhum outro cluster da mesma conta de
@@ -81,7 +126,8 @@ servem como orçamento atual e vários eram texto fixo, sem dado de faturamento:
 | "Quick wins" de economia | -US$38-48/mês (60 %), nunca medidos |
 
 A lição continua valendo: cada forwarding rule e cada add-on custa todo mês. A v2 tem um único
-Gateway, nenhum add-on além do External Secrets e um destroy que termina com a checagem de sobras.
+Gateway; o core usa ESO e OpenTelemetry Collector, enquanto o full acrescenta os add-ons compatíveis
+com Autopilot descritos acima. O destroy termina com a checagem de sobras.
 
 ## Dicas
 

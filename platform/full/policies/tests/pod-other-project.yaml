@@ -1,0 +1,22 @@
+# Same region and repository name, a different project: it is not the lab registry.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: other-project
+  namespace: dx03v2
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  containers:
+    - name: api
+      image: us-central1-docker.pkg.dev/other-project-example/dx03v2/api:0000000000000000000000000000000000000000
+      readinessProbe:
+        httpGet:
+          path: /readyz
+          port: 3000
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 256Mi

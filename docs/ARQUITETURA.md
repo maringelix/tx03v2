@@ -22,7 +22,7 @@ flowchart LR
       budget["Budget mensal + alertas"]
     end
     subgraph vpc["VPC tx03v2-lab"]
-      gke["GKE Autopilot tx03v2-lab: nós privados,<br/>Dataplane V2, External Secrets"]
+      gke["GKE Autopilot tx03v2-lab: nós privados,<br/>Dataplane V2, core ESO + Collector; full opcional"]
       psc["Endpoint PSC tx03v2-lab-db"]
       nat["Cloud Router + Cloud NAT"]
     end
@@ -30,10 +30,12 @@ flowchart LR
     sm["Secret Manager (2 segredos)"]
     ar["Artifact Registry dx03v2"]
     pm["Parameter Manager<br/>tx03v2-lab-contract"]
+    velero[("Bucket GCS do Velero<br/>regional, só objetos, 35 dias")]
   end
   lb -->|NEGs zonais| gke
   gke -->|TLS 5432, verify-full| psc --> sql
   gke -->|ESO, principal do ServiceAccount| sm
+  gke -->|full: Workload Identity| velero
   gke -->|nós: artifactregistry.reader| ar
   gke --- nat
   deployid -->|artifactregistry.writer| ar
@@ -41,13 +43,14 @@ flowchart LR
   deployid -->|clusterViewer + RoleBinding| gke
   planid -.->|leitura| st
   applyid --> st
-  applyid -->|papéis de serviço do lab, IAM condicionado| proj
+  applyid -->|papéis de serviço; Velero só no bucket derivado| proj
 ```
 
 Camadas: `terraform/bootstrap` (uma vez, por um humano Owner do projeto) → `terraform/envs/lab`
 (módulos `network`, `gke`, `cloudsql`, `artifact-registry`, `secrets`, `waf`, `contract`,
-`project-roles`) → `platform/` (Helm e manifests, nunca pelo Terraform) → app do `dx03v2`
-(`planejado`). O contrato entre as camadas está em `docs/CONTRATO.md`.
+`project-roles`, `velero`) → `platform/` (Helm e manifests, nunca pelo Terraform) → app do
+`dx03v2` pela revisão GitOps `gitops/gcp` no perfil `full` (R4.4). O contrato entre as camadas
+está em `docs/CONTRATO.md`; nenhuma rodada foi executada em nuvem.
 
 ## Lab local
 
@@ -110,7 +113,7 @@ flowchart LR
 | 24 | Artifact Registry `dx03v2` com tags imutáveis, limpeza (versões sem tag com mais de 7 dias saem; as 10 mais recentes ficam) e varredura desligada | o dx03v2 publica cada SHA uma vez; o gate de vulnerabilidades é o trivy do CI dele (o Artifact Analysis cobra por imagem) | tags mutáveis como `latest` (v1) |
 | 25 | Labels do contrato pelo `default_labels` do provider em cada root, com `add_terraform_attribution_label = false` | todo recurso que aceita labels recebe exatamente os quatro (`policy-labels`); módulos não configuram provider | `labels` repetido em cada recurso |
 | 26 | Private Google Access + Cloud NAT `AUTO_ONLY` só para a subnet dos nós, logs só de erros | os nós privados alcançam as APIs do Google sem NAT e o resto da Internet pelo NAT; logs são cobrados por GB | nós com IP público |
-| 27 | Logs da GKE `SYSTEM_COMPONENTS` + `WORKLOADS`, sem stack de observabilidade no cluster | a franquia de 50 GiB por projeto do Cloud Logging cobre um lab; Prometheus, Grafana, Istio e ArgoCD custavam mais que o app no v1 (lição 5) | kube-prometheus-stack |
+| 27 | Logs da GKE `SYSTEM_COMPONENTS` + `WORKLOADS`; `core` sem stack de observabilidade no cluster, `full` com Prometheus/Alertmanager/Grafana, Loki/Alloy e Tempo | o perfil barato continua padrão; `full` acrescenta as sondas de observabilidade do lab local e os requests aparecem em `docs/CUSTOS.md` (R4.2, R4.7) | stack em todos os perfis |
 | 28 | Budget no bootstrap, sem `currency_code` | o valor fica na moeda da conta de faturamento; alertas de 50/90/100 % do gasto e 100 % da previsão para os administradores da conta e os e-mails opcionais; o budget só avisa | budget só em documentação (v1) |
 | 29 | `deletion_protection = false` no cluster e na instância | toda rodada termina com destroy; os dados do lab são descartáveis | proteção ligada (o destroy exigiria um apply antes) |
 | 30 | Lab local com Terraform + provider Docker e kind por CLI (`terraform_data` + `local-exec`) | o mesmo fluxo apply/destroy da nuvem, sem conta; o provider `tehcyx/kind` embute uma versão antiga do kind; o state local guarda credenciais descartáveis desta máquina (`random_password` e backend `local` só em `terraform/envs/local`) | emuladores do Google Cloud (os emuladores do gcloud cobrem Pub/Sub, Datastore, Firestore, Bigtable e Spanner; nada para GKE, Cloud SQL ou Secret Manager); minikube |
@@ -118,9 +121,17 @@ flowchart LR
 | 32 | GitOps com Argo CD lendo um servidor git do lab | um único dono do namespace do app; o push usa a chave do state, a leitura é anônima; o Argo CD fica só ClusterIP | Flux; apontar para o GitHub (exigiria credenciais e internet no caminho do deploy) |
 | 33 | Gatekeeper com políticas próprias testadas no `gator` | as regras do v1 (tx01 e o `:latest` do tx03), em `deny`, com casos que provam aceitação e recusa | gatekeeper-library inteira (mais regras do que o lab explica); Policy Controller da GKE (não avaliado); Kyverno |
 | 34 | Alertmanager → `alert-sink` dentro do cluster; receiver do Slack com o webhook num Secret opcional | entrega de alerta provada sem credencial externa; sem webhook, a mensagem no formato do Slack vai para o sink e a sonda confere o conteúdo | webhook do Slack nos values versionados (v1) |
-| 35 | Velero no emulador de objetos (API S3), backup por recursos, sem snapshots | o ensaio de restore roda em minutos e sem nuvem (o v1 nunca restaurou nada, lição 17); o emulador fala S3, então o plugin AWS do Velero só existe no lab local (no Google Cloud seria o plugin GCP num bucket do Cloud Storage, `planejado`) | `pg_dump` sozinho; snapshots CSI; um emulador da API do Cloud Storage (não avaliado; o lab reaproveita o emulador do `tx01v2`) |
+| 35 | Velero no emulador S3 do lab local e, no `full` de GCP, plugin GCP em bucket regional do Cloud Storage; backup de objetos Kubernetes, sem snapshots | o KSA `velero/velero` recebe `roles/storage.objectAdmin` diretamente pelo Workload Identity Federation, só no bucket; os objetos expiram em 35 dias e `force_destroy=false` obriga a esvaziar o bucket antes do destroy. Velero não faz backup do Cloud SQL nem de volumes persistentes | chave de conta de serviço em Secret; role de objetos no projeto; snapshots CSI; `pg_dump` como substituto do backup de objetos |
 | 36 | Perfis `core`/`observability`/`operations`/`full`; rede `10.252.0.0/24` e registry em `localhost:5003` | máquinas com pouca memória validam uma camada por vez; o CI roda `full`; rede e porta diferentes das do `tx01v2` (`10.250.0.0/24`, `5001`) e do `tx02v2` (`10.251.0.0/24`, `5002`) evitam colisão entre os labs | um único perfil; os mesmos endereços em todos os pares |
-| 37 | Traces: o OpenTelemetry Collector como único destino OTLP; Tempo no lab local, Cloud Trace na nuvem, com o ServiceAccount `observability/opentelemetry-collector` como principal (`roles/cloudtrace.agent` no projeto, como o ESO na decisão 6) | o app e os Gateways falam só OTLP; trocar o backend não muda o app; nenhuma conta de serviço do Google nem chave; Tempo monolítico cabe no kind | SDK do Cloud Trace no app (prende o app ao Google Cloud); conta de serviço do Google com `iam.gke.io/gcp-service-account`; Managed Service for Prometheus/OTLP gerenciado do Google (mais peças) |
+| 37 | Traces: o OpenTelemetry Collector como destino OTLP; Cloud Trace no `core` e Cloud Trace + Tempo no `full`, com o KSA `observability/opentelemetry-collector` como principal (`roles/cloudtrace.agent` no projeto) | o app fala OTLP sem conhecer o backend; a pipeline do `full` acrescenta Tempo e spanmetrics sem remover o Cloud Trace; os dados do Tempo ficam em `emptyDir` | SDK do Cloud Trace no app; chave de conta de serviço; persistência de Tempo fora do escopo |
+| 38 | **R4.2:** observabilidade no cluster no perfil `full`; manter Cloud Monitoring, Cloud Logging e Cloud Trace como alternativa gerenciada | os renders locais já cobrem métricas, regra e entrega do Alertmanager, consulta de logs no Loki, traces no Tempo e correlação em Grafana; o caminho gerenciado prova ingestão e consulta nos serviços do Google, mas não prova Loki, Tempo, Grafana nem Alertmanager locais. Preços e cenário de três horas estão em `docs/CUSTOS.md`; preços oficiais verificados em 2026-10-16 | stack gerenciada como único caminho e sem comparação com as sondas locais |
+| 39 | **R4.3:** Istio ambient não faz parte do perfil GKE Autopilot; não pedir allowlist de workload privilegiado | o GKE ambient segue em Preview e requer allowlist de acesso, além dos pré-requisitos de versão, região, Gateway API e Workload Identity; o perfil do fork não tem essa aprovação nem habilita o feature flag. O `istio-cni`/`ztunnel` upstream também não faz parte da tabela GCP. Verificado em 2026-10-16 na [documentação de ambient do GKE](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/prepare-ambient-networking) e na [segurança do Autopilot](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/autopilot-security) | habilitar ambient por pressuposto ou instalar componentes de nó sem a aprovação do GKE |
+| 40 | **R4.6:** Gatekeeper isenta apenas namespaces internos e de controladores; `dx03v2` continua coberto | as exceções do webhook no perfil GCP são `kube-system`, `kube-public`, `kube-node-lease`, `gke-system`, `gke-managed-system`, `cert-manager`, `external-secrets`, `monitoring`, `observability`, `argocd`, `gatekeeper-system`, `trivy-system`, `velero` e `chaos-mesh`; o namespace da aplicação não é isento | isentar todos os namespaces do provedor ou do app |
+| 41 | **R4.6:** no Chaos Mesh da GKE, manter o controller e omitir o DaemonSet `chaos-daemon`; usar somente `PodChaos` `pod-kill` no runbook | o chart 2.8.4 renderiza o DaemonSet sem uma opção de values para desligá-lo; um post-renderer Helm 4 local remove apenas esse objeto. O Autopilot bloqueia a maioria dos workloads privilegiados por padrão; a documentação do Chaos Mesh descreve `pod-kill` via API Kubernetes, enquanto ações de rede, tempo, filesystem, container, stress e nó usam o daemon. Verificado em 2026-10-16 na [segurança do Autopilot](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/autopilot-security), no [guia de PodChaos](https://chaos-mesh.org/docs/simulate-pod-chaos-on-kubernetes/) e no [chart 2.8.4](https://github.com/chaos-mesh/chaos-mesh/blob/v2.8.4/helm/chaos-mesh/README.md) | instalar a DaemonSet privilegiada ou prometer os experimentos que dependem dela |
+| 42 | **R4.7:** medir o `full` pela soma reproduzível de requests dos charts; manter `core` como padrão | `platform-sizing.sh` renderiza os charts fixados, multiplica réplicas e soma os requests dos recursos Prometheus/Alertmanager. No render GCP de 2026-10-16, a plataforma com ESO soma 840m CPU / 3280MiB; Autopilot provisiona e escala os nós e cobra por requests, portanto não há `node_instance_types`/`node_desired_size` para escolher. A tarifa e o custo total por hora ficam em `docs/CUSTOS.md`; conferidos na [página de preços da GKE](https://cloud.google.com/kubernetes-engine/pricing) | publicar um número sem origem ou fingir que Autopilot expõe tamanho de node pool |
+| 43 | **R4.6:** manter o Trivy Operator sem mirror local nem credenciais de registry | o node collector fica desligado por exigir acesso de nó; sem credenciais de leitura do Artifact Registry, relatórios para imagens privadas do app podem faltar. O perfil não concede credenciais de registry ao Trivy | afirmar que o scan cobre todas as imagens privadas |
+| 44 | **R4.4:** limitar o sync do Argo CD aos operadores identificados no contrato | o RoleBinding da Application usa sujeitos `kind: User` para a conta `dx03v2-gha-deploy` e os membros explicitamente listados; o cluster não ativa Google Groups for RBAC. O GKE só reconhece grupos de Workspace com o grupo de segurança e a configuração do cluster. Conferido em 2026-10-16 na [documentação de RBAC do GKE](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/google-groups-rbac) | usar um grupo Kubernetes sem configurar seu mapeamento no GKE |
+| 45 | **R4.5:** limitar o papel de metadados do Velero ao bucket de backup exato | a role `tx03v2VeleroBucket` do apply usa uma condição de IAM com `resource.type` e o nome `projects/_/buckets/tx03v2-lab-velero-<project_id>`; a referência do Cloud Storage lista `storage.buckets.create` como permissão do bucket e permite condições por tipo/nome. A regra não dá acesso a objetos. Conferido em 2026-10-16 na [documentação de condições do Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/iam?hl=en) e na [referência de atributos IAM](https://docs.cloud.google.com/iam/docs/conditions-resource-attributes). O teste valida a configuração; não foi executado em nuvem | conceder metadados do bucket no projeto inteiro ou dar acesso aos objetos ao workflow de Terraform |
 
 ### O que fica fora do state
 
@@ -162,7 +173,7 @@ de faturamento.
 |---|---|---|---|
 | Bootstrap | bucket S3 (lock nativo), provider OIDC, 3 papéis, budget | conta de storage (lease de blob), registro de providers, grupo do lab, 3 managed identities federadas, budget | 15 APIs, bucket GCS (lock por objeto), pool e provider do Workload Identity Federation, 3 contas de serviço, budget do projeto |
 | Identidade do CI | papéis IAM com `sub` exato | managed identities com um sujeito exato por credencial federada | contas de serviço com um `workloadIdentityUser` por sujeito exato |
-| Limite do apply | papel quase administrador da conta; permission boundary `planejado` | Contributor + papéis de dados só em `tx02v2-lab`; atribuição de papéis limitada por ABAC | o papel de admin de cada serviço do lab no projeto (sem Editor, sem Secret Manager Admin, Service Account User só na conta dos nós); concessões de projeto limitadas pela condição `modifiedGrantsByRole` |
+| Limite do apply | papel quase administrador da conta; permission boundary `planejado` | Contributor + papéis de dados só em `tx02v2-lab`; atribuição de papéis limitada por ABAC | o papel de admin de cada serviço do lab no projeto (sem Editor, sem Secret Manager Admin, Service Account User só na conta dos nós); concessões de projeto limitadas por `modifiedGrantsByRole`; metadados do Velero só no bucket derivado (ADR 45) |
 | Cluster | EKS 1.36, access entries, Pod Identity, add-ons gerenciados | AKS 1.36 Free, Entra ID + Azure RBAC, Workload ID, contas locais desligadas | GKE Autopilot no canal REGULAR (1.36), endpoint DNS só com IAM, Workload Identity Federation for GKE |
 | Nós | AL2023 SPOT t3.medium/t3a.medium | Azure Linux, `Standard_D2als_v6` | gerenciados pelo Autopilot (cobrança por request de pod) |
 | Rede | VPC com subnets públicas/privadas, 1 NAT gateway | VNet com subnets delegadas, CNI Overlay + Cilium, saída pelo Load Balancer do AKS | VPC custom, nós privados, Private Google Access, Cloud NAT, Dataplane V2 |

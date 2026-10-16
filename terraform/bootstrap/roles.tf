@@ -104,10 +104,41 @@ resource "google_project_iam_custom_role" "lab_secrets" {
   depends_on = [google_project_service.lab]
 }
 
+# tx03v2-gha-apply manages metadata and IAM only on the exact derived Velero bucket. The IAM
+# condition also scopes bucket creation by its requested name; the role cannot inspect or alter any
+# other bucket. It cannot read, list, create or delete backup objects.
+resource "google_project_iam_custom_role" "velero_bucket" {
+  role_id     = "tx03v2VeleroBucket"
+  title       = "tx03v2 Velero bucket lifecycle"
+  description = "Create and manage the dedicated Velero bucket and its IAM policy, without access to backup objects."
+  permissions = [
+    "storage.buckets.create",
+    "storage.buckets.delete",
+    "storage.buckets.get",
+    "storage.buckets.getIamPolicy",
+    "storage.buckets.setIamPolicy",
+    "storage.buckets.update",
+  ]
+
+  depends_on = [google_project_service.lab]
+}
+
 resource "google_project_iam_member" "apply_lab_secrets" {
   project = var.project_id
   role    = google_project_iam_custom_role.lab_secrets.id
   member  = google_service_account.github["apply"].member
+}
+
+resource "google_project_iam_member" "apply_velero_bucket" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.velero_bucket.id
+  member  = google_service_account.github["apply"].member
+
+  condition {
+    title       = "velero-bucket-only"
+    description = "Limit bucket metadata operations, including create, to tx03v2-lab's derived Velero bucket."
+    expression  = "resource.type == 'storage.googleapis.com/Bucket' && resource.name == 'projects/_/buckets/tx03v2-lab-velero-${var.project_id}'"
+  }
 }
 
 # Only when a real apply fails with PERMISSION_DENIED for a permission that none of the roles above
