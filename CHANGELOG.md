@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Contract version 3 records the R4 GitOps Application and the deploy identity's restricted refresh
+  permission, coordinated with the dx03v2 R4 deploy flow.
 - Optional GKE Autopilot `full` profile with pinned cloud-safe charts, GitOps app-of-apps, in-cluster
   observability, Gatekeeper, Trivy Operator, Velero on Cloud Storage, and the Chaos Mesh controller.
   Istio ambient, node-exporter, the Trivy node collector, and the privileged Chaos Mesh daemon are
