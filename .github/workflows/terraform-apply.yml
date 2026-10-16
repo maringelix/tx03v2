@@ -4,7 +4,8 @@
 # Workload Identity Federation subject of tx03v2-gha-apply (the immutable
 # repo:<owner>@<owner id>/tx03v2@<repository id>:environment:lab). The project must be dedicated to
 # the lab: scripts/preflight.sh runs first and stops at a cluster, a database or a secret of other
-# work, because the apply identity has Editor on the whole project (docs/GUARDRAILS.md, SEC-18).
+# work, because the roles of the apply identity cover the whole project (docs/GUARDRAILS.md, SEC-18
+# and SEC-20).
 # Not run in the cloud yet (v2).
 name: terraform-apply
 

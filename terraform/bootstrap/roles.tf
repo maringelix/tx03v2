@@ -20,16 +20,52 @@ locals {
   # plan identity reads no secret value.
   plan_project_roles = ["roles/iam.securityReviewer", "roles/parametermanager.parameterViewer", "roles/viewer"]
 
-  # tx03v2-gha-apply: environment lab only (required reviewer). Editor creates the lab resources;
-  # the admin roles add what Editor lacks (cluster RBAC, resource IAM of secrets, repositories and
-  # parameters); Service Account User lets GKE nodes run as tx03v2-lab-nodes.
+  # tx03v2-gha-apply: environment lab only (required reviewer). It has the admin role of each service
+  # the lab root uses and nothing of the others (no VMs, no buckets but the state, no BigQuery, no
+  # Pub/Sub, no KMS): no Editor, no Secret Manager Admin and no Service Account User on the whole
+  # project (roadmap R3.16). The roles stay project-wide, because a role cannot be tied to the name of
+  # a resource that does not exist yet (a name condition covers a resource that exists, not the call
+  # that creates it, and the support of conditions for the network and database resources could not
+  # be checked without a cloud): the project must still be the lab's own (scripts/preflight.sh,
+  # docs/GUARDRAILS.md SEC-18).
   apply_project_roles = [
+    # The repository dx03v2 and its IAM.
     "roles/artifactregistry.admin",
+    # resourcemanager.projects.get: the lab root reads the project number.
+    "roles/browser",
+    "roles/cloudsql.admin",
+    # VPC, subnet, router, NAT, addresses and the Private Service Connect endpoint of Cloud SQL.
+    "roles/compute.networkAdmin",
+    # The Cloud Armor policy.
+    "roles/compute.securityAdmin",
+    # The cluster and its RBAC.
     "roles/container.admin",
-    "roles/editor",
-    "roles/iam.serviceAccountUser",
+    # The private zone of the Cloud SQL names.
+    "roles/dns.admin",
     "roles/parametermanager.admin",
-    "roles/secretmanager.admin",
+    # Use the enabled APIs (Editor had it; the omission is a classic error of a narrower role).
+    "roles/serviceusage.serviceUsageConsumer",
+  ]
+
+  # Secret Manager without the values: Secret Manager Admin also has secretmanager.versions.access, so
+  # it could read every secret of the project. The lab secrets are written with write-only arguments
+  # and read by External Secrets only.
+  lab_secrets_permissions = [
+    "secretmanager.locations.get",
+    "secretmanager.locations.list",
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.delete",
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.list",
+    "secretmanager.secrets.setIamPolicy",
+    "secretmanager.secrets.update",
+    "secretmanager.versions.add",
+    "secretmanager.versions.destroy",
+    "secretmanager.versions.disable",
+    "secretmanager.versions.enable",
+    "secretmanager.versions.get",
+    "secretmanager.versions.list",
   ]
 }
 
@@ -59,6 +95,31 @@ resource "google_project_iam_member" "apply" {
   member  = google_service_account.github["apply"].member
 }
 
+resource "google_project_iam_custom_role" "lab_secrets" {
+  role_id     = "tx03v2LabSecrets"
+  title       = "tx03v2 lab secrets, without secret values"
+  description = "Create, update, delete and grant access to secrets and manage their versions, but never read a value."
+  permissions = local.lab_secrets_permissions
+
+  depends_on = [google_project_service.lab]
+}
+
+resource "google_project_iam_member" "apply_lab_secrets" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.lab_secrets.id
+  member  = google_service_account.github["apply"].member
+}
+
+# Only when a real apply fails with PERMISSION_DENIED for a permission that none of the roles above
+# has (docs/RUNBOOK.md, section 12). Empty by default.
+resource "google_project_iam_member" "apply_extra" {
+  for_each = toset(var.apply_extra_project_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = google_service_account.github["apply"].member
+}
+
 resource "google_storage_bucket_iam_member" "apply_state" {
   bucket = google_storage_bucket.state.name
   role   = "roles/storage.objectUser"
@@ -66,7 +127,7 @@ resource "google_storage_bucket_iam_member" "apply_state" {
 }
 
 # Project IAM changes limited by an IAM condition to the roles of modules/project-roles (never
-# roles/owner, roles/editor or any admin role).
+# Owner, Editor or any admin role).
 resource "google_project_iam_member" "apply_project_iam_admin" {
   project = var.project_id
   role    = "roles/resourcemanager.projectIamAdmin"

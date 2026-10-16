@@ -16,8 +16,8 @@ segue o [runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/
 ## 1. Pré-requisitos
 
 - Projeto **dedicado** ao lab, criado por você e com faturamento vinculado: o budget e os papéis do
-  CI valem para o projeto inteiro (`tx03v2-gha-apply` tem Editor, Secret Manager Admin e Service
-  Account User nele, então poderia alterar um cluster, um banco ou um segredo de outro trabalho). O
+  CI valem para o projeto inteiro (`tx03v2-gha-apply` tem o papel de admin de cada serviço do lab
+  nele, então poderia alterar um cluster, um banco ou um segredo de outro trabalho). O
   `scripts/preflight.sh --project <id>` recusa um projeto que tenha cluster GKE, instância Cloud SQL ou
   segredo que não seja do lab, e o `terraform-apply` roda esse check antes do plan. Os exemplos usam
   `tx03v2-lab-example`.
@@ -63,7 +63,9 @@ O bootstrap liga as 15 APIs do lab (nunca desligadas no destroy), cria o bucket 
 (`tx03v2-tfstate-<suffix>`, com `suffix = substr(sha1(project_id), 0, 8)`; versionado, acesso
 uniforme, prevenção de acesso público), o pool `tx03v2-github` com o provider `github`, as contas
 `tx03v2-gha-plan`, `tx03v2-gha-apply` e `dx03v2-gha-deploy` com um vínculo por sujeito exato e os
-papéis do contrato, e o budget mensal (padrão 10 na moeda da conta de faturamento, sem descontar
+papéis do contrato (o apply sem Editor: o admin de cada serviço do lab e o papel personalizado
+`tx03v2LabSecrets`, que cria e concede segredos sem ler valores), a conta dos nós `tx03v2-lab-nodes`
+(o apply só pode agir como ela: `iam.serviceAccountUser` nela e em mais nenhuma conta) e o budget mensal (padrão 10 na moeda da conta de faturamento, sem descontar
 créditos, alertas de 50, 90 e 100 % do gasto e de 100 % da previsão para os e-mails que você nomeia e
 para os administradores da conta).
 
@@ -198,6 +200,17 @@ precisam de lista de IPs. O `platform/install.sh`:
 Ao atualizar um lab criado antes do contrato v2: `roles/cloudtrace.agent` entrou na condição IAM de
 `tx03v2-gha-apply` e a API `cloudtrace.googleapis.com` na lista do bootstrap, então aplique o
 bootstrap de novo (seção 2) antes do apply.
+
+Ao atualizar um lab criado antes da R3.16 (o apply perdeu Editor, Secret Manager Admin e Service
+Account User no projeto): a conta `tx03v2-lab-nodes` passou do root do lab para o bootstrap. Tire-a do
+state do lab e importe-a no bootstrap antes de aplicar os dois:
+
+```bash
+terraform -chdir=terraform/envs/lab state rm google_service_account.nodes
+terraform -chdir=terraform/bootstrap import google_service_account.nodes \
+  projects/<id do projeto>/serviceAccounts/tx03v2-lab-nodes@<id do projeto>.iam.gserviceaccount.com
+terraform -chdir=terraform/bootstrap apply
+```
 
 O controlador de Gateway da GKE é gerenciado pelo Google: nada a instalar. Localmente (como Owner):
 
@@ -374,6 +387,7 @@ Causas prováveis, não verificadas em nuvem na v2:
 | `kubectl wait ... clustersecretstore/gcp-secret-manager` expira | o ESO não alcança o Secret Manager | `kubectl describe clustersecretstore gcp-secret-manager`; confira as concessões dos segredos e o pool `<PROJECT_ID>.svc.id.goog` |
 | `platform/uninstall.sh` expira esperando NEGs | o controlador do Gateway ainda apaga o load balancer | rode de novo; confira `gcloud compute network-endpoint-groups list` |
 | `Requested entity already exists` no pool `tx03v2-github` | pool de um bootstrap anterior em soft delete (30 dias) | `gcloud iam workload-identity-pools undelete tx03v2-github --location=global` e importe no state, ou use outro projeto |
+| O apply falha com `PERMISSION_DENIED` e a mensagem nomeia uma permissão (`compute.*`, `cloudsql.*`, `container.*`, ...) | os papéis do apply foram escolhidos pela documentação dos serviços, não por um apply real, e a permissão não está em nenhum deles | ache o papel predefinido que tem a permissão (`gcloud iam roles list --filter="includedPermissions:<permissão>"`, ou a página de papéis do serviço), ponha-o em `apply_extra_project_roles` no `terraform.tfvars` do bootstrap, aplique o bootstrap e rode o apply de novo; **abra um `cloud_run_report`**, para o papel entrar na lista do repositório. Owner, Project IAM Admin e papéis de conta de serviço são recusados |
 | `leftovers.sh` sai com 2 | `gcloud` sem login, `--project` ausente ou erro da API | faça login e rode de novo; nunca leia isso como "nada sobrou" |
 | `preflight.sh` recusa o projeto (exit 1) | o projeto tem cluster, banco ou segredo que não é do lab | use um projeto dedicado (seção 1); o script nomeia o que encontrou |
 | `Error acquiring the state lock` | um apply ou destroy foi interrompido | `terraform-destroy` com `force_unlock_id` (seção 8), só com a certeza de que nenhum outro `terraform` roda |

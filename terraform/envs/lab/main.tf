@@ -13,6 +13,11 @@ locals {
 
   project_number = data.google_project.this.number
 
+  # The node service account is created by terraform/bootstrap (tx03v2-gha-apply may act as this
+  # account only, and it must exist before the cluster): its name follows the contract.
+  nodes_service_account_email = "${local.name}-nodes@${var.project_id}.iam.gserviceaccount.com"
+  nodes_member                = "serviceAccount:${local.nodes_service_account_email}"
+
   # Workload Identity Federation for GKE principal of the ESO controller ServiceAccount
   # (external-secrets/external-secrets): no Google service account in between.
   eso_principal = "principal://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/external-secrets/sa/external-secrets"
@@ -35,13 +40,7 @@ module "network" {
   services_cidr     = var.services_cidr
 }
 
-# Nodes never run as the Compute Engine default service account (it has roles/editor).
-resource "google_service_account" "nodes" {
-  account_id   = "${local.name}-nodes"
-  display_name = "${local.name} GKE nodes"
-  description  = "Node service account of the ${local.name} Autopilot cluster (logs, metrics, image pulls from dx03v2)."
-}
-
+# Nodes never run as the Compute Engine default service account (it has Editor).
 module "gke" {
   source = "../../modules/gke"
 
@@ -52,7 +51,7 @@ module "gke" {
   subnetwork_id              = module.network.nodes_subnet_id
   pods_range_name            = module.network.pods_range_name
   services_range_name        = module.network.services_range_name
-  node_service_account_email = google_service_account.nodes.email
+  node_service_account_email = local.nodes_service_account_email
 
   # Nodes need their roles before GKE creates them (logging, metrics, image pulls).
   depends_on = [google_project_iam_member.lab]

@@ -1,7 +1,9 @@
-# Roles of the GitHub service accounts: least privilege for the plan identity, the apply identity
-# limited by an IAM condition to the project roles of modules/project-roles (the same list the lab
-# root grants; terraform/envs/lab/tests/roles.tftest.hcl proves the other side), nothing for the
-# deployer here.
+# Roles of the GitHub service accounts: least privilege for the plan identity; the apply identity with
+# the admin role of each service the lab uses (no Editor, no Secret Manager Admin, no Service Account
+# User on the project: roadmap R3.16), a Secret Manager role that cannot read a value, Service Account
+# User on the node account only, and project IAM limited by an IAM condition to the project roles of
+# modules/project-roles (the same list the lab root grants; terraform/envs/lab/tests/roles.tftest.hcl
+# proves the other side); nothing for the deployer here.
 
 mock_provider "google" {
   source = "../tests/mocks"
@@ -44,6 +46,22 @@ override_resource {
   }
 }
 
+override_resource {
+  target = google_service_account.nodes
+  values = {
+    name   = "projects/tx03v2-lab-example/serviceAccounts/tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
+    email  = "tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
+    member = "serviceAccount:tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
+  }
+}
+
+override_resource {
+  target = google_project_iam_custom_role.lab_secrets
+  values = {
+    id = "projects/tx03v2-lab-example/roles/tx03v2LabSecrets"
+  }
+}
+
 run "plan_identity_is_read_only" {
   command = apply
 
@@ -74,19 +92,30 @@ run "plan_identity_is_read_only" {
   }
 }
 
-run "apply_identity_grants_only_the_lab_project_roles" {
+run "apply_identity_has_the_service_roles_of_the_lab_and_no_editor" {
   command = apply
 
   assert {
     condition = toset(keys(google_project_iam_member.apply)) == toset([
       "roles/artifactregistry.admin",
+      "roles/browser",
+      "roles/cloudsql.admin",
+      "roles/compute.networkAdmin",
+      "roles/compute.securityAdmin",
       "roles/container.admin",
-      "roles/editor",
-      "roles/iam.serviceAccountUser",
+      "roles/dns.admin",
       "roles/parametermanager.admin",
-      "roles/secretmanager.admin",
+      "roles/serviceusage.serviceUsageConsumer",
     ])
-    error_message = "tx03v2-gha-apply gets exactly Editor plus the admin roles Editor lacks and Service Account User."
+    error_message = "tx03v2-gha-apply gets the admin role of each service of the lab root (network, security policy, Cloud SQL, DNS, GKE, Artifact Registry, Parameter Manager) and nothing of the services it does not use."
+  }
+
+  assert {
+    condition = alltrue([
+      for forbidden in ["roles/editor", "roles/secretmanager.admin", "roles/iam.serviceAccountUser", "roles/owner", "roles/viewer"] :
+      !contains(keys(google_project_iam_member.apply), forbidden)
+    ])
+    error_message = "tx03v2-gha-apply must not have Editor, Secret Manager Admin or Service Account User on the project (roadmap R3.16), nor Owner."
   }
 
   assert {
@@ -100,7 +129,7 @@ run "apply_identity_grants_only_the_lab_project_roles" {
       google_storage_bucket_iam_member.apply_state.role == "roles/storage.objectUser" &&
       google_storage_bucket_iam_member.apply_state.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com"
     )
-    error_message = "tx03v2-gha-apply reads and writes the state objects (and the lock object), nothing else of the bucket."
+    error_message = "tx03v2-gha-apply reads and writes the state objects (and the lock object), nothing else of the bucket: without Editor it no longer reaches the other buckets of the project."
   }
 
   assert {
@@ -139,12 +168,158 @@ run "apply_identity_grants_only_the_lab_project_roles" {
   }
 }
 
+run "secrets_can_be_managed_but_not_read" {
+  command = apply
+
+  assert {
+    condition = toset(google_project_iam_custom_role.lab_secrets.permissions) == toset([
+      "secretmanager.locations.get",
+      "secretmanager.locations.list",
+      "secretmanager.secrets.create",
+      "secretmanager.secrets.delete",
+      "secretmanager.secrets.get",
+      "secretmanager.secrets.getIamPolicy",
+      "secretmanager.secrets.list",
+      "secretmanager.secrets.setIamPolicy",
+      "secretmanager.secrets.update",
+      "secretmanager.versions.add",
+      "secretmanager.versions.destroy",
+      "secretmanager.versions.disable",
+      "secretmanager.versions.enable",
+      "secretmanager.versions.get",
+      "secretmanager.versions.list",
+    ])
+    error_message = "The Secret Manager role of the apply identity is exactly the permissions the lab root needs to create, grant and version the two secrets."
+  }
+
+  assert {
+    condition = (
+      !contains(google_project_iam_custom_role.lab_secrets.permissions, "secretmanager.versions.access") &&
+      alltrue([for p in google_project_iam_custom_role.lab_secrets.permissions : startswith(p, "secretmanager.")])
+    )
+    error_message = "The apply identity must never read a secret value (no secretmanager.versions.access: that is what Secret Manager Admin had), and the role holds nothing outside Secret Manager."
+  }
+
+  assert {
+    # The role ID is written through a for expression: gitleaks reads "secrets...role_id == <name>"
+    # as the assignment of a credential (generic-api-key), and this is the ID of a role.
+    condition = (
+      alltrue([for r in [google_project_iam_custom_role.lab_secrets] : r.role_id == "tx03v2LabSecrets"]) &&
+      google_project_iam_member.apply_lab_secrets.role == "projects/tx03v2-lab-example/roles/tx03v2LabSecrets" &&
+      google_project_iam_member.apply_lab_secrets.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com" &&
+      google_project_iam_member.apply_lab_secrets.project == "tx03v2-lab-example"
+    )
+    error_message = "The custom role goes to tx03v2-gha-apply on the lab project."
+  }
+}
+
+run "apply_acts_as_the_node_account_only" {
+  command = apply
+
+  assert {
+    condition     = google_service_account.nodes.account_id == "tx03v2-lab-nodes"
+    error_message = "The bootstrap creates the node service account of the contract, tx03v2-lab-nodes."
+  }
+
+  assert {
+    condition = (
+      google_service_account_iam_member.apply_acts_as_nodes.service_account_id == "projects/tx03v2-lab-example/serviceAccounts/tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com" &&
+      google_service_account_iam_member.apply_acts_as_nodes.role == "roles/iam.serviceAccountUser" &&
+      google_service_account_iam_member.apply_acts_as_nodes.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com"
+    )
+    error_message = "tx03v2-gha-apply may act as tx03v2-lab-nodes (roles/iam.serviceAccountUser on that account, for GKE to run the nodes as it)."
+  }
+
+  assert {
+    condition = alltrue([
+      for m in concat(values(google_project_iam_member.apply), values(google_project_iam_member.apply_extra)) :
+      !startswith(m.role, "roles/iam.service")
+    ])
+    error_message = "No service account role on the project for the apply identity: it cannot act as, create or impersonate any other account."
+  }
+}
+
+run "extra_roles_are_empty_by_default" {
+  command = apply
+
+  assert {
+    condition     = length(google_project_iam_member.apply_extra) == 0
+    error_message = "apply_extra_project_roles is empty by default: nothing beyond the lab roles."
+  }
+}
+
+run "extra_roles_go_to_the_apply_identity_only" {
+  command = apply
+
+  variables {
+    apply_extra_project_roles = ["roles/compute.admin", "roles/editor"]
+  }
+
+  assert {
+    condition = (
+      toset(keys(google_project_iam_member.apply_extra)) == toset(["roles/compute.admin", "roles/editor"]) &&
+      alltrue([for m in google_project_iam_member.apply_extra : m.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com" && m.project == "tx03v2-lab-example"])
+    )
+    error_message = "An extra role (a decision of the person who applies the bootstrap) goes to tx03v2-gha-apply on the lab project, nowhere else."
+  }
+}
+
+run "extra_roles_refuse_owner_and_identity_roles" {
+  command = plan
+
+  variables {
+    apply_extra_project_roles = ["roles/owner"]
+  }
+
+  expect_failures = [var.apply_extra_project_roles]
+}
+
+run "extra_roles_refuse_project_iam_admin" {
+  command = plan
+
+  variables {
+    apply_extra_project_roles = ["roles/resourcemanager.projectIamAdmin"]
+  }
+
+  expect_failures = [var.apply_extra_project_roles]
+}
+
+run "extra_roles_refuse_service_account_roles" {
+  command = plan
+
+  variables {
+    apply_extra_project_roles = ["roles/iam.serviceAccountUser"]
+  }
+
+  expect_failures = [var.apply_extra_project_roles]
+}
+
+run "extra_roles_must_be_predefined_roles" {
+  command = plan
+
+  variables {
+    apply_extra_project_roles = ["compute.admin"]
+  }
+
+  expect_failures = [var.apply_extra_project_roles]
+}
+
+run "extra_roles_must_be_unique" {
+  command = plan
+
+  variables {
+    apply_extra_project_roles = ["roles/compute.admin", "roles/compute.admin"]
+  }
+
+  expect_failures = [var.apply_extra_project_roles]
+}
+
 run "nothing_for_the_deployer_and_no_owner" {
   command = apply
 
   assert {
     condition = alltrue([
-      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin]) :
+      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin, google_project_iam_member.apply_lab_secrets]) :
       m.member != "serviceAccount:dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
     ])
     error_message = "dx03v2-gha-deploy gets its roles from the lab root, on lab resources only (contract)."
@@ -152,7 +327,7 @@ run "nothing_for_the_deployer_and_no_owner" {
 
   assert {
     condition = alltrue([
-      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin]) :
+      for m in concat(values(google_project_iam_member.plan), values(google_project_iam_member.apply), [google_project_iam_member.apply_project_iam_admin, google_project_iam_member.apply_lab_secrets]) :
       m.role != "roles/owner"
     ])
     error_message = "No identity of the lab gets roles/owner."

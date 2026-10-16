@@ -15,15 +15,6 @@ variables {
 }
 
 override_resource {
-  target = google_service_account.nodes
-  values = {
-    name   = "projects/tx03v2-lab-example/serviceAccounts/tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-    email  = "tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-    member = "serviceAccount:tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-  }
-}
-
-override_resource {
   target = module.secrets.google_secret_manager_secret.db
   values = {
     id = "projects/tx03v2-lab-example/secrets/tx03v2-lab-db-app"

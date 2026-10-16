@@ -56,6 +56,6 @@ output "db_endpoint_ip" {
 }
 
 output "node_service_account" {
-  description = "E-mail of the node service account."
-  value       = google_service_account.nodes.email
+  description = "E-mail of the node service account (created by terraform/bootstrap)."
+  value       = local.nodes_service_account_email
 }

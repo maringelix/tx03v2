@@ -48,9 +48,14 @@ The rules, where each one is enforced and the known limits are in
 ## Known limits
 
 v2 has never been applied to Google Cloud (`not run in the cloud (v2)`): the Terraform tests use a
-mocked google provider. Inside the lab project the apply identity is powerful (Editor plus the admin
-roles of Kubernetes Engine, Secret Manager, Artifact Registry and Parameter Manager, and Service
-Account User); the IAM condition limits only project-level grants. The plan identity can read the
+mocked google provider. Inside the lab project the apply identity is still powerful: the admin role of
+each service the lab uses (Kubernetes Engine, Cloud SQL, Compute networking and security policies,
+DNS, Artifact Registry, Parameter Manager) and a Secret Manager role that creates and grants secrets
+but cannot read a value. There is no Editor, no Secret Manager Admin and no Service Account User on
+the project (it may act as the node service account only), but the roles are not tied to the names
+of the lab resources, which a role cannot be before the resource exists; the roles were chosen from
+the documentation of each service, not by a real apply. The IAM condition limits only project-level
+grants. The plan identity can read the
 project configuration, its IAM policies and the (non-secret) contract parameter; its subjects accept
 only pull requests of this repository and `main`, and fork pull requests never get a token. Use a
 **dedicated project** (`scripts/preflight.sh` refuses one that holds a cluster, a database or a

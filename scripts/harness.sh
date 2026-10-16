@@ -579,6 +579,7 @@ check_policy_terraform() {
   forbid 'provider[[:space:]]+"(kubernetes|helm|google-beta)"|hashicorp/(kubernetes|helm|google-beta)' \
     "no kubernetes, helm or google-beta providers (platform/install.sh talks to Kubernetes; GA google provider only)" '*.tf' terraform || rc=1
   forbid '^[^#]*"roles/owner"' "roles/owner is never granted (the IAM condition of tx03v2-gha-apply excludes it)" '*.tf' terraform || rc=1
+  forbid '^[^#]*"roles/(editor|secretmanager\.admin)"' "the apply identity has neither Editor nor Secret Manager Admin: the admin role of each service of the lab and the custom secrets role (docs/GUARDRAILS.md, SEC-20; apply_extra_project_roles is the opt-in)" '*.tf' terraform || rc=1
   forbid '^[^#]*principalSet://' "no principalSet grants: one roles/iam.workloadIdentityUser per exact subject" '*.tf' terraform || rc=1
   forbid '^[^#]*(allUsers|allAuthenticatedUsers)' "nothing is public to allUsers/allAuthenticatedUsers" '*.tf' terraform || rc=1
   # Cloud roots and modules only: the pg_hba.conf of the local lab says 0.0.0.0/0 inside its private

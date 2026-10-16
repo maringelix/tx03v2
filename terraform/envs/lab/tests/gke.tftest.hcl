@@ -12,15 +12,6 @@ variables {
   deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
 }
 
-override_resource {
-  target = google_service_account.nodes
-  values = {
-    name   = "projects/tx03v2-lab-example/serviceAccounts/tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-    email  = "tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-    member = "serviceAccount:tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-  }
-}
-
 run "cluster_follows_the_contract" {
   command = apply
 
@@ -34,8 +25,8 @@ run "cluster_follows_the_contract" {
   }
 
   assert {
-    condition     = google_service_account.nodes.account_id == "tx03v2-lab-nodes" && output.node_service_account == "tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
-    error_message = "Nodes run as tx03v2-lab-nodes, never the Compute Engine default service account."
+    condition     = output.node_service_account == "tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
+    error_message = "Nodes run as tx03v2-lab-nodes (created by the bootstrap), never the Compute Engine default service account."
   }
 }
 

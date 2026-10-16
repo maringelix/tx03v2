@@ -187,6 +187,7 @@ main() {
   has mixed '^BILLABLE +Parameter Manager parameter +tx03v2-lab-contract ' "the contract parameter of the lab is billable"
   has mixed '^BILLABLE +Cloud DNS managed zone +tx03v2-lab-sql ' "the private zone of the lab is billable"
   lacks mixed '^(BILLABLE|ORPHANED).*(their-|someone-else|other-ns)' "nothing of other work is a leftover"
+  has mixed '^INFO +bootstrap: service account of the lab nodes \(kept\) +tx03v2-lab-nodes@' "the node account is created by the bootstrap and stays: INFO, not a leftover"
   has mixed "^INFO +GKE cluster \\(not the lab's\\) +their-cluster us-east1" "the cluster of other work is INFO"
   has mixed "^INFO +Cloud SQL instance \\(not the lab's\\) +their-db " "the database of other work is INFO"
   has mixed "^INFO +forwarding rule \\(not the lab's\\) +their-fr us-east1" "the forwarding rule of other work is INFO"
