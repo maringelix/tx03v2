@@ -1138,6 +1138,8 @@ check_contract_platform_full() {
     "kind: AppProject" "name: platform" "kind: Application" "repoURL: https://github.com/example-owner/tx03v2.git"
     "dxRepoURL: https://github.com/example-owner/dx03v2.git" "dxRevision: gitops/gcp"
     "kind: Role" "name: dx03v2-gitops-sync" "kind: RoleBinding" "name: dx03v2-gitops-sync"
+    'RespectIgnoreDifferences=true' '/spec/source/path'
+    '/spec/source/kustomize/images' '/spec/source/kustomize/patches'
   )
   for e in "${expect[@]}"; do
     grep -qF -- "$e" "$full" || {
@@ -1166,6 +1168,12 @@ check_contract_platform_full() {
     'path: "deploy/k8s/overlays/gcp"' 'targetRevision: "gitops/gcp"'; do
     grep -qF -- "$e" "$apps" || {
       echo "platform/gitops: missing '$e'"
+      rc=1
+    }
+  done
+  for e in 'kind: Gateway' 'kind: HTTPRoute' 'kind: HealthCheckPolicy' 'kind: GCPBackendPolicy'; do
+    grep -qF -- "$e" "$apps" || {
+      echo "platform/gitops AppProject must allow the app's GKE resource '$e'"
       rc=1
     }
   done

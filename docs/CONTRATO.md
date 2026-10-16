@@ -200,6 +200,11 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   públicos. A Role `dx03v2-gitops-sync`/RoleBinding usa os mesmos sujeitos `kind: User` do contrato
   (`dx03v2-gha-deploy` e `app_deployer_members`) e só permite `get`, `watch` e `patch` na
   Application chamada `dx03v2`, para pedir refresh; não permite alterar outras Applications.
+- O workflow de deploy atualiza na Application viva o overlay, as imagens e os parâmetros de nuvem.
+  A Application `platform` ignora apenas `spec.source.path`, `spec.source.kustomize.images` e
+  `spec.source.kustomize.patches` da Application `dx03v2`, para o self-heal do pai preservar esses
+  valores. A branch pública `gitops/gcp` recebe a revisão e parâmetros de exemplo; nomes de recursos,
+  CIDRs e endereços reais permanecem no cluster.
 - Velero no perfil `full`: ServiceAccount `velero` no namespace `velero`, sem chave nem Secret. O
   bucket regional chama-se `<LAB_NAME>-velero-<PROJECT_ID>` e não adiciona uma chave ao contrato. O
   principal WIF `principal://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<PROJECT_ID>.svc.id.goog/subject/ns/velero/sa/velero`

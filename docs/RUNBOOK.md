@@ -208,6 +208,10 @@ e a Application do Argo CD sincroniza o app. O acesso à UI do Argo CD é por `k
 Sem credenciais de leitura do Artifact Registry, os relatórios do Trivy Operator para imagens
 privadas do app podem faltar.
 
+O workflow de deploy configura na Application viva o overlay, as imagens e os parâmetros do projeto.
+A branch pública `gitops/gcp` recebe a revisão e parâmetros de exemplo; endereços, CIDRs e nomes reais
+permanecem no cluster.
+
 Para alertas no Slack, grave o webhook como secret opcional `SLACK_WEBHOOK_URL` no repositório
 tx03v2. O perfil full usa o mesmo bucket regional do Velero criado pelo Terraform. Seus objetos
 expiram em 35 dias; Velero salva recursos Kubernetes, não Cloud SQL nem volumes persistentes. Não há
@@ -257,10 +261,12 @@ environment `lab` de lá (ou rode
 [`scripts/deploy-gcp.sh`](https://github.com/maringelix/dx03v2/blob/main/scripts/deploy-gcp.sh) de um laptop; passo a passo no
 [runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)). O script lê as
 15 chaves de `tx03v2-lab-contract`, publica `dx03v2/api` e `dx03v2/web` no Artifact Registry (tag =
-SHA do commit, nunca sobrescrita), cria o ConfigMap `cloudsql-ca` com o bundle da região (só com a
-raiz do contrato), aplica o overlay `gcp-waf` (ou `gcp`, quando `waf/security-policy` é `none`) no
-namespace `dx03v2`, espera os ExternalSecrets, os rollouts e o Gateway `Programmed` com o endereço
-`gateway/address`, e roda o smoke test pelo load balancer.
+SHA do commit, nunca sobrescrita) e cria o ConfigMap `cloudsql-ca` com o bundle da região (só com a
+raiz do contrato). Com o perfil `full`, `mode=gitops` (padrão) configura na Application viva o overlay
+`gcp-waf` (ou `gcp`, quando `waf/security-policy` é `none`), as imagens e os parâmetros reais; a branch
+pública recebe apenas exemplos. O workflow espera o Argo CD sincronizar, os ExternalSecrets, os
+rollouts e o Gateway `Programmed` com o endereço `gateway/address`, e roda o smoke test pelo load
+balancer. Com o perfil `core` ou sem Argo CD, escolha `mode=push` para aplicar diretamente o overlay.
 
 Para fazer o deploy de um laptop, coloque `user:<seu e-mail>` em `LAB_APP_DEPLOYER_MEMBERS`, rode o
 apply (papéis IAM de `dx03v2-gha-deploy` para você) e o `platform` de novo (RoleBinding).
