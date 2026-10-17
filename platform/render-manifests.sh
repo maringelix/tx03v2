@@ -120,6 +120,7 @@ main() {
         line="${line//__TX_REPO_URL__/$tx_url}"
         line="${line//__DX_REPO_URL__/$dx_url}"
         line="${line//__DX_REVISION__/$DX_REVISION}"
+        if [[ "$DX_REVISION" == *-dr ]]; then line="${line//__BACKUP_SCHEDULE__/lab-daily-dr}"; else line="${line//__BACKUP_SCHEDULE__/lab-daily}"; fi
         line="${line//__GITHUB_OWNER__/$owner}"
         line="${line//__ARTIFACT_REGISTRY_REPOSITORY__/$repository}"
       fi

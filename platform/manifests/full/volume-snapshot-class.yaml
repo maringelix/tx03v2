@@ -12,7 +12,7 @@ deletionPolicy: Retain
 apiVersion: velero.io/v1
 kind: Schedule
 metadata:
-  name: lab-daily
+  name: __BACKUP_SCHEDULE__
   namespace: velero
 spec:
   schedule: "0 2 * * *"

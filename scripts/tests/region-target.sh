@@ -18,4 +18,6 @@ secondary="$(bash "$REPO_ROOT/platform/render-manifests.sh" tx03v2-lab-example \
   --artifact-registry-repository us-east1-docker.pkg.dev/tx03v2-lab-example/dx03v2 --target secondary)"
 [[ "$primary" == *'dxRevision: gitops/gcp'* && "$primary" != *'gitops/gcp-dr'* ]]
 [[ "$secondary" == *'dxRevision: gitops/gcp-dr'* ]]
+[[ "$primary" == *'name: lab-daily'* && "$primary" != *'name: lab-daily-dr'* ]]
+[[ "$secondary" == *'name: lab-daily-dr'* ]]
 echo 'PASS: only primary/secondary lab runtimes; separate contracts and GitOps revisions'

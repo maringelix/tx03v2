@@ -123,6 +123,8 @@ Nunca publique o state em artifact, issue ou PR nem faça `state push` sem revis
 
 O contrato DR mantém os mesmos 18 campos; TLS e WAF usam recursos globais do projeto.
 O segundo cluster recebe sua própria associação ao Cloud Service Mesh gerenciado.
+Os schedules usam nomes distintos (`lab-daily` e `lab-daily-dr`) para que o
+catálogo importado do primário não colida com backups produzidos pelo secundário.
 Depois de aplicar a IaC e de conferir a região, instale a plataforma com:
 
 ```bash

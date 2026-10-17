@@ -9,7 +9,7 @@ spec:
     - name: lab.continuity
       rules:
         - alert: LabBackupTooOldOrMissing
-          expr: (time() - velero_backup_last_successful_timestamp{schedule="lab-daily"} > 108000) or absent(velero_backup_last_successful_timestamp{schedule="lab-daily"})
+          expr: (time() - velero_backup_last_successful_timestamp{schedule=~"lab-daily(-dr)?"} > 108000) or absent(velero_backup_last_successful_timestamp{schedule=~"lab-daily(-dr)?"})
           for: 10m
           labels:
             severity: critical
