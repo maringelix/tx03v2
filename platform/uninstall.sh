@@ -34,6 +34,7 @@ NEG_WAIT_SECONDS="${NEG_WAIT_SECONDS:-900}"
 WORK_DIR=""
 # "release namespace" of the profile full (platform/full/charts.txt), newest first.
 FULL_RELEASES=(
+  "opencost finops" "lab-vpa finops"
   "chaos-mesh chaos-mesh" "velero velero" "trivy-operator trivy-system" "kyverno kyverno"
   "gatekeeper gatekeeper-system" "argocd argocd" "tempo monitoring" "alloy monitoring" "loki monitoring"
   "kube-prometheus-stack monitoring" "cert-manager cert-manager"

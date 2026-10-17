@@ -284,3 +284,7 @@ All notable changes to this project are documented here. The format follows
   - Brazilian Portuguese docs: architecture, contract v1, runbook, costs (list prices read on
     2026-10-11), guardrails, harness, sustainment, publication checklist, and
     `docs/LICOES_APRENDIDAS.md` (39 sanitized lessons learned from the GCP v1 lab).
+
+### R10 capacity and FinOps
+
+- Opt-in three-node kind, real CPU HPA up/down, PDB/worker drain and SLO probes; OpenCost with explicit simulation or reviewed regional rates, VPA Off and fail-closed plan budgets/expiration. Heavy proof runs in Actions; cloud behavior is not run in the cloud (v2).

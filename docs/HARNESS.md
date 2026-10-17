@@ -126,3 +126,7 @@ de 2026-10-08 de `external-secrets.io/clustersecretstore_v1.json` no datreeio/CR
 harness usa a revisão anterior (commit `f3e4382`, 2026-06-02), que valida o ClusterSecretStore deste
 repositório em modo estrito (um campo com erro de digitação é rejeitado). Reavalie a cada revisão
 trimestral (`docs/SUSTENTACAO.md`, 5.7).
+
+## R10: capacidade e FinOps
+
+Veja [FinOps e escala](FINOPS.md) para kind HA, carga/HPA/PDB, OpenCost, VPA Off, Spot opt-in, preços regionais, orçamento/expiração e limpeza. Construção para fork; nada executado na nuvem (v2).

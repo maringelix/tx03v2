@@ -31,6 +31,8 @@ source "$HERE/../scripts/lib/common.sh"
 source "$REPO_ROOT/scripts/lib/gcp.sh"
 # shellcheck source=scripts/lib/platform.sh
 source "$REPO_ROOT/scripts/lib/platform.sh"
+# shellcheck source=scripts/lib/finops.sh
+source "$REPO_ROOT/scripts/lib/finops.sh"
 export PATH="$REPO_ROOT/.tools/bin:$PATH"
 
 ESO_NAMESPACE=external-secrets
@@ -39,6 +41,7 @@ OTEL_CHART_REPO="https://open-telemetry.github.io/opentelemetry-helm-charts"
 SECRET_STORE=gcp-secret-manager
 WORK_DIR=""
 PROFILE=core
+ENABLE_FINOPS=false
 TARGET=primary
 OWNER=""
 OWNER_RE='^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$'
@@ -124,7 +127,7 @@ apply_manifests() {
 }
 
 usage() {
-  echo "usage: $0 [--profile core|full] [--github-owner OWNER] [--target primary|secondary]" >&2
+  echo "usage: $0 [--profile core|full] [--github-owner OWNER] [--target primary|secondary] [--finops]" >&2
   exit 2
 }
 
@@ -303,10 +306,12 @@ main() {
       --profile) [[ "${2:-}" == core || "${2:-}" == full ]] || usage; PROFILE=$2; shift 2 ;;
       --github-owner) [[ "${2:-}" =~ $OWNER_RE ]] || usage; OWNER=$2; shift 2 ;;
       --target) [[ "${2:-}" == primary || "${2:-}" == secondary ]] || usage; TARGET=$2; shift 2 ;;
+      --finops) ENABLE_FINOPS=true; shift ;;
       *) usage ;;
     esac
   done
   [[ "$PROFILE" == core || -n "$OWNER" ]] || die "profile full requires --github-owner"
+  [[ "$ENABLE_FINOPS" == false || "$PROFILE" == full ]] || die '--finops requires profile full'
   local project contract_project region cluster deployer store deployers email extra
   require_cmd gcloud kubectl helm jq gke-gcloud-auth-plugin
   require_gcloud_login
@@ -370,6 +375,9 @@ main() {
   log "platform ready: ClusterSecretStore $store, namespace dx03v2, OTLP endpoint opentelemetry-collector.$OTEL_NAMESPACE.svc:4318 (GatewayClass gke-l7-global-external-managed is managed by GKE)"
   if [[ "$PROFILE" == full ]]; then
     install_full
+    if [[ "$ENABLE_FINOPS" == true ]]; then
+      install_finops_stack gcp "$cluster" "$region" dx03v2
+    fi
   fi
 }
 
