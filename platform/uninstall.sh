@@ -7,8 +7,11 @@
 #      NEGs) and removes the Gateway finalizer, so the cluster must still be running;
 #   3. waits until the namespace is gone and until no network endpoint group whose name contains
 #      dx03v2 is left in the project (read-only gcloud polling; fails loudly on timeout);
-#   4. uninstalls the OpenTelemetry Collector and the External Secrets Operator releases. Full-profile
-#      charts are removed with the cluster by terraform destroy; Velero backups must be emptied first.
+#   4. uninstalls the releases of the profile full (none exists with the core profile), then deletes the
+#      PersistentVolumeClaims of the monitoring namespace: their Persistent Disk volumes are not part
+#      of the Terraform state and would outlive the cluster (billed until deleted);
+#   5. uninstalls the OpenTelemetry Collector and the External Secrets Operator releases. The cluster
+#      itself goes away with terraform destroy.
 # CLOUD-MUTATING. Fails loudly on any error or timeout. Needs the same tools as platform/install.sh.
 # GCP_PROJECT_ID is required; REGION defaults to us-central1. The cluster is the contract name
 # (tx03v2-lab), so the teardown does not depend on the contract parameter; no environment variable
@@ -29,6 +32,12 @@ APP_NAMESPACE=dx03v2
 NAMESPACE_WAIT_SECONDS="${NAMESPACE_WAIT_SECONDS:-900}"
 NEG_WAIT_SECONDS="${NEG_WAIT_SECONDS:-900}"
 WORK_DIR=""
+# "release namespace" of the profile full (platform/full/charts.txt), newest first.
+FULL_RELEASES=(
+  "chaos-mesh chaos-mesh" "velero velero" "trivy-operator trivy-system" "kyverno kyverno"
+  "gatekeeper gatekeeper-system" "argocd argocd" "tempo monitoring" "alloy monitoring" "loki monitoring"
+  "kube-prometheus-stack monitoring" "cert-manager cert-manager"
+)
 
 cleanup() {
   [[ -z "$WORK_DIR" ]] || rm -rf "$WORK_DIR"
@@ -92,6 +101,28 @@ wait_for_negs() {
   done
 }
 
+uninstall_full_releases() {
+  local entry
+  for entry in "${FULL_RELEASES[@]}"; do
+    helm uninstall "${entry% *}" --namespace "${entry#* }" --ignore-not-found --wait=watcher --timeout 10m
+  done
+}
+
+# The Persistent Disk volumes of Prometheus, Alertmanager, Grafana, Loki and Tempo: deleted with their
+# claims once the releases are gone, so no disk outlives the cluster.
+delete_monitoring_pvcs() {
+  local namespace left
+  namespace="$(kubectl get namespace monitoring --ignore-not-found --output name)" ||
+    die "cannot check the monitoring namespace before deleting PVCs"
+  [[ -n "$namespace" ]] || return 0
+  left="$(kubectl get pvc --namespace monitoring --output name)" || die "cannot list monitoring PVCs"
+  [[ -z "$left" ]] && return 0
+  log "deleting monitoring PVCs (Persistent Disk volumes of the full profile)"
+  kubectl delete pvc --namespace monitoring --all --wait=true --timeout=10m
+  left="$(kubectl get pvc --namespace monitoring --output name)" || die "cannot list monitoring PVCs after deletion"
+  [[ -z "$left" ]] || die "monitoring PVCs remain after uninstall:"$'\n'"$left"
+}
+
 main() {
   (($# == 0)) || die "usage: $0 (configuration through environment variables, see the header)"
   local project
@@ -114,6 +145,8 @@ main() {
   wait_for_negs "$project"
 
   log "uninstalling the platform releases"
+  uninstall_full_releases
+  delete_monitoring_pvcs
   helm uninstall opentelemetry-collector --namespace observability --ignore-not-found --wait=watcher --timeout 10m
   helm uninstall external-secrets --namespace external-secrets --ignore-not-found --wait=watcher --timeout 10m
   log "platform removed from $CLUSTER_NAME"

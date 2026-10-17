@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- R8 for the GKE `full` profile (contract version 4, coordinated with dx03v2): optional Cloud DNS zone,
+  Google-managed certificate and Certificate Map for an HTTPS Gateway; managed Cloud Service Mesh with
+  STRICT mTLS and per-workload plaintext exceptions; Cloud Armor with seven CRS categories, a per-IP
+  limit and Adaptive Protection alerts; persistent observability with SLO alerts and a synthetic probe;
+  Kyverno fail-closed admission of signed promotions; Trivy Operator and Kyverno reading Artifact
+  Registry as workload identities. Three contract keys are new (`dns/hostname`,
+  `dns/certificate-map`, `mesh/management`). The cloud profile remains `not run in the cloud (v2)`.
+
 - Contract version 3 records the R4 GitOps Application and the deploy identity's restricted refresh
   permission, coordinated with the dx03v2 R4 deploy flow.
 - Optional GKE Autopilot `full` profile with pinned cloud-safe charts, GitOps app-of-apps, in-cluster
@@ -18,6 +26,9 @@ All notable changes to this project are documented here. The format follows
   the full chart set, GitOps contract, policy cases, and runbook references.
 
 ### Security
+
+- The control plane of the private cluster gets a fixed /28 and a firewall rule to the admission
+  webhooks (8443 and 9443). Without it the R4 Gatekeeper webhook was unreachable from the API server.
 
 - The Velero bucket has a project-scoped custom role limited to bucket metadata; only the Velero
   Workload Identity principal receives object access, scoped to that bucket. No key or Kubernetes

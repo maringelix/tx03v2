@@ -34,6 +34,8 @@ locals {
     # resourcemanager.projects.get: the lab root reads the project number.
     "roles/browser",
     "roles/cloudsql.admin",
+    # Google-managed edge certificates, DNS authorizations and the Certificate Map.
+    "roles/certificatemanager.editor",
     # VPC, subnet, router, NAT, addresses and the Private Service Connect endpoint of Cloud SQL.
     "roles/compute.networkAdmin",
     # The Cloud Armor policy.
@@ -42,6 +44,8 @@ locals {
     "roles/container.admin",
     # The private zone of the Cloud SQL names.
     "roles/dns.admin",
+    # Register only the lab cluster and enable its managed Cloud Service Mesh feature.
+    "roles/gkehub.admin",
     "roles/parametermanager.admin",
     # Use the enabled APIs (Editor had it; the omission is a classic error of a narrower role).
     "roles/serviceusage.serviceUsageConsumer",

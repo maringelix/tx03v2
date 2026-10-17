@@ -39,9 +39,15 @@ run "waf_policy_follows_the_contract" {
     condition = { for r in google_compute_security_policy.this[0].rule : tostring(r.priority) => r.action } == {
       "1000"       = "deny(403)"
       "1001"       = "deny(403)"
+      "1002"       = "deny(403)"
+      "1003"       = "deny(403)"
+      "1004"       = "deny(403)"
+      "1005"       = "deny(403)"
+      "1006"       = "deny(403)"
+      "1900"       = "throttle"
       "2147483647" = "allow"
     }
-    error_message = "Exactly two deny rules and the default allow (no rate limit that could block the smoke test)."
+    error_message = "Seven CRS categories, a 600/minute/IP throttle and the default allow."
   }
 
   assert {
@@ -50,8 +56,21 @@ run "waf_policy_follows_the_contract" {
       ])) == toset([
       "evaluatePreconfiguredWaf('sqli-v33-stable', {'sensitivity': 1})",
       "evaluatePreconfiguredWaf('xss-v33-stable', {'sensitivity': 1})",
+      "evaluatePreconfiguredWaf('lfi-v33-stable', {'sensitivity': 1})",
+      "evaluatePreconfiguredWaf('rfi-v33-stable', {'sensitivity': 1})",
+      "evaluatePreconfiguredWaf('rce-v33-stable', {'sensitivity': 1})",
+      "evaluatePreconfiguredWaf('methodenforcement-v33-stable', {'sensitivity': 1})",
+      "evaluatePreconfiguredWaf('scannerdetection-v33-stable', {'sensitivity': 1})",
     ])
-    error_message = "Preconfigured rules sqli-v33-stable and xss-v33-stable at sensitivity 1."
+    error_message = "Seven preconfigured CRS 3.3 rule groups at sensitivity 1."
+  }
+
+  assert {
+    condition = (
+      one([for r in google_compute_security_policy.this[0].rule : r if r.priority == 1900]).rate_limit_options[0].rate_limit_threshold[0].count == 600 &&
+      google_compute_security_policy.this[0].adaptive_protection_config[0].layer_7_ddos_defense_config[0].enable
+    )
+    error_message = "Per-IP limit must stay above the smoke contract and Adaptive Protection detection must be on."
   }
 }
 

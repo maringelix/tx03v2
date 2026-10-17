@@ -22,3 +22,8 @@ output "dns_endpoint" {
   description = "DNS-based endpoint of the control plane (IAM-authenticated)."
   value       = google_container_cluster.this.control_plane_endpoints_config[0].dns_endpoint_config[0].endpoint
 }
+
+output "webhook_firewall_name" {
+  description = "Firewall rule that lets the control plane reach the admission webhooks (8443 and 9443) of the full profile."
+  value       = google_compute_firewall.control_plane_webhooks.name
+}

@@ -90,6 +90,25 @@ resource "google_artifact_registry_repository_iam_member" "dx03v2" {
   member     = each.value.member
 }
 
+# The full profile reads the dx03v2 repository twice: Trivy Operator scans the private images and
+# Kyverno verifies their signed promotion at admission. Reader on this one repository, nothing else;
+# a missing grant makes the scan report absent and admission fail closed, never "clean".
+resource "google_artifact_registry_repository_iam_member" "platform" {
+  for_each = {
+    "trivy-reader"   = local.trivy_principal
+    "kyverno-reader" = local.kyverno_principal
+  }
+
+  project    = var.project_id
+  location   = module.artifact_registry.location
+  repository = module.artifact_registry.repository_id
+  role       = "roles/artifactregistry.reader"
+  member     = each.value
+
+  # The workload identity pool <project_id>.svc.id.goog exists once the cluster does.
+  depends_on = [module.gke]
+}
+
 resource "google_secret_manager_secret_iam_member" "eso" {
   for_each = local.secret_grants
 

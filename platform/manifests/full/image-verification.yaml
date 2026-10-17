@@ -1,0 +1,64 @@
+# Fail-closed admission for only the two application repositories in Artifact Registry. The Kyverno
+# admission controller reads them with Workload Identity Federation for GKE: its ServiceAccount
+# (kyverno/kyverno-admission-controller) is an IAM principal with Artifact Registry Reader on the dx03v2
+# repository (terraform/envs/lab/roles.tf), a short-lived federated token and no key.
+# deploy-gcp.yml signs an attestation only after source verification and promotion of the same immutable
+# digest. platform/render-manifests.sh replaces __ARTIFACT_REGISTRY_REPOSITORY__ with the repository
+# of the contract and __GITHUB_OWNER__ with the fork owner.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: dx03v2-release-signatures
+spec:
+  evaluation:
+    mode: JSON
+    background:
+      enabled: false
+  webhookConfiguration:
+    timeoutSeconds: 20
+  failurePolicy: Fail
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: dx03v2
+  matchImageReferences:
+    - glob: "__ARTIFACT_REGISTRY_REPOSITORY__/api@sha256:*"
+    - glob: "__ARTIFACT_REGISTRY_REPOSITORY__/web@sha256:*"
+  validationConfigurations:
+    required: true
+    verifyDigest: true
+  credentials:
+    allowInsecureRegistry: false
+    providers:
+      - google
+  attestors:
+    - name: github
+      cosign:
+        keyless:
+          identities:
+            - subject: "https://github.com/__GITHUB_OWNER__/dx03v2/.github/workflows/deploy-gcp.yml@refs/heads/main"
+              issuer: "https://token.actions.githubusercontent.com"
+        ctlog:
+          url: https://rekor.sigstore.dev
+  attestations:
+    - name: promotion
+      intoto:
+        type: https://github.com/maringelix/tx00v2/attestations/promoted-image/v1
+  validations:
+    - message: "the Artifact Registry image must have a promotion attestation from this fork's deploy-gcp workflow"
+      expression: >-
+        images.containers.map(image,
+          verifyAttestationSignatures(image, attestations.promotion, [attestors.github]) > 0
+        ).all(verified, verified)

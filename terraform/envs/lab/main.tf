@@ -24,6 +24,11 @@ locals {
   # The same for the OpenTelemetry Collector of the platform layer (observability/opentelemetry-collector,
   # contract v2), which writes the traces of the app to Cloud Trace.
   otel_principal = "principal://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/observability/sa/opentelemetry-collector"
+  # The image scanner and the image admission controller of the full profile read the dx03v2 repository
+  # with their own ServiceAccounts (trivy-system/trivy-operator and kyverno/kyverno-admission-controller):
+  # short-lived federated tokens, no key and no Google service account.
+  trivy_principal   = "principal://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/trivy-system/sa/trivy-operator"
+  kyverno_principal = "principal://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/kyverno/sa/kyverno-admission-controller"
 }
 
 module "project_roles" {
@@ -52,6 +57,7 @@ module "gke" {
   pods_range_name            = module.network.pods_range_name
   services_range_name        = module.network.services_range_name
   node_service_account_email = local.nodes_service_account_email
+  control_plane_cidr         = var.control_plane_cidr
 
   # Nodes need their roles before GKE creates them (logging, metrics, image pulls).
   depends_on = [google_project_iam_member.lab]

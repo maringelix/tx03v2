@@ -39,3 +39,8 @@ variable "node_service_account_email" {
   description = "E-mail of the node service account (tx03v2-lab-nodes)."
   type        = string
 }
+
+variable "control_plane_cidr" {
+  description = "Private /28 of the GKE control plane (validated by the root). The firewall rule of the admission webhooks lets this range reach the nodes on 8443 and 9443."
+  type        = string
+}

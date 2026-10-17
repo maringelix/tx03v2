@@ -99,6 +99,12 @@ if [[ "$*" == "get --raw /readyz" && "${FAKE_API_DOWN:-0}" == 1 ]]; then
   echo "the connection to the server was refused" >&2
   exit 1
 fi
+# A lab of the profile full: the monitoring namespace holds the claims of the observability disks.
+if [[ "${FAKE_PVC:-0}" == 1 ]]; then
+  if [[ "$1 $2 $3" == "get namespace monitoring" ]]; then echo namespace/monitoring; fi
+  if [[ "$1 $2" == "get pvc" && ! -e "$FAKE_STATE/pvc.gone" ]]; then echo persistentvolumeclaim/prometheus-db; fi
+  if [[ "$1 $2" == "delete pvc" ]]; then : >"$FAKE_STATE/pvc.gone"; fi
+fi
 exit 0
 EOF
   cat >"$bin/terraform" <<'EOF'
@@ -216,6 +222,18 @@ main() {
     "$(if grep -qF 'did not finish' "$WORK/healthy.out"; then echo 1; else echo 0; fi)"
   expect healthy "the leftover check runs after the destroy" \
     "$(ordered healthy '^terraform .*destroy' '^gcloud container clusters list .*value\[separator')"
+  expect healthy "the core profile has no claim to delete" "$(absent healthy '^kubectl delete pvc')"
+  write_pieces
+
+  # 1b. The profile full: the releases go first, then the claims of the observability disks (their
+  #     Persistent Disk volumes are outside the Terraform state), then terraform destroy.
+  run_case full-profile 0 FAKE_PVC=1
+  expect full-profile "the full releases are uninstalled before their claims are deleted" \
+    "$(ordered full-profile 'helm uninstall kube-prometheus-stack' '^kubectl delete pvc')"
+  expect full-profile "the claims are deleted before terraform destroy" \
+    "$(ordered full-profile '^kubectl delete pvc' '^terraform .*destroy')"
+  expect full-profile "the admission webhooks (Kyverno) go before the observability stack" \
+    "$(ordered full-profile 'helm uninstall kyverno' 'helm uninstall kube-prometheus-stack')"
   write_pieces
 
   # 2. The cluster API is unreachable: the uninstall fails, the pieces are deleted through the API,

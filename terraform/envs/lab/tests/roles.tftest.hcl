@@ -119,3 +119,20 @@ run "no_extra_deployer_by_default" {
     error_message = "Without app_deployer_members only the node account and dx03v2-gha-deploy get roles."
   }
 }
+
+run "scanner_and_admission_read_only_the_repository" {
+  command = apply
+
+  assert {
+    condition = { for k, g in google_artifact_registry_repository_iam_member.platform : k => "${g.repository} ${g.role} ${g.member}" } == {
+      "trivy-reader"   = "dx03v2 roles/artifactregistry.reader principal://iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/tx03v2-lab-example.svc.id.goog/subject/ns/trivy-system/sa/trivy-operator"
+      "kyverno-reader" = "dx03v2 roles/artifactregistry.reader principal://iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/tx03v2-lab-example.svc.id.goog/subject/ns/kyverno/sa/kyverno-admission-controller"
+    }
+    error_message = "Trivy Operator and Kyverno read the dx03v2 repository with their own ServiceAccounts: no writer, no Google service account, no other repository."
+  }
+
+  assert {
+    condition     = alltrue([for g in google_artifact_registry_repository_iam_member.platform : g.role == "roles/artifactregistry.reader" && g.location == "us-central1" && g.project == "tx03v2-lab-example"])
+    error_message = "The platform grants are Artifact Registry Reader on the repository of the lab region."
+  }
+}

@@ -49,6 +49,9 @@ jobs:
       # A secret, not a variable: the logs of a public repository are public, and a secret is masked.
       TF_VAR_app_deployer_members: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
       TF_VAR_enable_waf: ${{ vars.LAB_ENABLE_WAF || 'true' }}
+      TF_VAR_dns_zone_name: ${{ vars.LAB_DNS_ZONE_NAME || '' }}
+      TF_VAR_app_domain_name: ${{ vars.LAB_APP_DOMAIN_NAME || '' }}
+      TF_VAR_enable_managed_mesh: ${{ vars.LAB_ENABLE_MANAGED_MESH || 'false' }}
       TF_VAR_db_tier: ${{ vars.LAB_DB_TIER || 'db-g1-small' }}
     steps:
       - name: Check the confirmation and repository variables

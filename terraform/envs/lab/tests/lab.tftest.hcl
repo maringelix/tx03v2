@@ -65,8 +65,11 @@ run "contract_keys_in_the_parameter" {
       "gateway/address",
       "waf/security-policy",
       "deploy/service-account",
+      "dns/hostname",
+      "dns/certificate-map",
+      "mesh/management",
     ])
-    error_message = "The lab must publish exactly the fifteen contract keys."
+    error_message = "The lab must publish exactly the eighteen contract keys."
   }
 
   assert {
@@ -86,6 +89,9 @@ run "contract_keys_in_the_parameter" {
       "gateway/address"              = "203.0.113.10"
       "waf/security-policy"          = "tx03v2-lab-waf"
       "deploy/service-account"       = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
+      "dns/hostname"                 = "disabled"
+      "dns/certificate-map"          = "disabled"
+      "mesh/management"              = "disabled"
     }
     error_message = "Contract values must come from the modules and match docs/CONTRATO.md."
   }

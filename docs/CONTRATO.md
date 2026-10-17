@@ -1,6 +1,10 @@
-# Contrato tx03v2 <-> dx03v2 — versão 3 (2026-10-16)
+# Contrato tx03v2 <-> dx03v2 — versão 4 (2026-10-17)
 
-Versão 3: o perfil `full` registra no Argo CD a Application `dx03v2`, que acompanha a branch
+Versão 4 (R8): domínio e HTTPS opcionais (zona Cloud DNS pública, certificado gerenciado do Certificate
+Manager e Certificate Map para o Gateway), Cloud Service Mesh gerenciado no Autopilot (sidecars só no
+namespace do app), admissão Kyverno que exige a atestação de promoção assinada, leitura do Artifact
+Registry pelo Trivy Operator e pelo Kyverno, observabilidade persistente, WAF com sete categorias CRS e
+limite por IP. O parâmetro de contrato passa a ter 18 chaves (três novas). Versão 3: o perfil `full` registra no Argo CD a Application `dx03v2`, que acompanha a branch
 `gitops/gcp`; a identidade de deploy pode pedir refresh somente dessa Application. A versão 2
 (2026-10-14) adicionou o OpenTelemetry Collector da camada de plataforma (namespace `observability`,
 traces para o Cloud Trace). A versão 1 (2026-10-11) não tinha traces.
@@ -17,12 +21,15 @@ parte que cada um controla. O formato é o mesmo dos contratos AWS (`tx01v2` ⇄
 |---|---|---|
 | Pool e provider de Workload Identity Federation (issuer, mapeamento, condição), contas de serviço do CI e um sujeito exato por vínculo `roles/iam.workloadIdentityUser` | `terraform/bootstrap/tests/identities.tftest.hcl` | `verificado localmente` |
 | Papéis do plan e do apply; a condição IAM do `roles/resourcemanager.projectIamAdmin` do apply lista exatamente os papéis de projeto que o root do lab concede | `terraform/bootstrap/tests/roles.tftest.hcl`, `terraform/envs/lab/tests/roles.tftest.hcl` | `verificado localmente` |
-| Papéis de `dx03v2-gha-deploy`, dos `app_deployer_members`, do ESO, do OpenTelemetry Collector (`roles/cloudtrace.agent`) e da conta de serviço dos nós | `terraform/envs/lab/tests/roles.tftest.hcl` | `verificado localmente` |
+| Papéis de `dx03v2-gha-deploy`, dos `app_deployer_members`, do ESO, do OpenTelemetry Collector (`roles/cloudtrace.agent`), da conta de serviço dos nós e leitura do repositório `dx03v2` pelo Trivy Operator e pelo Kyverno (principais do Workload Identity Federation, sem chave) | `terraform/envs/lab/tests/roles.tftest.hcl` | `verificado localmente` |
 | Collector no namespace `observability`, exporter `googlecloud`, mesmo digest do lab local, chart com SHA256 conferido | checks `contract-platform` e `helm-template` | `verificado localmente` |
-| As 15 chaves do parâmetro de contrato (nomes, valores fixos, origem de cada valor) | `terraform/envs/lab/tests/lab.tftest.hcl`; o check `contract-parameter` confere que `contract.tf`, a lista do harness e a tabela deste arquivo são iguais | `verificado localmente` |
+| As 18 chaves do parâmetro de contrato (nomes, valores fixos, origem de cada valor) | `terraform/envs/lab/tests/lab.tftest.hcl`; o check `contract-parameter` confere que `contract.tf`, a lista do harness e a tabela deste arquivo são iguais | `verificado localmente` |
 | Secret Manager (segredos write-only), Cloud SQL (PSC, TLS, CA compartilhada), Artifact Registry | `terraform/envs/lab/tests/data_stores.tftest.hcl` | `verificado localmente` |
 | GKE Autopilot (canal, nós privados, endpoint DNS, Gateway API), rede, NAT, endpoint PSC e zona DNS | `terraform/envs/lab/tests/gke.tftest.hcl`, `network.tftest.hcl` | `verificado localmente` |
-| Cloud Armor (regras pré-configuradas, inspeção de 64 KB) e `none` sem WAF | `terraform/envs/lab/tests/waf.tftest.hcl` | `verificado localmente` |
+| Cloud Armor (sete categorias CRS, limite de 600 requisições por minuto por IP, Adaptive Protection Standard, inspeção de 64 KB) e `none` sem WAF | `terraform/envs/lab/tests/waf.tftest.hcl` | `verificado localmente` |
+| Zona Cloud DNS, autorização DNS, certificado gerenciado, Certificate Map e Cloud Service Mesh gerenciado (membership da frota, feature `servicemesh`); `core` não cria nada disso | `terraform/envs/lab/tests/edge_mesh.tftest.hcl`, `validations.tftest.hcl` | `verificado localmente` |
+| Range privado do control plane e regra de firewall que deixa o control plane chamar os webhooks de admissão (8443 Gatekeeper, 9443 Kyverno e Chaos Mesh) | `terraform/envs/lab/tests/gke.tftest.hcl`, `validations.tftest.hcl` | `verificado localmente` |
+| Política de admissão Kyverno (digest + atestação de promoção do `deploy-gcp.yml` do fork), políticas de mesh (mTLS STRICT, exceções por workload e porta, autorização por identidade) e a ordem de instalação do perfil `full` | checks `image-admission-policy`, `full-install-order`, `contract-platform-full` | `verificado localmente` |
 | Namespace, Role, RoleBinding e ClusterSecretStore renderizados | checks `contract-platform` e `kubeconform` | `verificado localmente` |
 | Comportamento real no Google Cloud | `docs/RUNBOOK.md` | `não executado em nuvem (v2)` |
 
@@ -51,7 +58,7 @@ parte que cada um controla. O formato é o mesmo dos contratos AWS (`tx01v2` ⇄
 | Sufixo dos nomes globais | `suffix = substr(sha1(<project_id>), 0, 8)` (determinístico; nos exemplos `00000000`) |
 | Bucket do state | `tx03v2-tfstate-<suffix>` (bootstrap; versionado, acesso uniforme, prevenção de acesso público) |
 | Rede | VPC `tx03v2-lab` (modo custom); subnet `tx03v2-lab-nodes` (padrão `10.30.0.0/20`, Private Google Access ligado) com faixas secundárias `pods` (padrão `10.32.0.0/16`) e `services` (padrão `10.33.0.0/20`); Cloud Router `tx03v2-lab` + Cloud NAT `tx03v2-lab` (saída dos nós privados) |
-| Cluster GKE | `tx03v2-lab`, **Autopilot**, regional (`region`), canal `REGULAR` (Kubernetes 1.36 no padrão do canal em 2026-10-08), nós privados, endpoint IP público desligado, endpoint DNS com tráfego externo liberado e autorização só pelo IAM, Gateway API (canal standard), Dataplane V2 (aplica NetworkPolicy), conta de serviço dos nós `tx03v2-lab-nodes` |
+| Cluster GKE | `tx03v2-lab`, **Autopilot**, regional (`region`), canal `REGULAR` (Kubernetes 1.36 no padrão do canal em 2026-10-08), nós privados com o control plane num /28 fixo (`control_plane_cidr`, padrão `172.31.255.240/28`), endpoint IP público desligado, endpoint DNS com tráfego externo liberado e autorização só pelo IAM, Gateway API (canal standard), Dataplane V2 (aplica NetworkPolicy), conta de serviço dos nós `tx03v2-lab-nodes` |
 | Nós | x86-64 (o Autopilot usa a classe general-purpose): as imagens do dx03v2 são `linux/amd64` |
 | Namespace do app | `dx03v2` — criado pela camada de plataforma do tx03v2 com os labels `pod-security.kubernetes.io/enforce=restricted`, `pod-security.kubernetes.io/enforce-version=latest` |
 | RBAC Kubernetes do deployer | Role `dx03v2-deployer` + RoleBinding `dx03v2-deployers` no namespace `dx03v2`; sujeitos `kind: User`, `name: <e-mail da conta de serviço dx03v2-gha-deploy>` e os e-mails de `app_deployer_members` |
@@ -67,6 +74,8 @@ CRDs de tráfego da GKE no lugar dos da Azure:
   pods, pods/log, events, endpoints → get, list, watch; secrets → get, list, watch (o ESO escreve
   os segredos; o deployer nunca os escreve)
 - `networking.k8s.io`: networkpolicies → CRUD completo (mesmos verbos de deployments)
+- `networking.istio.io`: destinationrules, virtualservices; `security.istio.io`: authorizationpolicies → CRUD completo,
+  só no namespace `dx03v2` (tráfego e autorização da malha do perfil `full`; sem os CRDs do Istio a regra é inerte)
 - `gateway.networking.k8s.io`: gateways, httproutes → CRUD completo
 - `networking.gke.io`: healthcheckpolicies, gcpbackendpolicies → CRUD completo
 - `autoscaling`: horizontalpodautoscalers → CRUD completo; `policy`: poddisruptionbudgets → CRUD completo
@@ -114,7 +123,7 @@ Parâmetro global com formato `JSON`, uma versão viva lida pelo alias `latest`.
 `c-<16 primeiros hex do sha256 do JSON>`, então qualquer mudança cria uma versão nova antes de apagar
 a antiga (`create_before_destroy`). O dx03v2 recebe o projeto pela variável `GCP_PROJECT_ID` do GitHub
 e lê com `gcloud parametermanager parameters versions render latest --parameter=tx03v2-lab-contract
---location=global`. Nenhum valor é segredo. O JSON tem exatamente estas 15 chaves (valores string):
+--location=global`. Nenhum valor é segredo. O JSON tem exatamente estas 18 chaves (valores string):
 
 | Chave | Valor |
 |---|---|
@@ -133,6 +142,9 @@ e lê com `gcloud parametermanager parameters versions render latest --parameter
 | `gateway/address` | o IPv4 desse endereço |
 | `waf/security-policy` | `tx03v2-lab-waf`, ou o literal `none` quando o tx03v2 roda com `enable_waf = false` |
 | `deploy/service-account` | e-mail de `dx03v2-gha-deploy` |
+| `dns/hostname` | hostname público do app (subdomínio da zona delegada) ou `disabled` quando `app_domain_name` está vazio |
+| `dns/certificate-map` | `tx03v2-lab-app` (Certificate Map do Certificate Manager que o Gateway usa por anotação) ou `disabled` |
+| `mesh/management` | `managed` quando `enable_managed_mesh = true` (Cloud Service Mesh gerenciado ativo no cluster), senão `disabled` |
 
 ## Secret Manager
 
@@ -170,11 +182,15 @@ write-only (`secret_data_wo`) e nunca entram no state nem no plan.
 ## Cloud Armor
 
 Política `tx03v2-lab-waf` (tier Standard, escopo global), criada quando `enable_waf = true` (padrão):
-regras pré-configuradas `sqli-v33-stable` e `xss-v33-stable` com sensibilidade 1 em modo `deny(403)`,
-regra padrão `allow`, `request_body_inspection_size = "64KB"` e análise JSON padrão. Corpos maiores que
-64 KB não são bloqueados por tamanho (só os primeiros 64 KB são inspecionados), então o corpo de 70 KB
-do smoke chega à API, que responde 413 ela mesma. Nenhuma regra pode bloquear o smoke test; um limite
-de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por cliente.
+sete categorias pré-configuradas do OWASP CRS 3.3 (`sqli`, `xss`, `lfi`, `rfi`, `rce`,
+`methodenforcement` e `scannerdetection`, versão `v33-stable`) com sensibilidade 1 em modo
+`deny(403)`, um limite de 600 requisições por minuto por IP de cliente (`throttle`, responde 429 acima
+disso; o contrato exige no mínimo 300 por minuto), regra padrão `allow`,
+`request_body_inspection_size = "64KB"` e análise JSON padrão. O Adaptive Protection está ligado na
+camada 7: no tier Standard ele gera só alertas de detecção, não assinaturas nem mitigação automática
+(isso é Enterprise). Corpos maiores que 64 KB não são bloqueados por tamanho (só os primeiros 64 KB são
+inspecionados), então o corpo de 70 KB do smoke chega à API, que responde 413 ela mesma. Nenhuma regra
+pode bloquear o smoke test.
 
 ## Camada de plataforma (instalada pelo `platform/install.sh` do tx03v2, nunca pelo Terraform)
 
@@ -192,7 +208,7 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   tem só `roles/cloudtrace.agent` no projeto; o Cloud Trace não tem IAM por recurso), requests para o
   Autopilot. O app manda OTLP/HTTP para `http://opentelemetry-collector.observability.svc:4318`; o
   Collector grava os spans no Cloud Trace do projeto. O app não recebe nenhum papel do IAM para isso.
-- O perfil `full` não altera as 15 chaves do contrato nem os nomes do serviço: `platform/install.sh
+- O perfil `full` não altera os nomes do serviço (as três chaves novas da versão 4 só dizem se o domínio e a malha existem): `platform/install.sh
   --profile full --github-owner <dono>` acrescenta os charts fixados, Gatekeeper, Trivy Operator,
   Velero e Argo CD. O namespace `dx03v2` recebe `policy.lab/enforce: "true"` e continua sujeito às
   constraints de imagem, recursos, probes, labels e portas.
@@ -212,9 +228,57 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
   principal WIF `principal://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<PROJECT_ID>.svc.id.goog/subject/ns/velero/sa/velero`
   recebe `roles/storage.objectAdmin` só no bucket. O backup inclui objetos Kubernetes, não Cloud SQL
   nem snapshots de volumes; o ciclo de vida dos objetos é de 35 dias.
+- Perfil `full` (R8), malha: o Cloud Service Mesh gerenciado (`enable_managed_mesh = true`, membership
+  da frota e feature `servicemesh` com `MANAGEMENT_AUTOMATIC`, `mesh/management = managed`) é o único
+  caminho de malha no Autopilot: ele não aceita o `istio-cni` e o `ztunnel` privilegiados do ambient
+  (ADR 39). O instalador recusa o perfil `full` sem a malha `ACTIVE` (`gcloud container fleet mesh
+  describe`) e sem o certificado `ACTIVE`. Só o namespace `dx03v2` recebe sidecars
+  (`istio-injection: enabled` e a anotação `mesh.cloud.google.com/proxy: {"managed":"true"}`);
+  `monitoring` e `observability` ficam fora da malha. `platform/manifests/full/app-security.yaml`:
+  mTLS `STRICT` no namespace, exceções em texto claro com uma `PeerAuthentication` por workload e
+  porta (`web` 8080, `api` 3000 e 9464: o `portLevelMtls` só vale com seletor de workload),
+  `AuthorizationPolicy` por identidade (`*/ns/dx03v2/sa/web` → `api:3000`: o domínio de confiança
+  do Cloud Service Mesh é `<projeto>.svc.id.goog`, não `cluster.local`) e três origens externas à
+  malha, cada uma restrita a uma porta: os dois ranges do load balancer (`lb-source-ranges`), o
+  Prometheus em `api:9464` (a NetworkPolicy do dx03v2 só admite o namespace `monitoring`) e a sonda
+  sintética do Collector só em `/healthz` e `/readyz`.
+- Perfil `full` (R8), domínio e HTTPS: com `dns_zone_name` e `app_domain_name` o Terraform cria a zona
+  pública do Cloud DNS, o registro A do hostname (endereço do Gateway), a autorização DNS do
+  Certificate Manager (registro CNAME na mesma zona), o certificado gerenciado e o Certificate Map
+  `tx03v2-lab-app`. O Gateway `dx03v2` do perfil `full` usa o listener HTTPS 443 com a anotação
+  `networking.gke.io/certmap` (nunca um Secret TLS do Kubernetes) e o listener HTTP 80 só redireciona
+  (301) para HTTPS. A emissão pública só acontece depois que o dono do fork delega os servidores de nomes
+  (saída `dns_name_servers`) no registrador: até lá o certificado fica `PROVISIONING` e o instalador
+  recusa o `full`. `core` continua só em HTTP, sem domínio.
+- Perfil `full` (R8), admissão: Kyverno 3.8.2 (controller v1.18.2, namespace `kyverno`) com a política
+  `ImageValidatingPolicy` `dx03v2-release-signatures`: só sobem no namespace `dx03v2` imagens dos dois
+  repositórios do Artifact Registry referenciadas por digest e com a atestação de promoção
+  (`https://github.com/maringelix/tx00v2/attestations/promoted-image/v1`) assinada, sem chave (Sigstore),
+  pelo workflow `deploy-gcp.yml` da `main` do fork, com emissor `https://token.actions.githubusercontent.com`.
+  `failurePolicy: Fail` e `Deny`: se o Kyverno não responde, os pods do app não sobem. O dx03v2
+  precisa assinar a mesma imagem que publicou e promoveu. O ServiceAccount
+  `kyverno/kyverno-admission-controller` lê o repositório `dx03v2` como principal do Workload Identity
+  Federation (`roles/artifactregistry.reader`, sem chave nem segredo de pull).
+- Perfil `full` (R8), varredura: o Trivy Operator roda os jobs em `trivy-system` como o ServiceAccount
+  `trivy-operator`, principal com `roles/artifactregistry.reader` só no repositório `dx03v2` (token
+  federado de curta duração do servidor de metadados do GKE). Relatório ausente não significa imagem limpa.
+- Perfil `full` (R8), webhooks: o control plane de um cluster privado só inicia conexões TCP nos nós e
+  pods nas portas 443 e 10250. A regra de firewall `tx03v2-lab-control-plane-webhooks` (módulo `gke`)
+  libera `control_plane_cidr` para os nós (conta de serviço `tx03v2-lab-nodes`) em `8443` (Gatekeeper)
+  e `9443` (Kyverno e Chaos Mesh); sem ela o Gatekeeper não aplica as políticas e o Kyverno bloquearia
+  todos os pods do app.
+- Perfil `full` (R8), dados da observabilidade: Prometheus (7 dias, 8 GB), Alertmanager (72 h), Grafana,
+  Loki (7 dias) e Tempo (72 h) usam PVCs `standard-rwo` (Persistent Disk); `platform/uninstall.sh`
+  desinstala os releases e apaga os PVCs antes do `terraform destroy`, porque o disco não faz parte do
+  state e continuaria cobrando. A sonda sintética (receiver `httpcheck` do Collector) alimenta o alerta
+  `Dx03v2SyntheticProbeFailed`; o ServiceMonitor, as regras de SLO (disponibilidade 99,5 %, queima do
+  orçamento de erro, latência p95, reinícios) e o dashboard `dx03v2 API SLO` vêm de
+  `platform/manifests/full/app-monitoring.yaml`. Sem webhook do Slack o receiver é o `null`: a
+  integração aparece como não configurada no Alertmanager.
 - `platform/uninstall.sh` apaga o namespace `dx03v2` antes de qualquer destroy e espera o finalizer do
   Gateway e o sumiço dos NEGs `k8s1-*` do app: o load balancer criado pelo controlador fica fora do
-  state do Terraform e vazaria se o cluster sumisse antes.
+  state do Terraform e vazaria se o cluster sumisse antes. Depois desinstala os releases do perfil
+  `full` e apaga os PVCs do `monitoring`.
 
 ## Runtime do app (dx03v2)
 
@@ -237,12 +301,16 @@ de taxa, se for adicionado, precisa ser >= 300 requisições por minuto por clie
 - Services: `api` (porta 3000 http, 9464 métricas), `web` (porta 8080).
 - Tráfego (só Google Cloud): Gateway `dx03v2` (classe `gke-l7-global-external-managed`,
   `spec.addresses` com `type: NamedAddress` e o valor `gateway/address-name`), listener HTTP na porta 80
-  (HTTPS `planejado`); HTTPRoute `dx03v2`: `/api` → `api:3000`, `/` → `web:8080`; HealthCheckPolicies
+  (perfil `full`: listener HTTPS 443 com a anotação `networking.gke.io/certmap` = `dns/certificate-map` e o HTTP só redireciona para HTTPS; sem domínio, HTTP); HTTPRoute `dx03v2`: `/api` → `api:3000`, `/` → `web:8080`; HealthCheckPolicies
   `web` (`/healthz`, porta 8080) e `api` (`/readyz`, porta 3000); GCPBackendPolicies `api` e `web` com
   `securityPolicy` = `waf/security-policy` (omitidas quando é `none`, e as antigas são apagadas).
 - NetworkPolicies no Google Cloud: entrada em web:8080 e api:3000 só a partir de `lb-source-ranges`;
   saída da api para `db/endpoint-ip`/32:5432; DNS (base) e a saída para o cache DNS do nó
   `169.254.20.10/32:53` (NodeLocal DNSCache do Autopilot).
+  No perfil `full` o dx03v2 acrescenta a entrada do Prometheus (namespace `monitoring`) em `api:9464`, a
+  entrada da sonda do Collector (namespace `observability`) em `/healthz` e `/readyz` e a saída dos sidecars
+  para o plano de controle gerenciado do Cloud Service Mesh; as portas exatas desta última dependem do
+  serviço gerenciado e só se confirmam na primeira rodada em nuvem (`não executado em nuvem (v2)`).
 
 ## Lab local (contrato local, versão 2)
 
