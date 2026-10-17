@@ -1,4 +1,19 @@
-# Contrato tx03v2 <-> dx03v2 — versão 4 (2026-10-17)
+# Contrato tx03v2 <-> dx03v2 — versão 5 (2026-10-17)
+
+Versão 5 (R9): `db_profile=dr` publica um segundo parâmetro
+`tx03v2-lab-dr-contract` com as mesmas 18 chaves, mas com região, cluster, VPC, PSC, registry,
+segredos e endereço de Gateway secundários. O app escolhe explicitamente o parâmetro de DR
+somente após fencing da região primária e promoção manual da réplica PostgreSQL. O parâmetro
+primário permanece `tx03v2-lab-contract` e conserva as chaves/valores da v4 no perfil `core`.
+O perfil `ha` liga HA/PITR no banco sem mudar o contrato da aplicação. Veja
+[CONTINUIDADE.md](CONTINUIDADE.md) para o runbook e a distinção entre provas locais e cloud.
+
+`--target secondary` no CLI ou `target=secondary` no workflow seleciona apenas o runtime `tx03v2-lab-dr` e sua branch
+`gitops/gcp-dr`; o primário usa `gitops/gcp`. O secundário pode instalar `full` com
+mesh próprio e o mapa TLS/WAF globais do projeto. A BSL `primary-recovery` lê o
+backup multirregião com identidade `velero-dr`; não confunda esse acesso com o
+bucket próprio de novas cópias. `LAB_ACTIVE_REGION` controla o registro A somente
+após o aceite de uma recuperação autorizada; não promove o banco nem faz fencing.
 
 Versão 4 (R8): domínio e HTTPS opcionais (zona Cloud DNS pública, certificado gerenciado do Certificate
 Manager e Certificate Map para o Gateway), Cloud Service Mesh gerenciado no Autopilot (sidecars só no

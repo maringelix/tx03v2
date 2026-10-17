@@ -11,6 +11,12 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Regional Cloud Storage location for the Velero bucket."
+  description = "Cloud Storage location: a region, or US for the opt-in multiregion DR backup."
   type        = string
+}
+
+variable "service_account_name" {
+  description = "Exact namespace-local Kubernetes ServiceAccount granted access to this bucket."
+  type        = string
+  default     = "velero"
 }

@@ -53,6 +53,18 @@ jobs:
       TF_VAR_app_domain_name: ${{ vars.LAB_APP_DOMAIN_NAME || '' }}
       TF_VAR_enable_managed_mesh: ${{ vars.LAB_ENABLE_MANAGED_MESH || 'false' }}
       TF_VAR_db_tier: ${{ vars.LAB_DB_TIER || 'db-g1-small' }}
+      TF_VAR_db_profile: ${{ vars.LAB_DB_PROFILE || 'core' }}
+      TF_VAR_continuity_notification_channels: ${{ vars.LAB_CONTINUITY_NOTIFICATION_CHANNELS || '[]' }}
+      TF_VAR_active_region: ${{ vars.LAB_ACTIVE_REGION || 'primary' }}
+      TF_VAR_ha_db_tier: ${{ vars.LAB_HA_DB_TIER || 'db-custom-1-3840' }}
+      TF_VAR_db_backup_count: ${{ vars.LAB_DB_BACKUP_COUNT || 'null' }}
+      TF_VAR_db_deletion_protection: ${{ vars.LAB_DB_DELETION_PROTECTION || 'false' }}
+      TF_VAR_db_retain_backups_on_delete: ${{ vars.LAB_DB_RETAIN_BACKUPS_ON_DELETE || 'false' }}
+      TF_VAR_dr_region: ${{ vars.LAB_DR_REGION || 'us-east1' }}
+      TF_VAR_dr_nodes_subnet_cidr: ${{ vars.LAB_DR_NODES_SUBNET_CIDR || '10.40.0.0/20' }}
+      TF_VAR_dr_pods_cidr: ${{ vars.LAB_DR_PODS_CIDR || '10.42.0.0/16' }}
+      TF_VAR_dr_services_cidr: ${{ vars.LAB_DR_SERVICES_CIDR || '10.43.0.0/20' }}
+      TF_VAR_dr_control_plane_cidr: ${{ vars.LAB_DR_CONTROL_PLANE_CIDR || '172.31.255.224/28' }}
     steps:
       - name: Check the confirmation and repository variables
         env:

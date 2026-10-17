@@ -11,6 +11,57 @@ variables {
   deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com"
 }
 
+run "rejects_unknown_db_profile" {
+  command = plan
+  variables {
+    db_profile = "production"
+  }
+  expect_failures = [var.db_profile]
+}
+
+run "rejects_shared_core_for_ha" {
+  command = plan
+  variables {
+    db_profile = "ha"
+    ha_db_tier = "db-g1-small"
+  }
+  expect_failures = [var.ha_db_tier]
+}
+
+run "rejects_short_ha_backup_retention" {
+  command = plan
+  variables {
+    db_profile      = "ha"
+    db_backup_count = 2
+  }
+  expect_failures = [var.db_backup_count]
+}
+
+run "rejects_dr_in_primary_region" {
+  command = plan
+  variables {
+    db_profile = "dr"
+    dr_region  = "us-central1"
+  }
+  expect_failures = [var.dr_region]
+}
+
+run "rejects_public_dr_nodes" {
+  command = plan
+  variables {
+    dr_nodes_subnet_cidr = "203.0.113.0/24"
+  }
+  expect_failures = [var.dr_nodes_subnet_cidr]
+}
+
+run "rejects_dr_nodes_pods_overlap" {
+  command = plan
+  variables {
+    dr_pods_cidr = "10.40.0.0/20"
+  }
+  expect_failures = [var.dr_nodes_subnet_cidr]
+}
+
 # --- identifiers ---
 
 run "rejects_a_hostname_without_a_zone" {

@@ -8,6 +8,43 @@ mock_provider "google" {
   source = "../../tests/mocks"
 }
 
+run "cloudsql_ha_pitr_and_protection" {
+  command = apply
+
+  module {
+    source = "../../modules/cloudsql"
+  }
+
+  variables {
+    name                     = "tx03v2-lab"
+    project_id               = "tx03v2-lab-example"
+    region                   = "us-central1"
+    network_id               = "projects/tx03v2-lab-example/global/networks/tx03v2-lab"
+    subnetwork_id            = "projects/tx03v2-lab-example/regions/us-central1/subnetworks/tx03v2-lab-nodes"
+    tier                     = "db-custom-1-3840"
+    continuity_profile       = "ha"
+    backup_count             = 7
+    deletion_protection      = true
+    retain_backups_on_delete = true
+    password                 = "placeholder-password-not-a-secret-0000000"
+    password_version         = 1
+  }
+
+  assert {
+    condition = (
+      google_sql_database_instance.this.deletion_protection == true &&
+      google_sql_database_instance.this.settings[0].tier == "db-custom-1-3840" &&
+      google_sql_database_instance.this.settings[0].availability_type == "REGIONAL" &&
+      google_sql_database_instance.this.settings[0].deletion_protection_enabled == true &&
+      google_sql_database_instance.this.settings[0].retain_backups_on_delete == true &&
+      google_sql_database_instance.this.settings[0].backup_configuration[0].point_in_time_recovery_enabled == true &&
+      google_sql_database_instance.this.settings[0].backup_configuration[0].transaction_log_retention_days == 7 &&
+      google_sql_database_instance.this.settings[0].backup_configuration[0].backup_retention_settings[0].retained_backups == 7
+    )
+    error_message = "HA uses dedicated cores, regional failover, PITR and explicit retention/protection."
+  }
+}
+
 run "cloudsql_postgres_17_enterprise_psc_only" {
   command = apply
 
@@ -164,19 +201,19 @@ run "secrets_are_regional_and_write_only" {
   assert {
     # secret_data_wo_version is a string attribute in the google provider 8.6.0 schema.
     condition = (
-      google_secret_manager_secret_version.db.secret_data_wo_version == "1" &&
-      google_secret_manager_secret_version.admin_token.secret_data_wo_version == "3"
+      google_secret_manager_secret_version.db[0].secret_data_wo_version == "1" &&
+      google_secret_manager_secret_version.admin_token[0].secret_data_wo_version == "3"
     )
     error_message = "The version inputs drive new secret versions."
   }
 
   assert {
-    condition     = google_secret_manager_secret_version.db.secret_data == null && google_secret_manager_secret_version.admin_token.secret_data == null
+    condition     = google_secret_manager_secret_version.db[0].secret_data == null && google_secret_manager_secret_version.admin_token[0].secret_data == null
     error_message = "Values go only through secret_data_wo: the stored secret_data attribute stays empty (never in plan or state)."
   }
 
   assert {
-    condition     = google_secret_manager_secret_version.db.secret_data_wo == null && google_secret_manager_secret_version.admin_token.secret_data_wo == null
+    condition     = google_secret_manager_secret_version.db[0].secret_data_wo == null && google_secret_manager_secret_version.admin_token[0].secret_data_wo == null
     error_message = "Write-only arguments are never persisted."
   }
 }

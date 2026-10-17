@@ -18,24 +18,25 @@ resource "google_sql_database_instance" "this" {
   name                = "${var.name}-${random_id.instance.hex}"
   region              = var.region
   database_version    = "POSTGRES_17"
-  deletion_protection = false
+  deletion_protection = var.deletion_protection
 
   settings {
     tier                        = var.tier
     edition                     = "ENTERPRISE"
-    availability_type           = "ZONAL"
+    availability_type           = var.continuity_profile == "core" ? "ZONAL" : "REGIONAL"
     disk_type                   = "PD_SSD"
     disk_size                   = var.disk_size_gb
     disk_autoresize             = false
-    deletion_protection_enabled = false
-    retain_backups_on_delete    = false
+    deletion_protection_enabled = var.deletion_protection
+    retain_backups_on_delete    = var.retain_backups_on_delete
 
     backup_configuration {
       enabled                        = true
-      point_in_time_recovery_enabled = false
+      point_in_time_recovery_enabled = var.continuity_profile != "core"
+      transaction_log_retention_days = var.continuity_profile == "core" ? null : 7
 
       backup_retention_settings {
-        retained_backups = 1
+        retained_backups = var.backup_count
         retention_unit   = "COUNT"
       }
     }

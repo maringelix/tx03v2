@@ -54,6 +54,14 @@ main() {
 
   while (($# > 0)); do
     case "$1" in
+      --target)
+        case "${2:-}" in
+          primary) DX_REVISION=gitops/gcp ;;
+          secondary) DX_REVISION=gitops/gcp-dr ;;
+          *) usage ;;
+        esac
+        shift 2
+        ;;
       --full)
         [[ "${2:-}" =~ $OWNER_RE ]] || usage
         full=1
@@ -112,6 +120,7 @@ main() {
         line="${line//__TX_REPO_URL__/$tx_url}"
         line="${line//__DX_REPO_URL__/$dx_url}"
         line="${line//__DX_REVISION__/$DX_REVISION}"
+        if [[ "$DX_REVISION" == *-dr ]]; then line="${line//__BACKUP_SCHEDULE__/lab-daily-dr}"; else line="${line//__BACKUP_SCHEDULE__/lab-daily}"; fi
         line="${line//__GITHUB_OWNER__/$owner}"
         line="${line//__ARTIFACT_REGISTRY_REPOSITORY__/$repository}"
       fi

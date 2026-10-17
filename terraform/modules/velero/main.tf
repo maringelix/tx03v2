@@ -10,7 +10,7 @@ locals {
   bucket_name = "${var.name}-velero-${var.project_id}"
 
   # Direct Workload Identity Federation for GKE principal (no Google service account or key).
-  velero_principal = "principal://iam.googleapis.com/projects/${data.google_project.this.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/velero/sa/velero"
+  velero_principal = "principal://iam.googleapis.com/projects/${data.google_project.this.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/velero/sa/${var.service_account_name}"
 }
 
 resource "google_storage_bucket" "this" {

@@ -6,7 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- R9: replicate current primary credentials to DR after protected apply, with exact-secret
+  access only for apply; monitor daily backup freshness/failed restores and native replica lag.
+
 ### Added
+
+- Complete GCP secondary full-profile wiring: managed mesh, contract target selection, independent
+  GitOps branch, read-only recovery identity, US multiregion primary backup, CSI snapshot schedule,
+  explicit DNS destination and teardown of both regional clusters. Bootstrap can opt into a new
+  multiregion state bucket with versioning and deletion protection. Managed-cloud actions remain unrun.
+
+- R9 Velero PVC data recovery drill: Kopia filesystem backup, original PVC/PV and bytes removed,
+  new PVC identity and restored SHA256 required. The local node agent needs kubelet hostPath/root
+  in the Velero namespace; the non-root server and restricted application context are retained.
+  Repository encryption uses a private, persistent-for-the-lab random password.
+
+- R9 de continuidade em construção: perfis opt-in `core|ha|dr` da Cloud SQL; HA regional com
+  CPU dedicada, PITR, retenção e proteção configuráveis; no DR, réplica PostgreSQL cross-region,
+  VPC/GKE/registry/segredos/contrato/Velero secundários. Exercício Docker de backup físico e WAL
+  rejeita corrupção e recupera um ponto conhecido. A execução no Google Cloud segue não homologada.
 
 - R8 for the GKE `full` profile (contract version 4, coordinated with dx03v2): optional Cloud DNS zone,
   Google-managed certificate and Certificate Map for an HTTPS Gateway; managed Cloud Service Mesh with

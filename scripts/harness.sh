@@ -45,7 +45,7 @@ RENDER_REPOSITORY="us-central1-docker.pkg.dev/tx03v2-lab-example/dx03v2"
 # The only project IDs and project number that may appear in the repository (placeholders).
 PLACEHOLDER_PROJECTS_RE='^(tx03v2-lab-example|other-lab-project|example-tenant-project)$'
 
-# Contract v4 (docs/CONTRATO.md): the keys of the Parameter Manager parameter tx03v2-lab-contract
+# Contract v5 (docs/CONTRATO.md): the keys shared by the primary and optional DR parameters
 # that dx03v2 and platform/install.sh read.
 CONTRACT_KEYS=(
   project-id region cluster-name network-name nodes-subnet-cidr db/endpoint-ip lb-source-ranges
@@ -1090,7 +1090,7 @@ check_contract_platform() {
 }
 
 # The contract keys the lab publishes in the Parameter Manager parameter
-# (terraform/envs/lab/contract.tf) are exactly the 15 keys of contract v2 (CONTRACT_KEYS, the list
+# (terraform/envs/lab/contract.tf) are exactly the 18 keys of contract v5 (CONTRACT_KEYS, the list
 # dx03v2 reads), with the fixed values of the contract.
 check_contract_parameter() {
   local rc=0 got want key
@@ -1099,7 +1099,7 @@ check_contract_parameter() {
   if [[ "$got" == "$want" ]]; then
     echo "terraform/envs/lab/contract.tf: the ${#CONTRACT_KEYS[@]} contract keys"
   else
-    echo "terraform/envs/lab/contract.tf must define exactly the ${#CONTRACT_KEYS[@]} keys of contract v2:"
+    echo "terraform/envs/lab/contract.tf must define exactly the ${#CONTRACT_KEYS[@]} keys of contract v5:"
     diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^</  missing:/p; s/^>/  unexpected:/p'
     rc=1
   fi
@@ -1884,9 +1884,12 @@ register_checks() {
   register static policy-terraform check_policy_terraform
   register static policy-labels check_policy_labels
   register static policy-identifiers check_policy_identifiers
+  register static volume-restore-wiring 'bash scripts/tests/volume-restore-wiring.sh'
   register static policy-workflows check_policy_workflows
   register static policy-scripts check_policy_scripts
   register static destroy-flow check_destroy_flow
+  register static region-target 'bash scripts/tests/region-target.sh'
+  register static dr-current-secrets 'bash scripts/tests/dr-secrets.sh'
   register static local-preflight check_local_preflight
   register static leftovers-flow check_leftovers_flow
   register static preflight-flow check_preflight_flow

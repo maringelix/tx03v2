@@ -22,12 +22,14 @@ initContainers:
       readOnlyRootFilesystem: true
       capabilities:
         drop: [ALL]
-snapshotsEnabled: false
+snapshotsEnabled: true
 deployNodeAgent: false
 credentials:
   useSecret: false
   existingSecret: null
 configuration:
+  features: EnableCSI
+  volumeSnapshotLocation: []
   backupStorageLocation:
     - name: default
       provider: gcp

@@ -39,6 +39,7 @@ OTEL_CHART_REPO="https://open-telemetry.github.io/opentelemetry-helm-charts"
 SECRET_STORE=gcp-secret-manager
 WORK_DIR=""
 PROFILE=core
+TARGET=primary
 OWNER=""
 OWNER_RE='^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$'
 CONTRACT_PROJECT=""
@@ -123,7 +124,7 @@ apply_manifests() {
 }
 
 usage() {
-  echo "usage: $0 [--profile core|full] [--github-owner OWNER]" >&2
+  echo "usage: $0 [--profile core|full] [--github-owner OWNER] [--target primary|secondary]" >&2
   exit 2
 }
 
@@ -132,7 +133,7 @@ apply_full() {
   local file=$1 attempt
   for attempt in 1 2 3 4 5; do
     if "$HERE/render-manifests.sh" "$CONTRACT_PROJECT" "$DEPLOYERS" --full "$OWNER" \
-      --artifact-registry-repository "$ARTIFACT_REPOSITORY" --only "$file" | kubectl apply -f - >/dev/null; then
+      --artifact-registry-repository "$ARTIFACT_REPOSITORY" --target "$LAB_TARGET" --only "$file" | kubectl apply -f - >/dev/null; then
       return 0
     fi
     log "kubectl apply of platform/manifests/$file failed (attempt $attempt/5); retrying in 15 s"
@@ -241,10 +242,34 @@ install_app_security() {
 }
 
 install_backup() {
-  install_chart velero
+  local -a identity=()
+  if [[ "$LAB_TARGET" == secondary ]]; then
+    identity+=(--set-string serviceAccount.server.name=velero-dr)
+  fi
+  install_chart velero "${identity[@]}"
   # shellcheck disable=SC2016 # expanded by the inner bash
   retry 30 5 bash -c '[[ "$(kubectl -n velero get backupstoragelocation default -o jsonpath="{.status.phase}")" == Available ]]' ||
     die "Velero backup storage location is not Available (check the GKE Workload Identity bucket binding)"
+  kubectl wait --for=condition=Established --timeout=120s \
+    crd/volumesnapshotclasses.snapshot.storage.k8s.io crd/schedules.velero.io >/dev/null
+  apply_full full/volume-snapshot-class.yaml
+  if [[ "$LAB_TARGET" == secondary ]]; then
+    kubectl apply -f - >/dev/null <<EOF
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: primary-recovery
+  namespace: velero
+spec:
+  provider: gcp
+  accessMode: ReadOnly
+  objectStorage:
+    bucket: tx03v2-lab-velero-$CONTRACT_PROJECT
+EOF
+    # shellcheck disable=SC2016 # kubectl expands inside the retry shell, not this shell
+    retry 30 5 bash -c '[[ "$(kubectl -n velero get backupstoragelocation primary-recovery -o jsonpath="{.status.phase}")" == Available ]]' ||
+      die "Secondary Velero cannot read the primary multiregion recovery bucket"
+  fi
 }
 
 install_full() {
@@ -262,6 +287,7 @@ install_full() {
   install_app_security
   install_observability
   apply_full full/app-monitoring.yaml
+  apply_full full/continuity-monitoring.yaml
   install_policies "$repository"
   install_image_admission
   install_gitops
@@ -276,6 +302,7 @@ main() {
     case "$1" in
       --profile) [[ "${2:-}" == core || "${2:-}" == full ]] || usage; PROFILE=$2; shift 2 ;;
       --github-owner) [[ "${2:-}" =~ $OWNER_RE ]] || usage; OWNER=$2; shift 2 ;;
+      --target) [[ "${2:-}" == primary || "${2:-}" == secondary ]] || usage; TARGET=$2; shift 2 ;;
       *) usage ;;
     esac
   done
@@ -284,6 +311,7 @@ main() {
   require_cmd gcloud kubectl helm jq gke-gcloud-auth-plugin
   require_gcloud_login
   load_platform_versions
+  select_lab_target "$TARGET"
   project="$(lab_project)"
   mask "$project"
   WORK_DIR="$(mktemp -d)"
@@ -316,16 +344,16 @@ main() {
   if [[ "$PROFILE" == full ]]; then
     [[ "$(contract mesh/management)" == managed ]] ||
       die "profile full requires Terraform enable_managed_mesh=true and an active managed Cloud Service Mesh"
-    [[ "$(contract dns/hostname)" != disabled && "$(contract dns/certificate-map)" == "$LAB_NAME-app" ]] ||
-      die "profile full requires a delegated app_domain_name/dns_zone_name and the Certificate Map $LAB_NAME-app"
+    [[ "$(contract dns/hostname)" != disabled && "$(contract dns/certificate-map)" == tx03v2-lab-app ]] ||
+      die "profile full requires the global Certificate Map tx03v2-lab-app"
     gcloud container fleet mesh describe --project "$project" --format=json >"$WORK_DIR/mesh-status.json" ||
       die "cannot inspect the managed Cloud Service Mesh fleet feature"
     jq -e --arg cluster "$cluster" \
       '[.membershipStates | to_entries[] | select(.key | endswith("/memberships/" + $cluster)) | .value.servicemesh.controlPlaneManagement.state] | any(. == "ACTIVE")' \
       "$WORK_DIR/mesh-status.json" >/dev/null ||
       die "managed Cloud Service Mesh for $cluster is not ACTIVE yet; inspect the fleet feature before installing full"
-    [[ "$(gcloud certificate-manager certificates describe "$LAB_NAME-app" --location=global --project "$project" --format='value(managed.state)')" == ACTIVE ]] ||
-      die "Google-managed certificate $LAB_NAME-app is not ACTIVE; delegate the zone and publish its DNS authorization before installing full"
+    [[ "$(gcloud certificate-manager certificates describe tx03v2-lab-app --location=global --project "$project" --format='value(managed.state)')" == ACTIVE ]] ||
+      die "Google-managed certificate tx03v2-lab-app is not ACTIVE"
   fi
 
   # Rendered before anything is installed: a malformed contract value stops the script here.

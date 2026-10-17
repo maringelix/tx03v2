@@ -36,7 +36,7 @@ usage() {
 }
 
 main() {
-  local project="" force_unlock="" clusters rc=0 uninstalled=1
+  local project="" force_unlock="" clusters cluster location target rc=0 uninstalled=1
   while (($# > 0)); do
     case "$1" in
       --project)
@@ -60,12 +60,24 @@ main() {
   # The scripts called below read the project from the environment: the one named here wins.
   export GCP_PROJECT_ID="$project" CLOUDSDK_CORE_PROJECT="$project"
 
-  clusters="$(gcloud container clusters list --project "$project" --filter="name=$LAB_NAME" \
-    --format='value(name)')" || clusters=unknown
-  if [[ "$clusters" != unknown && "$clusters" != "$LAB_NAME" ]]; then
-    log "cluster $LAB_NAME not found: nothing to uninstall"
+  clusters="$(gcloud container clusters list --project "$project" --filter="name~^$LAB_NAME(-dr)?$" \
+    --format='value(name,location)')" || clusters=unknown
+  if [[ "$clusters" == unknown ]]; then
+    # Inventory failure must reach the API fallback and a failing leftover check, never a silent skip.
+    uninstalled=0
+  elif [[ -z "$clusters" ]]; then
+    log "no primary or secondary lab cluster found: nothing to uninstall"
   else
-    bash "$REPO_ROOT/platform/uninstall.sh" || uninstalled=0
+    while read -r cluster location; do
+      case "$cluster" in
+        tx03v2-lab) target=primary ;;
+        tx03v2-lab-dr) target=secondary ;;
+        *) die 'cluster inventory returned a name outside the two lab runtimes' ;;
+      esac
+      # Older mock inventories omit location; only the known primary has a default.
+      [[ -n "$location" ]] || location="${REGION:-$LAB_REGION_DEFAULT}"
+      REGION="$location" bash "$REPO_ROOT/platform/uninstall.sh" --target "$target" || uninstalled=0
+    done <<<"$clusters"
   fi
   if ((uninstalled == 0)) || [[ -n "$(controller_leftovers "$project" 2>/dev/null)" ]]; then
     log "warning: platform/uninstall.sh did not finish, or load balancer pieces of the lab are left; deleting them through the Google Cloud API"

@@ -126,6 +126,16 @@ variable "apply_extra_project_roles" {
   }
 }
 
+variable "state_location" {
+  description = "Empty keeps the regional default; US/EU/ASIA makes a new state bucket multiregion. Choose at bootstrap, before applying the lab."
+  type        = string
+  default     = ""
+  validation {
+    condition     = contains(["", "US", "EU", "ASIA"], var.state_location)
+    error_message = "state_location must be empty, US, EU or ASIA. Existing buckets cannot change location in place."
+  }
+}
+
 variable "state_protection" {
   description = "Refuse to destroy the state bucket (deletion_policy = PREVENT). Set false only for the final teardown."
   type        = bool

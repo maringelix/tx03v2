@@ -17,6 +17,7 @@ resource "google_secret_manager_secret" "db" {
 }
 
 resource "google_secret_manager_secret_version" "db" {
+  count                  = var.manage_versions ? 1 : 0
   secret                 = google_secret_manager_secret.db.id
   secret_data_wo         = var.db_secret_value
   secret_data_wo_version = var.db_secret_version
@@ -36,7 +37,18 @@ resource "google_secret_manager_secret" "admin_token" {
 }
 
 resource "google_secret_manager_secret_version" "admin_token" {
+  count                  = var.manage_versions ? 1 : 0
   secret                 = google_secret_manager_secret.admin_token.id
   secret_data_wo         = var.admin_token
   secret_data_wo_version = var.admin_token_version
+}
+
+moved {
+  from = google_secret_manager_secret_version.db
+  to   = google_secret_manager_secret_version.db[0]
+}
+
+moved {
+  from = google_secret_manager_secret_version.admin_token
+  to   = google_secret_manager_secret_version.admin_token[0]
 }

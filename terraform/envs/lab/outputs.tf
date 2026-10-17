@@ -70,6 +70,41 @@ output "db_endpoint_ip" {
   value       = module.cloudsql.endpoint_ip
 }
 
+output "db_profile" {
+  description = "Selected continuity profile: core, ha, or dr."
+  value       = var.db_profile
+}
+
+output "dr_region" {
+  description = "Secondary region if the DR profile is enabled; empty otherwise."
+  value       = var.db_profile == "dr" ? var.dr_region : ""
+}
+
+output "dr_cluster_name" {
+  description = "Independent secondary GKE Autopilot cluster, or empty without DR."
+  value       = var.db_profile == "dr" ? module.gke_dr[0].cluster_name : ""
+}
+
+output "dr_cloudsql_replica_name" {
+  description = "Cross-region read replica to promote manually after fencing and lag review."
+  value       = var.db_profile == "dr" ? google_sql_database_instance.dr[0].name : ""
+}
+
+output "dr_db_hostname" {
+  description = "Verified TLS name used by the apply-only current-credential replication."
+  value       = var.db_profile == "dr" ? trimsuffix(google_sql_database_instance.dr[0].dns_name, ".") : ""
+}
+
+output "dr_contract_parameter" {
+  description = "Secondary contract with regional cluster, registry, secrets and PSC endpoint."
+  value       = var.db_profile == "dr" ? module.contract_dr[0].parameter_id : ""
+}
+
+output "dr_velero_bucket_name" {
+  description = "Regional backup bucket for the secondary cluster."
+  value       = var.db_profile == "dr" ? module.velero_dr[0].bucket_name : ""
+}
+
 output "node_service_account" {
   description = "E-mail of the node service account (created by terraform/bootstrap)."
   value       = local.nodes_service_account_email

@@ -9,6 +9,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
+isolate_kubeconfig() {
+  WORK_DIR=$WORK
+  export KUBECONFIG="$WORK_DIR/kubeconfig"
+  printf 'apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n' >"$KUBECONFIG"
+}
+isolate_kubeconfig
 trap 'rm -rf "$WORK"' EXIT
 FAILED=0
 PROJECT="tx03v2-lab-example"
@@ -70,7 +76,10 @@ case "$1 $2 $3" in
   "container clusters list")
     if [[ "${FAKE_CLUSTERS:-1}" == 1 && ! -f "$FAKE_STATE/destroyed" ]]; then
       case "$args" in
-        *"--filter=name=tx03v2-lab"*) echo "tx03v2-lab" ;;
+        *"--filter=name~^tx03v2-lab(-dr)?$"*)
+          printf 'tx03v2-lab\tus-central1\n'
+          if [[ "${FAKE_DR:-0}" == 1 ]]; then printf 'tx03v2-lab-dr\tus-east1\n'; fi
+          ;;
         *) echo "tx03v2-lab|us-central1|tx03v2|tx03v2-lab" ;;
       esac
     fi
@@ -223,6 +232,14 @@ main() {
   expect healthy "the leftover check runs after the destroy" \
     "$(ordered healthy '^terraform .*destroy' '^gcloud container clusters list .*value\[separator')"
   expect healthy "the core profile has no claim to delete" "$(absent healthy '^kubectl delete pvc')"
+
+  run_case dual-region 0 FAKE_DR=1
+  expect dual-region "primary uninstall precedes IaC destroy" \
+    "$(ordered dual-region '^gcloud container clusters get-credentials tx03v2-lab --location us-central1' '^terraform .*destroy')"
+  expect dual-region "secondary uninstall precedes IaC destroy" \
+    "$(ordered dual-region '^gcloud container clusters get-credentials tx03v2-lab-dr --location us-east1' '^terraform .*destroy')"
+  expect dual-region "secondary waits only for secondary NEGs" \
+    "$(present dual-region 'zone~us-east1-')"
   write_pieces
 
   # 1b. The profile full: the releases go first, then the claims of the observability disks (their

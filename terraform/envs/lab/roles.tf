@@ -120,3 +120,45 @@ resource "google_secret_manager_secret_iam_member" "eso" {
   # The workload identity pool <project_id>.svc.id.goog exists once the cluster does.
   depends_on = [module.gke]
 }
+
+# DR uses the existing identities, scoped to the secondary repository and the two secondary
+# secrets. The writer can copy image digests before a disaster; nodes, Trivy and Kyverno can only
+# read that repository. The ESO principal is identical across clusters in the same project.
+resource "google_artifact_registry_repository_iam_member" "dr" {
+  for_each = var.db_profile == "dr" ? local.repository_grants : {}
+
+  project    = var.project_id
+  location   = module.artifact_registry_dr[0].location
+  repository = module.artifact_registry_dr[0].repository_id
+  role       = each.value.role
+  member     = each.value.member
+}
+
+resource "google_artifact_registry_repository_iam_member" "platform_dr" {
+  for_each = var.db_profile == "dr" ? {
+    "trivy-reader"   = local.trivy_principal
+    "kyverno-reader" = local.kyverno_principal
+  } : {}
+
+  project    = var.project_id
+  location   = module.artifact_registry_dr[0].location
+  repository = module.artifact_registry_dr[0].repository_id
+  role       = "roles/artifactregistry.reader"
+  member     = each.value
+
+  depends_on = [module.gke_dr]
+}
+
+resource "google_secret_manager_secret_iam_member" "eso_dr" {
+  for_each = var.db_profile == "dr" ? {
+    "eso-db"          = module.secrets_dr[0].db_secret_id
+    "eso-admin-token" = module.secrets_dr[0].admin_token_secret_id
+  } : {}
+
+  project   = var.project_id
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = local.eso_principal
+
+  depends_on = [module.gke_dr]
+}

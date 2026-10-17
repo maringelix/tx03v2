@@ -374,6 +374,12 @@ check_database() {
   pass "database: plaintext connections refused (hostssl only)"
 }
 
+check_database_pitr() {
+  "$REPO_ROOT/scripts/local/pitr-drill.sh" "$(tf_out_image postgres)" "$(tf_out docker_network)" \
+    "$(tf_out db_basebackup_volume)" "$(tf_out db_wal_volume)" || die "database: physical PITR drill failed"
+  pass "database: corrupted backup refused; PostgreSQL base backup + WAL restored the chosen point"
+}
+
 # tf_out_image KEY -> pinned image of terraform/envs/local/images.tf (the database client is the
 # server image itself, already in the local Docker cache).
 tf_out_image() {
@@ -942,6 +948,8 @@ EOF
   pass "backup: namespace deleted and restored from the backup with its data"
   kubectl -n velero delete restore lab-probe >/dev/null
   kubectl -n velero delete backup lab-probe >/dev/null
+  bash "$REPO_ROOT/scripts/local/volume-restore-drill.sh"
+  pass "backup: PVC data restored by Velero after deleting the original volume contents (SHA256)"
 }
 
 # Chaos engineering with a hypothesis: with 2 replicas behind a Service, killing one pod does not
@@ -1228,6 +1236,7 @@ main() {
   WORK_DIR="$(mktemp -d)"
   trap cleanup EXIT
   check_database
+  check_database_pitr
   probe_namespaces
   deploy_echo
   check_mesh

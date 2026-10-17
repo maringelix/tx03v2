@@ -134,6 +134,13 @@ abaixo (`gh secret set LAB_APP_DEPLOYER_MEMBERS -R <você>/tx03v2`).
 | `SLACK_WEBHOOK_URL` (**secret**) | — | workflow `platform`, alertas do perfil full | opcional; webhook de entrada do Slack, nunca use variável pública |
 | `LAB_ENABLE_WAF` | `true` | `TF_VAR_enable_waf` | opcional, padrão `true` (`docs/CUSTOS.md`) |
 | `LAB_DB_TIER` | `db-g1-small` | `TF_VAR_db_tier` | opcional, padrão `db-g1-small` (a validação recusa `db-f1-micro`) |
+| `LAB_DB_PROFILE` | `ha` ou `dr` | `TF_VAR_db_profile` | opcional, `core` por padrão; `dr` cria cluster, réplica e serviços pagos na segunda região |
+| `LAB_HA_DB_TIER` | `db-custom-1-3840` | `TF_VAR_ha_db_tier` | tier de CPU dedicada em `ha`/`dr`; shared-core não tem SLA HA |
+| `LAB_DB_BACKUP_COUNT` | `7` | `TF_VAR_db_backup_count` | vazio usa 1 em `core` e 7 em `ha`/`dr`; no mínimo 7 em HA/DR |
+| `LAB_DB_DELETION_PROTECTION` | `true` | `TF_VAR_db_deletion_protection` | `false` por padrão; desative deliberadamente antes do destroy |
+| `LAB_DB_RETAIN_BACKUPS_ON_DELETE` | `true` | `TF_VAR_db_retain_backups_on_delete` | `false` por padrão; backups retidos após destroy continuam cobrados |
+| `LAB_DR_REGION` | `us-east1` | `TF_VAR_dr_region` | diferente da região primária; usado somente em `dr` |
+| `LAB_DR_NODES_SUBNET_CIDR`, `LAB_DR_PODS_CIDR`, `LAB_DR_SERVICES_CIDR`, `LAB_DR_CONTROL_PLANE_CIDR` | `10.40.0.0/20`, `10.42.0.0/16`, `10.43.0.0/20`, `172.31.255.224/28` | `TF_VAR_dr_*` | faixas privadas da VPC/cluster secundários, sem sobreposição interna |
 | `LAB_DNS_ZONE_NAME` | `example.com` | `TF_VAR_dns_zone_name` (plan, apply, destroy) | opcional, vazio por padrão: zona pública do Cloud DNS que **você** controla (delegada no registrador); exigida pelo perfil `full` junto com `LAB_APP_DOMAIN_NAME` |
 | `LAB_APP_DOMAIN_NAME` | `lab.example.com` | `TF_VAR_app_domain_name` | opcional, vazio por padrão: hostname do app, subdomínio da zona acima; o Terraform valida que os dois vêm juntos |
 | `LAB_ENABLE_MANAGED_MESH` | `true` | `TF_VAR_enable_managed_mesh` | opcional, `false` por padrão: registra o cluster na frota e liga o Cloud Service Mesh gerenciado, exigido pelo perfil `full` |
@@ -141,6 +148,10 @@ abaixo (`gh secret set LAB_APP_DEPLOYER_MEMBERS -R <você>/tx03v2`).
 `TF_VAR_github_owner` vem de `github.repository_owner`. Os demais inputs usam os padrões de
 `terraform/envs/lab/variables.tf`; para mudar um (por exemplo `nodes_subnet_cidr`), adicione o
 `TF_VAR_<nome>` ao bloco `env` dos workflows num PR.
+
+Os perfis de continuidade, o restore isolado e a promoção regional estão em
+[CONTINUIDADE.md](CONTINUIDADE.md). Faça a conta de HA/DR antes do apply; o `dr` reserva um segundo
+cluster Autopilot e uma réplica Cloud SQL mesmo sem tráfego de produção.
 
 ### dx03v2
 

@@ -11,6 +11,19 @@ LAB_NAME=tx03v2-lab
 # shellcheck disable=SC2034 # used by the scripts that source this file
 LAB_REGION_DEFAULT="us-central1"
 CONTRACT_PARAMETER=$LAB_NAME-contract
+
+# Only these two lab-owned runtimes can be selected. Do not let arbitrary shell cluster/name
+# variables retarget a write. Read-only inventory retains the primary prefix and includes both.
+select_lab_target() {
+  LAB_TARGET="${1:-primary}"
+  case "$LAB_TARGET" in
+    primary) LAB_NAME=tx03v2-lab ;;
+    secondary) LAB_NAME=tx03v2-lab-dr ;;
+    *) die 'LAB_TARGET must be primary or secondary' ;;
+  esac
+  CONTRACT_PARAMETER=$LAB_NAME-contract
+  export LAB_TARGET
+}
 PROJECT_RE='^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
 # shellcheck disable=SC2034
 REGION_RE='^[a-z]+-[a-z]+[0-9]+$'

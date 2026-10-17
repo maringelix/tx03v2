@@ -6,7 +6,7 @@
 # delete it while it holds objects.
 resource "google_storage_bucket" "state" {
   name                        = local.state_bucket_name
-  location                    = upper(var.region)
+  location                    = upper(var.state_location == "" ? var.region : var.state_location)
   storage_class               = "STANDARD"
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
