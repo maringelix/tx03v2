@@ -129,4 +129,4 @@ trimestral (`docs/SUSTENTACAO.md`, 5.7).
 
 ## R10: capacidade e FinOps
 
-Consulte [FinOps e escala](FINOPS.md) para a topologia local HA, carga/HPA/PDB, OpenCost, VPA em recomenda??o, pre?o regional, or?amento/expira??o e limpeza. O caminho ? opt-in; o perfil core e o tamanho small continuam dispon?veis. Nada foi executado na nuvem (v2).
+Veja [FinOps e escala](FINOPS.md) para kind HA, carga/HPA/PDB, OpenCost, VPA Off, Spot opt-in, preços regionais, orçamento/expiração e limpeza. Construção para fork; nada executado na nuvem (v2).

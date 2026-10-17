@@ -1,5 +1,10 @@
 # Lições aprendidas do lab GCP v1 (tx03 e dx03)
 
+> A tabela de decisões e as lições preservam o estado inicial de cada rodada. O escopo
+> atual de HA/backup/PITR/DR está em [CONTINUIDADE.md](CONTINUIDADE.md), e capacidade,
+> OpenCost/VPA/Spot e estimativa em [FINOPS.md](FINOPS.md). Decisões antigas marcadas
+> como fora de escopo não revogam as construções posteriores R7–R10.
+
 Este documento resume o que falhou no lab GCP v1 (repositórios tx03 e dx03, branch `master`), por
 que falhou e o que a v2 faz no lugar. Serve de referência para operar e evoluir o tx03v2/dx03v2 sem
 repetir os mesmos erros. Os repositórios v1 são privados ou arquivados e não são linkados.

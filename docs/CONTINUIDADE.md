@@ -37,13 +37,16 @@ o endpoint PSC isolado. Após promoção, valide backups/PITR na nova principal 
    rejeita cópia corrompida com `pg_verifybackup`, apaga um registro depois de um restore point,
    restaura numa instância isolada e confere os registros e o tempo de recuperação. O banco do app
    não é trocado durante essa prova. O CI registra o resultado, inclusive falha.
-3. O DX03v2 coordena a prova do app, do PVC do Velero e a simulação local A/B com fencing, troca de
-   endpoint e retorno. Consulte o PR R9 do par antes de considerar R9 completo.
+3. O TX prova a restauração real de bytes do PVC com nova claim; o DX coordena a prova
+   A/B do app, com fencing, troca de endpoint e retorno. Os CI de R9 registram ambos;
+   a execução nos serviços gerenciados permanece não executada em nuvem (v2).
 
 O Velero protege objetos e volumes Kubernetes conforme a configuração do app. O PostgreSQL gerenciado
 usa o backup nativo da Cloud SQL; restaurar só ConfigMap pelo Velero não é prova de recuperação de dados.
-Os buckets Velero são regionais. Um bucket secundário vazio não significa que os objetos do primário
-tenham sido replicados: o runbook do app precisa provar a cópia e o checksum na região de destino.
+No perfil DR, o bucket primário fica na multirregião US e o secundário tem destino próprio.
+O standby importa a origem como somente leitura; snapshots nativos PD têm escopo global.
+Um destino vazio não comprova recuperação: verificar backup, snapshot/dados e checksum
+continua obrigatório na homologação gerenciada.
 
 ## Restore isolado de Cloud SQL (quando o operador habilitar a conta)
 

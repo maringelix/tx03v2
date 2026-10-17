@@ -120,12 +120,18 @@ e [Spot no Autopilot](https://cloud.google.com/kubernetes-engine/docs/how-to/aut
 
 ### Custo externo, idle e owner no dashboard
 
-O arquivo de tarifas tamb?m exige externalHourly com backup, controlPlane, database,
+O arquivo de tarifas também exige externalHourly com backup, controlPlane, database,
 dr, egress, loadBalancer, nat, storage e waf (USD/h). Zero exige justificativa de
-inclus?o/aus?ncia; evite contar o mesmo custo no recurso Terraform e na categoria
+inclusão/ausência; evite contar o mesmo custo no recurso Terraform e na categoria
 externa. O instalador cria a recording rule lab_external_hourly_estimate; o dashboard
 mostra as categorias, owner/ambiente, infraestrutura compartilhada e idle estimado.
-Kube-state-metrics exp?e somente as duas labels de showback adicionais. A simula??o
-local tem externos zero; tarifas cloud s?o preenchidas pelo dono do fork.
+Kube-state-metrics expõe somente as duas labels de showback adicionais. A simulação
+local tem externos zero; tarifas cloud são preenchidas pelo dono do fork.
 
-LimitRange preenche limites ausentes antes da quota (CPU 1, RAM 512Mi por container; requests padr?o 10m/64Mi). Requests/limits expl?citos s?o preservados, incluindo recursos dos proxies. A quota continua bloqueante.
+LimitRange preenche limites ausentes antes da quota (CPU 1, RAM 512Mi por container;
+requests padrão 10m/64Mi). Requests/limits explícitos são preservados, incluindo os
+recursos dos proxies. A quota continua bloqueante.
+
+Para o plano com DR, estime o maior SKU e a maior tarifa entre as regiões abrangidas;
+registre essa escolha na descrição da fonte. No Autopilot, idle de nós é um modelo
+de capacidade e não cobrança de VM ociosa: a alocação usa requests dos pods.

@@ -263,8 +263,10 @@ esse range colidir com algo da sua VPC, mude a variável antes do primeiro apply
 se ela mudar depois).
 
 Para alertas no Slack, grave o webhook como secret opcional `SLACK_WEBHOOK_URL` no repositório
-tx03v2. O perfil full usa o mesmo bucket regional do Velero criado pelo Terraform. Seus objetos
-expiram em 35 dias; Velero salva recursos Kubernetes, não Cloud SQL nem volumes persistentes. Não há
+tx03v2. O perfil full usa o bucket Velero criado pelo Terraform (multirregião US no DR).
+Velero protege objetos e volumes Kubernetes por snapshots CSI de Persistent Disk; Cloud SQL
+usa seu backup nativo. O Schedule retém backups por 35 dias; veja CONTINUIDADE.md para
+cópia/restore e GC seguro. Não há
 transição suportada de `full` para `core`: destrua o lab e aplique-o de novo com `core`.
 
 Ao atualizar um lab criado antes do R8 (contrato v4): o bootstrap ganhou as APIs `certificatemanager` e
