@@ -84,6 +84,26 @@ recursos temporários somente após o aceite dos dados e a conferência de sobra
 
 ## Fontes
 
+## PVC: restauração dos bytes pelo Velero
+
+O CI local executa `scripts/local/volume-restore-drill.sh`: um Pod restrito grava um arquivo
+num PVC ligado a um volume `local` no nó kind. O backup por Kopia deve terminar com um
+`PodVolumeBackup Completed`. O ensaio remove namespace, PVC e PV, apaga os bytes originais e
+restaura tudo. Só passa com um novo UID de PVC, `PodVolumeRestore Completed` e SHA256 idêntico.
+
+O `node-agent` local precisa de root e dos hostPaths do kubelet para ler os volumes. Por isso
+somente o namespace Velero local passa a `privileged`; o servidor continua non-root e a aplicação
+continua com Pod Security `restricted`. O restore helper tem imagem fixada por digest, UID/GID
+65532, capabilities removidas e filesystem raiz somente leitura. Não relaxe a segurança do app
+para instalar o agente. Uma senha aleatória do repositório Kopia é criada antes do primeiro backup
+e preservada nas reinstalações; perdê-la torna os dados antigos ilegíveis.
+
+Este agente com hostPath é específico de kind; GKE Autopilot usa o caminho CSI. A prova local
+não substitui o ensaio de snapshot/restore do driver CSI da cloud, que continua não executado.
+Veja [FSB no Velero 1.18](https://velero.io/docs/v1.18/file-system-backup/).
+
+## Referências de cloud
+
 - [HA regional e seus limites](https://cloud.google.com/sql/docs/postgres/high-availability)
 - [Replicação e custos de transferência](https://cloud.google.com/sql/docs/postgres/replication)
 - [Promoção cross-region](https://cloud.google.com/sql/docs/postgres/replication/cross-region-replicas)

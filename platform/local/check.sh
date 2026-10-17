@@ -948,6 +948,8 @@ EOF
   pass "backup: namespace deleted and restored from the backup with its data"
   kubectl -n velero delete restore lab-probe >/dev/null
   kubectl -n velero delete backup lab-probe >/dev/null
+  bash "$REPO_ROOT/scripts/local/volume-restore-drill.sh"
+  pass "backup: PVC data restored by Velero after deleting the original volume contents (SHA256)"
 }
 
 # Chaos engineering with a hypothesis: with 2 replicas behind a Service, killing one pod does not

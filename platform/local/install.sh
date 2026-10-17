@@ -311,6 +311,12 @@ install_trivy_operator() {
 # credentials file format of that plugin; it goes to the Secret through stdin.
 install_backup() {
   local charts="$WORK_DIR/charts" values="$WORK_DIR/velero-values.yaml"
+  # Set a private repository encryption password before the first FSB backup. Preserve it on
+  # reinstall: rotating it would make existing Kopia backups unreadable.
+  if ! kubectl -n velero get secret velero-repo-credentials >/dev/null 2>&1; then
+    kubectl -n velero create secret generic velero-repo-credentials \
+      --from-literal="repository-password=$(rand_hex 32)" >/dev/null
+  fi
   kubectl -n velero create secret generic velero-s3 --from-file=cloud=/dev/stdin --dry-run=client -o yaml \
     <<<"$(printf '[default]\naws_access_key_id=%s\naws_secret_access_key=%s\n' "$(tf_out s3_access_key)" "$(tf_out s3_secret_key)")" |
     kubectl apply -f - >/dev/null
@@ -318,6 +324,7 @@ install_backup() {
     "$HERE/values/velero.yaml" >"$values"
   helm_install velero velero "$(pull_chart "$charts" "$VELERO_REPO" velero "$VELERO_VERSION" "$VELERO_SHA256")" \
     --values "$values"
+  kubectl -n velero rollout status daemonset/node-agent --timeout=180s >/dev/null
   # shellcheck disable=SC2016 # expanded by the inner bash
   retry 30 5 bash -c '[[ "$(kubectl -n velero get backupstoragelocation default -o jsonpath="{.status.phase}")" == Available ]]' ||
     die "Velero: the backup storage location (S3 emulator) is not Available"

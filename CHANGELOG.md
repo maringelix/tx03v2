@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- R9 Velero PVC data recovery drill: Kopia filesystem backup, original PVC/PV and bytes removed,
+  new PVC identity and restored SHA256 required. The local node agent needs kubelet hostPath/root
+  in the Velero namespace; the non-root server and restricted application context are retained.
+  Repository encryption uses a private, persistent-for-the-lab random password.
+
 - R9 de continuidade em construção: perfis opt-in `core|ha|dr` da Cloud SQL; HA regional com
   CPU dedicada, PITR, retenção e proteção configuráveis; no DR, réplica PostgreSQL cross-region,
   VPC/GKE/registry/segredos/contrato/Velero secundários. Exercício Docker de backup físico e WAL
