@@ -1,5 +1,12 @@
 # Custos do lab
 
+R9: `db_profile=dr` usa GCS multirregião `US` para os backups primários e uma
+identidade de recuperação com leitura nesse bucket. `state_location=US` é opcional
+no primeiro bootstrap. Inclua o preço de armazenamento multirregião, snapshots CSI
+retidos, tráfego entre regiões e a duplicação de PVCs da observabilidade na estimativa.
+O secundário usa seu próprio bucket para novas cópias. Remover um objeto Kubernetes
+não remove automaticamente snapshots com política `Retain`; confira-os no teardown.
+
 Estimativa do custo por hora, por dia e de um mês esquecido com os padrões do lab em `us-central1`,
 para decidir antes de criar qualquer coisa. Todos os valores são **preços de tabela lidos nas páginas
 de preço do Google Cloud em 2026-10-16** (US$, sem impostos, sem créditos e sem transferência de

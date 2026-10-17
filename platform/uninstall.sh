@@ -82,7 +82,7 @@ stop_gitops() {
 # name contains dx03v2, one "name zone" per line.
 app_negs() {
   gcloud compute network-endpoint-groups list --project "$1" \
-    --filter="name~$APP_NAMESPACE" --format='value(name,zone.basename())' | lines
+    --filter="name~$APP_NAMESPACE AND zone~$REGION-" --format='value(name,zone.basename())' | lines
 }
 
 wait_for_negs() {
@@ -126,6 +126,8 @@ delete_monitoring_pvcs() {
 main() {
   (($# == 0)) || die "usage: $0 (configuration through environment variables, see the header)"
   local project
+  select_lab_target "${LAB_TARGET:-primary}"
+  CLUSTER_NAME=$LAB_NAME
   require_cmd gcloud kubectl helm gke-gcloud-auth-plugin
   require_gcloud_login
   project="$(lab_project)"

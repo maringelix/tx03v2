@@ -310,12 +310,15 @@ install_trivy_operator() {
 # Velero writes to the S3 emulator (the local twin of Cloud Storage) with its AWS/S3 plugin, the
 # credentials file format of that plugin; it goes to the Secret through stdin.
 install_backup() {
-  local charts="$WORK_DIR/charts" values="$WORK_DIR/velero-values.yaml"
+  local charts="$WORK_DIR/charts" values="$WORK_DIR/velero-values.yaml" repository_password
   # Set a private repository encryption password before the first FSB backup. Preserve it on
   # reinstall: rotating it would make existing Kopia backups unreadable.
   if ! kubectl -n velero get secret velero-repo-credentials >/dev/null 2>&1; then
+    require_cmd openssl
+    repository_password="$(openssl rand -hex 32)"
+    [[ "$repository_password" =~ ^[0-9a-f]{64}$ ]] || die 'Velero repository password generation failed'
     kubectl -n velero create secret generic velero-repo-credentials \
-      --from-literal="repository-password=$(rand_hex 32)" >/dev/null
+      --from-literal="repository-password=$repository_password" >/dev/null
   fi
   kubectl -n velero create secret generic velero-s3 --from-file=cloud=/dev/stdin --dry-run=client -o yaml \
     <<<"$(printf '[default]\naws_access_key_id=%s\naws_secret_access_key=%s\n' "$(tf_out s3_access_key)" "$(tf_out s3_secret_key)")" |

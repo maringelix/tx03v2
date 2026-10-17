@@ -8,6 +8,11 @@ name: platform
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: Primary or independent secondary lab runtime (secondary requires DR profile)
+        type: choice
+        options: [primary, secondary]
+        default: primary
       action:
         description: install or uninstall
         type: choice
@@ -40,11 +45,12 @@ jobs:
       id-token: write
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-      REGION: ${{ vars.GCP_REGION }}
+      REGION: ${{ inputs.target == 'secondary' && vars.LAB_DR_REGION || vars.GCP_REGION }}
       # A secret, not a variable: the logs of a public repository are public, and a secret is masked.
       APP_DEPLOYER_MEMBERS: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       PROFILE: ${{ inputs.profile }}
+      LAB_TARGET: ${{ inputs.target }}
     steps:
       - name: Check repository variables
         env:

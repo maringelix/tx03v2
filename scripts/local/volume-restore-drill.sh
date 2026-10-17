@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # shellcheck source=scripts/lib/local.sh
 source "$REPO_ROOT/scripts/lib/local.sh"
-require_cmd kubectl docker sha256sum
+require_cmd kubectl docker sha256sum openssl
 require_lab_context
 NODE="$LOCAL_CLUSTER-control-plane"
 NS=lab-probe-pvc
@@ -133,7 +133,7 @@ spec:
 EOF
 kubectl -n "$NS" wait pod/holder --for=condition=Ready --timeout=180s >/dev/null
 PVC_UID="$(kubectl -n "$NS" get pvc data -o jsonpath='{.metadata.uid}')"
-PAYLOAD="$(rand_hex 64)"
+PAYLOAD="$(openssl rand -hex 64)"
 EXPECTED="$(printf '%s' "$PAYLOAD" | sha256sum | awk '{print $1}')"
 printf '%s' "$PAYLOAD" | kubectl -n "$NS" exec -i holder -- sh -c 'cat > /data/precious.bin'
 kubectl apply -f - >/dev/null <<EOF

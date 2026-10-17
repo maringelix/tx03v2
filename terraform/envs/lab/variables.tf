@@ -253,6 +253,20 @@ variable "dr_region" {
     condition     = can(regex("^[a-z]+-[a-z]+[0-9]+$", var.dr_region)) && (var.db_profile != "dr" || var.dr_region != var.region)
     error_message = "dr_region must be a Google Cloud region different from region in the DR profile."
   }
+  validation {
+    condition     = var.db_profile != "dr" || (startswith(var.region, "us-") && startswith(var.dr_region, "us-"))
+    error_message = "This DR learning path uses two US regions and a US multiregion recovery bucket."
+  }
+}
+
+variable "active_region" {
+  description = "Public DNS destination after a separately authorized, fenced failover. Does not promote a database."
+  type        = string
+  default     = "primary"
+  validation {
+    condition     = contains(["primary", "secondary"], var.active_region) && (var.active_region != "secondary" || var.db_profile == "dr")
+    error_message = "active_region must be primary, or secondary only with db_profile=dr."
+  }
 }
 
 variable "dr_nodes_subnet_cidr" {

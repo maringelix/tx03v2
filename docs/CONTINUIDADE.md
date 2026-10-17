@@ -82,8 +82,6 @@ limite aceito, faça switchover planejado com escrita congelada, valide dados e 
 Mantenha o registro do incidente, os hashes dos volumes restaurados e a topologia final. Destrua
 recursos temporários somente após o aceite dos dados e a conferência de sobras/custos.
 
-## Fontes
-
 ## PVC: restauração dos bytes pelo Velero
 
 O CI local executa `scripts/local/volume-restore-drill.sh`: um Pod restrito grava um arquivo
@@ -102,7 +100,52 @@ Este agente com hostPath é específico de kind; GKE Autopilot usa o caminho CSI
 não substitui o ensaio de snapshot/restore do driver CSI da cloud, que continua não executado.
 Veja [FSB no Velero 1.18](https://velero.io/docs/v1.18/file-system-backup/).
 
-## Referências de cloud
+## Preparar e operar o secundário
+
+O caminho DR deste lab usa duas regiões dos EUA (`us-central1` e `us-east1` por padrão).
+O backup primário passa a GCS multirregião `US`, com acesso independente da região
+original. A identidade `velero-dr` lê esse bucket com `storage.objectViewer` e grava
+somente no bucket próprio do secundário. Sua BSL `primary-recovery` é `ReadOnly`.
+Considere a janela de replicação do GCS; multirregião não promete RPO zero para um
+objeto recém-gravado. Antes de simular perda, confira a disponibilidade e o checksum
+do último backup no destino de recuperação.
+
+Antes do **primeiro bootstrap**, use `state_location = "US"` para manter também o
+state remoto versionado em multirregião. O padrão regional do perfil barato continua
+disponível. Um bucket existente não muda de localização: não aceite um plano que
+substitua seu state; migre o backend de forma deliberada, guarde uma cópia privada e
+confira lineage/serial/recursos antes de liberar outro apply. O bucket continua com
+versioning, prevenção de acesso público, `force_destroy=false` e proteção de exclusão.
+Para recuperar uma versão anterior, liste as gerações do objeto `envs/lab/default.tfstate`,
+baixe a geração escolhida com acesso somente leitura para um diretório privado fora
+do clone público, confira o JSON/lineage/serial e compare um plano de refresh.
+Nunca publique o state em artifact, issue ou PR nem faça `state push` sem revisão.
+
+O contrato DR mantém os mesmos 18 campos; TLS e WAF usam recursos globais do projeto.
+O segundo cluster recebe sua própria associação ao Cloud Service Mesh gerenciado.
+Depois de aplicar a IaC e de conferir a região, instale a plataforma com:
+
+```bash
+LAB_TARGET=secondary GCP_PROJECT_ID=tx03v2-lab-example \
+  bash platform/install.sh --profile full --github-owner your-github-user
+```
+
+O renderer usa `gitops/gcp-dr`. O deploy do par oferece `target=secondary`, lê os
+segredos regionais e verifica HTTPS diretamente no endereço reservado antes do DNS.
+Somente após fencing, promoção, aceite dos dados e smoke, `active_region=secondary`
+(`LAB_ACTIVE_REGION`) troca o registro A. Esse input não promove o banco sozinho.
+O destroy inventaria e desinstala ambos os clusters antes de remover a IaC; cada
+uninstall espera apenas os NEGs de sua região.
+
+No GKE, `EnableCSI` e a classe `lab-pd-snapshot` usam o driver gerenciado de PD,
+sem hostPath de usuário. O schedule diário inclui app/monitoring com retenção de
+35 dias. Antes do restore noutra região, confirme que o snapshot durável do Compute
+Engine está disponível, restaure para volumes novos e compare o checksum do arquivo;
+não confunda um objeto PVC restaurado com os dados. Confira e limpe snapshots
+retidos depois do aceite; `deletionPolicy: Retain` evita que apagar uma referência
+Kubernetes destrua sua cópia de recuperação. Estes passos gerenciados não rodaram na v2.
+
+## Fontes
 
 - [HA regional e seus limites](https://cloud.google.com/sql/docs/postgres/high-availability)
 - [Replicação e custos de transferência](https://cloud.google.com/sql/docs/postgres/replication)

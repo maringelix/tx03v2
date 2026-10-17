@@ -54,6 +54,7 @@ jobs:
       TF_VAR_enable_managed_mesh: ${{ vars.LAB_ENABLE_MANAGED_MESH || 'false' }}
       TF_VAR_db_tier: ${{ vars.LAB_DB_TIER || 'db-g1-small' }}
       TF_VAR_db_profile: ${{ vars.LAB_DB_PROFILE || 'core' }}
+      TF_VAR_active_region: ${{ vars.LAB_ACTIVE_REGION || 'primary' }}
       TF_VAR_ha_db_tier: ${{ vars.LAB_HA_DB_TIER || 'db-custom-1-3840' }}
       TF_VAR_db_backup_count: ${{ vars.LAB_DB_BACKUP_COUNT || 'null' }}
       TF_VAR_db_deletion_protection: ${{ vars.LAB_DB_DELETION_PROTECTION || 'false' }}

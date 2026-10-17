@@ -1,0 +1,22 @@
+# Built-in GKE PD CSI driver: the driver creates durable Compute Engine snapshots. No hostPath,
+# privileged user agent or separate Velero CSI plugin is installed on Autopilot.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: lab-pd-snapshot
+  labels:
+    velero.io/csi-volumesnapshot-class: "true"
+driver: pd.csi.storage.gke.io
+deletionPolicy: Retain
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: lab-daily
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"
+  template:
+    includedNamespaces: [dx03v2, monitoring]
+    snapshotVolumes: true
+    ttl: 840h0m0s

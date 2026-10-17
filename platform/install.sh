@@ -241,10 +241,34 @@ install_app_security() {
 }
 
 install_backup() {
-  install_chart velero
+  local -a identity=()
+  if [[ "$LAB_TARGET" == secondary ]]; then
+    identity+=(--set-string serviceAccount.server.name=velero-dr)
+  fi
+  install_chart velero "${identity[@]}"
   # shellcheck disable=SC2016 # expanded by the inner bash
   retry 30 5 bash -c '[[ "$(kubectl -n velero get backupstoragelocation default -o jsonpath="{.status.phase}")" == Available ]]' ||
     die "Velero backup storage location is not Available (check the GKE Workload Identity bucket binding)"
+  kubectl wait --for=condition=Established --timeout=120s \
+    crd/volumesnapshotclasses.snapshot.storage.k8s.io crd/schedules.velero.io >/dev/null
+  apply_full full/volume-snapshot-class.yaml
+  if [[ "$LAB_TARGET" == secondary ]]; then
+    kubectl apply -f - >/dev/null <<EOF
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: primary-recovery
+  namespace: velero
+spec:
+  provider: gcp
+  accessMode: ReadOnly
+  objectStorage:
+    bucket: tx03v2-lab-velero-$CONTRACT_PROJECT
+EOF
+    # shellcheck disable=SC2016 # kubectl expands inside the retry shell, not this shell
+    retry 30 5 bash -c '[[ "$(kubectl -n velero get backupstoragelocation primary-recovery -o jsonpath="{.status.phase}")" == Available ]]' ||
+      die "Secondary Velero cannot read the primary multiregion recovery bucket"
+  fi
 }
 
 install_full() {
@@ -284,6 +308,7 @@ main() {
   require_cmd gcloud kubectl helm jq gke-gcloud-auth-plugin
   require_gcloud_login
   load_platform_versions
+  select_lab_target "${LAB_TARGET:-primary}"
   project="$(lab_project)"
   mask "$project"
   WORK_DIR="$(mktemp -d)"
@@ -316,16 +341,16 @@ main() {
   if [[ "$PROFILE" == full ]]; then
     [[ "$(contract mesh/management)" == managed ]] ||
       die "profile full requires Terraform enable_managed_mesh=true and an active managed Cloud Service Mesh"
-    [[ "$(contract dns/hostname)" != disabled && "$(contract dns/certificate-map)" == "$LAB_NAME-app" ]] ||
-      die "profile full requires a delegated app_domain_name/dns_zone_name and the Certificate Map $LAB_NAME-app"
+    [[ "$(contract dns/hostname)" != disabled && "$(contract dns/certificate-map)" == tx03v2-lab-app ]] ||
+      die "profile full requires the global Certificate Map tx03v2-lab-app"
     gcloud container fleet mesh describe --project "$project" --format=json >"$WORK_DIR/mesh-status.json" ||
       die "cannot inspect the managed Cloud Service Mesh fleet feature"
     jq -e --arg cluster "$cluster" \
       '[.membershipStates | to_entries[] | select(.key | endswith("/memberships/" + $cluster)) | .value.servicemesh.controlPlaneManagement.state] | any(. == "ACTIVE")' \
       "$WORK_DIR/mesh-status.json" >/dev/null ||
       die "managed Cloud Service Mesh for $cluster is not ACTIVE yet; inspect the fleet feature before installing full"
-    [[ "$(gcloud certificate-manager certificates describe "$LAB_NAME-app" --location=global --project "$project" --format='value(managed.state)')" == ACTIVE ]] ||
-      die "Google-managed certificate $LAB_NAME-app is not ACTIVE; delegate the zone and publish its DNS authorization before installing full"
+    [[ "$(gcloud certificate-manager certificates describe tx03v2-lab-app --location=global --project "$project" --format='value(managed.state)')" == ACTIVE ]] ||
+      die "Google-managed certificate tx03v2-lab-app is not ACTIVE"
   fi
 
   # Rendered before anything is installed: a malformed contract value stops the script here.

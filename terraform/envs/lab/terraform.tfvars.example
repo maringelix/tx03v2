@@ -23,6 +23,7 @@ app_deployer_members = ["user:you@example.com"]
 # ha_db_tier        = "db-custom-1-3840" # dedicated CPU for HA/DR
 # db_backup_count   = 7                  # null uses 1 in core and 7 in ha/dr
 # dr_region         = "us-east1"         # only for db_profile=dr; different from region
+# active_region     = "primary"          # secondary only after fenced promotion and data acceptance
 # nodes_subnet_cidr = "10.30.0.0/20"
 # pods_cidr         = "10.32.0.0/16"
 # services_cidr     = "10.33.0.0/20"

@@ -2,6 +2,11 @@
 # no Cloud SQL promotion or regional failover runs against Google Cloud.
 mock_provider "google" {
   source = "../../tests/mocks"
+  mock_resource "google_certificate_manager_dns_authorization" {
+    defaults = {
+      dns_resource_record = [{ name = "_acme-challenge.lab.example.com.", type = "CNAME", data = "authorization.example.com." }]
+    }
+  }
 }
 
 variables {
@@ -76,4 +81,45 @@ run "dr_has_independent_secondary_region" {
     )
     error_message = "Secondary secrets, registry grants, contract and Velero bucket must be independent."
   }
+}
+
+run "full_dr_mesh_backup_and_dns" {
+  command = apply
+  variables {
+    db_profile          = "dr"
+    active_region       = "secondary"
+    enable_managed_mesh = true
+    dns_zone_name       = "example.com"
+    app_domain_name     = "lab.example.com"
+  }
+  assert {
+    condition = (
+      google_gke_hub_membership.dr[0].membership_id == "tx03v2-lab-dr" &&
+      google_gke_hub_membership.dr[0].location == "us-east1" &&
+      google_gke_hub_feature_membership.mesh_dr[0].mesh[0].management == "MANAGEMENT_AUTOMATIC" &&
+      one(google_dns_record_set.app[0].rrdatas) == module.network_dr[0].gateway_address &&
+      google_storage_bucket_iam_member.velero_dr_recovery[0].role == "roles/storage.objectViewer" &&
+      module.velero.bucket_location == "US" &&
+      module.velero_dr[0].bucket_location == "us-east1" &&
+      endswith(google_storage_bucket_iam_member.velero_dr_recovery[0].member, "/sa/velero-dr")
+    )
+    error_message = "Full DR needs an independent mesh membership, explicit DNS cutover and read-only recovery identity."
+  }
+}
+
+run "secondary_dns_without_dr_is_rejected" {
+  command = plan
+  variables {
+    active_region = "secondary"
+  }
+  expect_failures = [var.active_region]
+}
+
+run "dr_outside_supported_backup_geography_is_rejected" {
+  command = plan
+  variables {
+    db_profile = "dr"
+    dr_region  = "europe-west1"
+  }
+  expect_failures = [var.dr_region]
 }

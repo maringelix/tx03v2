@@ -8,6 +8,13 @@ primário permanece `tx03v2-lab-contract` e conserva as chaves/valores da v4 no 
 O perfil `ha` liga HA/PITR no banco sem mudar o contrato da aplicação. Veja
 [CONTINUIDADE.md](CONTINUIDADE.md) para o runbook e a distinção entre provas locais e cloud.
 
+`LAB_TARGET=secondary` seleciona apenas o runtime `tx03v2-lab-dr` e sua branch
+`gitops/gcp-dr`; o primário usa `gitops/gcp`. O secundário pode instalar `full` com
+mesh próprio e o mapa TLS/WAF globais do projeto. A BSL `primary-recovery` lê o
+backup multirregião com identidade `velero-dr`; não confunda esse acesso com o
+bucket próprio de novas cópias. `LAB_ACTIVE_REGION` controla o registro A somente
+após o aceite de uma recuperação autorizada; não promove o banco nem faz fencing.
+
 Versão 4 (R8): domínio e HTTPS opcionais (zona Cloud DNS pública, certificado gerenciado do Certificate
 Manager e Certificate Map para o Gateway), Cloud Service Mesh gerenciado no Autopilot (sidecars só no
 namespace do app), admissão Kyverno que exige a atestação de promoção assinada, leitura do Artifact

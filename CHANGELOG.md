@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Complete GCP secondary full-profile wiring: managed mesh, contract target selection, independent
+  GitOps branch, read-only recovery identity, US multiregion primary backup, CSI snapshot schedule,
+  explicit DNS destination and teardown of both regional clusters. Bootstrap can opt into a new
+  multiregion state bucket with versioning and deletion protection. Managed-cloud actions remain unrun.
+
 - R9 Velero PVC data recovery drill: Kopia filesystem backup, original PVC/PV and bytes removed,
   new PVC identity and restored SHA256 required. The local node agent needs kubelet hostPath/root
   in the Velero namespace; the non-root server and restricted application context are retained.

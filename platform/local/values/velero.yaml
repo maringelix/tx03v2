@@ -50,7 +50,7 @@ resources:
     memory: 512Mi
 snapshotsEnabled: false
 # FSB reads the mounted local PV through kubelet host paths. This root agent is confined to
-# the local Velero namespace; the server above remains non-root. GKE uses CSI instead.
+# the local Velero namespace; the server above remains non-root. Cloud uses its CSI driver.
 deployNodeAgent: true
 nodeAgent:
   podSecurityContext:

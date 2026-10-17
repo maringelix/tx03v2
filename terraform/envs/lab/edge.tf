@@ -38,7 +38,7 @@ resource "google_dns_record_set" "app" {
   name         = "${var.app_domain_name}."
   type         = "A"
   ttl          = 300
-  rrdatas      = [module.network.gateway_address]
+  rrdatas      = [var.active_region == "secondary" ? module.network_dr[0].gateway_address : module.network.gateway_address]
 }
 
 resource "google_certificate_manager_certificate" "app" {

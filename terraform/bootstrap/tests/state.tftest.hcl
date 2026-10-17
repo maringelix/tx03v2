@@ -131,6 +131,30 @@ run "rejects_an_invalid_project_id" {
   expect_failures = [var.project_id]
 }
 
+run "multiregion_state_preserves_versioning_and_protection" {
+  command = apply
+  variables {
+    state_location = "US"
+  }
+  assert {
+    condition = (
+      google_storage_bucket.state.location == "US" &&
+      google_storage_bucket.state.versioning[0].enabled &&
+      google_storage_bucket.state.deletion_policy == "PREVENT" &&
+      !google_storage_bucket.state.force_destroy
+    )
+    error_message = "Regional-loss recovery must keep state versioning and deletion safeguards."
+  }
+}
+
+run "invalid_state_location_is_rejected" {
+  command = plan
+  variables {
+    state_location = "somewhere"
+  }
+  expect_failures = [var.state_location]
+}
+
 run "rejects_an_invalid_region" {
   command = plan
 

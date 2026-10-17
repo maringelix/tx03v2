@@ -145,9 +145,10 @@ module "velero_dr" {
   count  = var.db_profile == "dr" ? 1 : 0
   source = "../../modules/velero"
 
-  name       = "${local.name}-dr"
-  project_id = var.project_id
-  region     = var.dr_region
+  name                 = "${local.name}-dr"
+  project_id           = var.project_id
+  region               = var.dr_region
+  service_account_name = "velero-dr"
 
   depends_on = [module.gke_dr]
 }
@@ -168,8 +169,35 @@ module "contract_dr" {
     "app/admin-token-secret-name"  = module.secrets_dr[0].admin_token_secret_name
     "gateway/address-name"         = module.network_dr[0].gateway_address_name
     "gateway/address"              = module.network_dr[0].gateway_address
-    "dns/hostname"                 = "disabled"
-    "dns/certificate-map"          = "disabled"
-    "mesh/management"              = "disabled"
   })
+}
+
+# Recovery reads the surviving multiregion backup; the secondary can write only its own bucket.
+resource "google_storage_bucket_iam_member" "velero_dr_recovery" {
+  count  = var.db_profile == "dr" ? 1 : 0
+  bucket = module.velero.bucket_name
+  role   = "roles/storage.objectViewer"
+  member = module.velero_dr[0].velero_principal
+}
+
+resource "google_gke_hub_membership" "dr" {
+  count         = var.db_profile == "dr" && var.enable_managed_mesh ? 1 : 0
+  membership_id = "${local.name}-dr"
+  location      = var.dr_region
+  endpoint {
+    gke_cluster {
+      resource_link = "//container.googleapis.com/${module.gke_dr[0].cluster_id}"
+    }
+  }
+}
+
+resource "google_gke_hub_feature_membership" "mesh_dr" {
+  count               = var.db_profile == "dr" && var.enable_managed_mesh ? 1 : 0
+  location            = google_gke_hub_feature.mesh[0].location
+  feature             = google_gke_hub_feature.mesh[0].name
+  membership          = google_gke_hub_membership.dr[0].membership_id
+  membership_location = google_gke_hub_membership.dr[0].location
+  mesh {
+    management = "MANAGEMENT_AUTOMATIC"
+  }
 }
