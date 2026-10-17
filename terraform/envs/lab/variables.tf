@@ -199,6 +199,155 @@ variable "db_tier" {
   }
 }
 
+variable "db_profile" {
+  description = "core keeps the low-cost zonal instance; ha enables regional Cloud SQL and PITR; dr also provisions a cross-region recovery path."
+  type        = string
+  default     = "core"
+
+  validation {
+    condition     = contains(["core", "ha", "dr"], var.db_profile)
+    error_message = "db_profile must be core, ha, or dr."
+  }
+}
+
+variable "ha_db_tier" {
+  description = "Dedicated-core Enterprise tier for the opt-in HA/DR profiles; shared-core has no HA SLA."
+  type        = string
+  default     = "db-custom-1-3840"
+
+  validation {
+    condition     = can(regex("^db-custom-(1|[2468]|[1-9][0-9]+)-[0-9]+$", var.ha_db_tier))
+    error_message = "ha_db_tier must be a dedicated-core db-custom tier, such as db-custom-1-3840."
+  }
+}
+
+variable "db_backup_count" {
+  description = "Optional automated backup count; defaults to one in core and seven in HA/DR."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.db_backup_count == null ? true : var.db_backup_count >= 1 && var.db_backup_count <= 365 && (var.db_profile == "core" || var.db_backup_count >= 7)
+    error_message = "db_backup_count must be 1-365 and at least seven for HA/DR."
+  }
+}
+
+variable "db_deletion_protection" {
+  description = "Enable Terraform and Cloud SQL deletion protection; disable explicitly before lab teardown."
+  type        = bool
+  default     = false
+}
+
+variable "db_retain_backups_on_delete" {
+  description = "Retain backups after deleting the instance; opt-in because retained backups incur cost."
+  type        = bool
+  default     = false
+}
+
+variable "dr_region" {
+  description = "Secondary Google Cloud region, used only with db_profile=dr. Must differ from the primary region."
+  type        = string
+  default     = "us-east1"
+
+  validation {
+    condition     = can(regex("^[a-z]+-[a-z]+[0-9]+$", var.dr_region)) && (var.db_profile != "dr" || var.dr_region != var.region)
+    error_message = "dr_region must be a Google Cloud region different from region in the DR profile."
+  }
+}
+
+variable "dr_nodes_subnet_cidr" {
+  description = "Secondary region nodes subnet; isolated from the primary VPC."
+  type        = string
+  default     = "10.40.0.0/20"
+
+  validation {
+    condition     = can(regex("^[0-9.]+/(2[0-5])$", var.dr_nodes_subnet_cidr)) && try(cidrsubnet(var.dr_nodes_subnet_cidr, 0, 0) == var.dr_nodes_subnet_cidr, false)
+    error_message = "dr_nodes_subnet_cidr must be a canonical /20-/25 CIDR."
+  }
+
+  validation {
+    condition = try(anytrue([
+      for private in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
+      cidrhost("${split("/", var.dr_nodes_subnet_cidr)[0]}/${split("/", private)[1]}", 0) == split("/", private)[0]
+    ]), false)
+    error_message = "dr_nodes_subnet_cidr must be RFC 1918 private space."
+  }
+
+  validation {
+    condition = try(alltrue([
+      for other in [var.dr_pods_cidr, var.dr_services_cidr, var.dr_control_plane_cidr] :
+      cidrhost("${split("/", var.dr_nodes_subnet_cidr)[0]}/${min(tonumber(split("/", var.dr_nodes_subnet_cidr)[1]), tonumber(split("/", other)[1]))}", 0) !=
+      cidrhost("${split("/", other)[0]}/${min(tonumber(split("/", var.dr_nodes_subnet_cidr)[1]), tonumber(split("/", other)[1]))}", 0)
+    ]), false)
+    error_message = "dr_nodes_subnet_cidr must not overlap secondary pods, services or control plane."
+  }
+}
+
+variable "dr_pods_cidr" {
+  description = "Secondary region GKE Pod range."
+  type        = string
+  default     = "10.42.0.0/16"
+
+  validation {
+    condition     = can(regex("^[0-9.]+/(1[4-9]|2[01])$", var.dr_pods_cidr)) && try(cidrsubnet(var.dr_pods_cidr, 0, 0) == var.dr_pods_cidr, false)
+    error_message = "dr_pods_cidr must be a canonical /14-/21 CIDR."
+  }
+
+  validation {
+    condition = try(anytrue([
+      for private in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
+      cidrhost("${split("/", var.dr_pods_cidr)[0]}/${split("/", private)[1]}", 0) == split("/", private)[0]
+    ]), false)
+    error_message = "dr_pods_cidr must be RFC 1918 private space."
+  }
+}
+
+variable "dr_services_cidr" {
+  description = "Secondary region GKE Services range."
+  type        = string
+  default     = "10.43.0.0/20"
+
+  validation {
+    condition     = can(regex("^[0-9.]+/(1[6-9]|2[0-4])$", var.dr_services_cidr)) && try(cidrsubnet(var.dr_services_cidr, 0, 0) == var.dr_services_cidr, false)
+    error_message = "dr_services_cidr must be a canonical /16-/24 CIDR."
+  }
+
+  validation {
+    condition = try(anytrue([
+      for private in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
+      cidrhost("${split("/", var.dr_services_cidr)[0]}/${split("/", private)[1]}", 0) == split("/", private)[0]
+    ]), false)
+    error_message = "dr_services_cidr must be RFC 1918 private space."
+  }
+
+  validation {
+    condition = try(
+      cidrhost("${split("/", var.dr_services_cidr)[0]}/${min(tonumber(split("/", var.dr_services_cidr)[1]), tonumber(split("/", var.dr_pods_cidr)[1]))}", 0) !=
+      cidrhost("${split("/", var.dr_pods_cidr)[0]}/${min(tonumber(split("/", var.dr_services_cidr)[1]), tonumber(split("/", var.dr_pods_cidr)[1]))}", 0),
+    false)
+    error_message = "dr_services_cidr must not overlap dr_pods_cidr."
+  }
+}
+
+variable "dr_control_plane_cidr" {
+  description = "Private /28 of the secondary GKE control plane."
+  type        = string
+  default     = "172.31.255.224/28"
+
+  validation {
+    condition     = try(cidrsubnet(var.dr_control_plane_cidr, 0, 0) == var.dr_control_plane_cidr && tonumber(split("/", var.dr_control_plane_cidr)[1]) == 28, false)
+    error_message = "dr_control_plane_cidr must be a canonical /28 CIDR."
+  }
+
+  validation {
+    condition = try(anytrue([
+      for private in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
+      cidrhost("${split("/", var.dr_control_plane_cidr)[0]}/${split("/", private)[1]}", 0) == split("/", private)[0]
+    ]), false)
+    error_message = "dr_control_plane_cidr must be RFC 1918 private space."
+  }
+}
+
 variable "enable_waf" {
   description = "Cloud Armor policy tx03v2-lab-waf (preconfigured SQLi and XSS rules) for the Gateway backends. Parity with tx01v2/tx02v2; about US$7/month for the policy and its rules (docs/CUSTOS.md)."
   type        = bool

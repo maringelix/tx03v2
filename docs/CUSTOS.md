@@ -112,6 +112,33 @@ crédito correspondente no `cloud_run_report` e atualize esta seção.
 
 ## Tamanho do Cloud SQL
 
+### Perfis opcionais de continuidade (R9)
+
+`db_profile=core` preserva a tabela principal. Em `ha`, o padrão `db-custom-1-3840` tem 1 vCPU
+dedicada e 3,75 GiB RAM. Na tabela de preços de `us-central1`, sem desconto, a computação HA
+custa **US$0,0826 + 3,75 × US$0,014 = US$0,1351/h**, contra US$0,035/h do shared-core zonal.
+O SSD regional de 10 GiB é aproximadamente 10 × US$0,000465753 = **US$0,00466/h**, contra
+US$0,00233/h zonal. Sete backups não significam sete cópias integrais: o uso depende dos blocos
+alterados. Como teto didático de 70 GiB armazenados, 70 × US$0,000109589 = **US$0,00767/h**;
+WAL, tráfego e operações de restore dependem do uso real. Só a computação e o SSD adicionam
+aproximadamente **US$0,1024/h** ou **US$74,75 por 730 h** sobre o perfil `core`.
+
+O `dr` acrescenta uma réplica zonal `db-custom-1-3840` em `us-east1`: tomando a tarifa de
+`us-central1` como hipótese de planejamento, 1 × US$0,0413 + 3,75 × US$0,007 = **US$0,06755/h**
+de computação, mais SSD, endpoint PSC, NAT, bucket, registry e egress da replicação. A taxa de
+gerenciamento do **segundo** GKE Autopilot é **US$0,10/h** (US$73 por 730 h); o crédito mensal de
+US$74,40 da conta de faturamento pode já estar consumido pelo cluster primário. Mesmo com zero
+pods do app, estime pelo menos **~US$0,19/h adicionais sobre `ha`** para cluster, réplica, SSD,
+PSC e NAT. CPU/memória de pods em standby, logs, backups, registry, egress e impostos ficam fora
+desta aproximação. Um `dr` esquecido por 730 h adiciona **~US$139 ou mais** ao `ha`.
+
+Esses valores são uma conta de referência, não uma fatura nem validação cloud. Confira as tarifas
+da sua região e da sua moeda em [preços da Cloud SQL](https://cloud.google.com/sql/pricing),
+[preços do GKE](https://cloud.google.com/kubernetes-engine/pricing) e
+[replicação da Cloud SQL](https://cloud.google.com/sql/docs/postgres/replication) antes do apply.
+`db_deletion_protection=true` impede o destroy até ser revertido; backups retidos após delete
+continuam cobrados quando `db_retain_backups_on_delete=true`.
+
 O padrão é `db-g1-small` na edição ENTERPRISE: o PostgreSQL 16+ cria Enterprise Plus por padrão, e os
 tiers de núcleo compartilhado só existem na Enterprise (`docs/LICOES_APRENDIDAS.md`, lição 12). O
 `max_connections` padrão do `db-g1-small` é 50 (assumido a partir da página de cotas do Cloud SQL;

@@ -66,14 +66,18 @@ module "gke" {
 module "cloudsql" {
   source = "../../modules/cloudsql"
 
-  name             = local.name
-  project_id       = var.project_id
-  region           = var.region
-  network_id       = module.network.network_id
-  subnetwork_id    = module.network.nodes_subnet_id
-  tier             = var.db_tier
-  password         = ephemeral.random_password.db.result
-  password_version = var.db_password_version
+  name                     = local.name
+  project_id               = var.project_id
+  region                   = var.region
+  network_id               = module.network.network_id
+  subnetwork_id            = module.network.nodes_subnet_id
+  tier                     = var.db_profile == "core" ? var.db_tier : var.ha_db_tier
+  continuity_profile       = var.db_profile
+  backup_count             = coalesce(var.db_backup_count, var.db_profile == "core" ? 1 : 7)
+  deletion_protection      = var.db_deletion_protection
+  retain_backups_on_delete = var.db_retain_backups_on_delete
+  password                 = ephemeral.random_password.db.result
+  password_version         = var.db_password_version
 }
 
 module "artifact_registry" {

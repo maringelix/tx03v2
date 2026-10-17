@@ -30,6 +30,30 @@ variable "tier" {
   type        = string
 }
 
+variable "continuity_profile" {
+  description = "core uses zonal/one backup; ha and dr use regional availability, PITR and longer retention."
+  type        = string
+  default     = "core"
+}
+
+variable "backup_count" {
+  description = "Number of automated backups retained."
+  type        = number
+  default     = 1
+}
+
+variable "deletion_protection" {
+  description = "Protect the instance in both Terraform and Cloud SQL until explicitly disabled for teardown."
+  type        = bool
+  default     = false
+}
+
+variable "retain_backups_on_delete" {
+  description = "Keep automated backups after instance deletion; opt-in because they keep billing."
+  type        = bool
+  default     = false
+}
+
 variable "disk_size_gb" {
   description = "SSD data disk in GB (no automatic growth)."
   type        = number

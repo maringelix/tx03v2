@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- R9 de continuidade em construção: perfis opt-in `core|ha|dr` da Cloud SQL; HA regional com
+  CPU dedicada, PITR, retenção e proteção configuráveis; no DR, réplica PostgreSQL cross-region,
+  VPC/GKE/registry/segredos/contrato/Velero secundários. Exercício Docker de backup físico e WAL
+  rejeita corrupção e recupera um ponto conhecido. A execução no Google Cloud segue não homologada.
+
 - R8 for the GKE `full` profile (contract version 4, coordinated with dx03v2): optional Cloud DNS zone,
   Google-managed certificate and Certificate Map for an HTTPS Gateway; managed Cloud Service Mesh with
   STRICT mTLS and per-workload plaintext exceptions; Cloud Armor with seven CRS categories, a per-IP

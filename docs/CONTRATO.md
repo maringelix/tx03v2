@@ -1,4 +1,12 @@
-# Contrato tx03v2 <-> dx03v2 — versão 4 (2026-10-17)
+# Contrato tx03v2 <-> dx03v2 — versão 5 (2026-10-17)
+
+Versão 5 (R9): `db_profile=dr` publica um segundo parâmetro
+`tx03v2-lab-dr-contract` com as mesmas 18 chaves, mas com região, cluster, VPC, PSC, registry,
+segredos e endereço de Gateway secundários. O app escolhe explicitamente o parâmetro de DR
+somente após fencing da região primária e promoção manual da réplica PostgreSQL. O parâmetro
+primário permanece `tx03v2-lab-contract` e conserva as chaves/valores da v4 no perfil `core`.
+O perfil `ha` liga HA/PITR no banco sem mudar o contrato da aplicação. Veja
+[CONTINUIDADE.md](CONTINUIDADE.md) para o runbook e a distinção entre provas locais e cloud.
 
 Versão 4 (R8): domínio e HTTPS opcionais (zona Cloud DNS pública, certificado gerenciado do Certificate
 Manager e Certificate Map para o Gateway), Cloud Service Mesh gerenciado no Autopilot (sidecars só no
