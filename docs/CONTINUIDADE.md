@@ -147,6 +147,35 @@ Kubernetes destrua sua cópia de recuperação. Estes passos gerenciados não ro
 
 ## Fontes
 
+### Credenciais e sinais de recuperação
+
+O apply protegido executa `scripts/sync-dr-secrets.sh` depois da IaC no perfil DR.
+Ele lê os valores **atuais** do primário, altera somente o hostname do JSON do banco
+para o FQDN da réplica e grava o secundário apenas se o conteúdo mudou. Isso também
+funciona quando DR é habilitado depois do core/HA. Terraform cria os contêineres de
+segredo DR, sem publicar uma senha efêmera nova que não pertence ao banco existente.
+Somente a identidade de apply recebe acesso aos quatro segredos exatos; plan e
+deploy continuam sem leitura de valores. Os arquivos temporários são privados,
+apagados no término e nunca enviados como artifacts. No apply manual, execute o
+mesmo script com `--db-host "$(terraform -chdir=terraform/envs/lab output -raw dr_db_hostname)"`.
+Após rotação, repita o apply/sync antes de aceitar o standby.
+
+O ServiceMonitor do Velero alimenta os alertas `LabBackupTooOldOrMissing` (30 h)
+e `LabRestoreFailed`, encaminhados ao Slack quando o webhook da plataforma foi
+configurado. A política nativa de Cloud Monitoring acompanha o lag da réplica
+(mais de 60 s durante 5 min), independentemente do cluster primário. Para receber
+notificação fora do console, informe nomes de canais existentes do próprio projeto
+em `continuity_notification_channels` / `LAB_CONTINUITY_NOTIFICATION_CHANNELS`
+(lista JSON). Não coloque tokens de canais no state. Um alerta saudável não
+substitui os ensaios de restore: registre data, checksum, perda observada e RPO/RTO.
+
+O ensaio de PVC local apaga o PV original e seus bytes; provisiona um PV local
+vazio com outro nome, como um disco substituto, e exige um PVC novo vinculado a ele.
+Velero/Kopia deve recuperar os bytes com o mesmo SHA256 e um PodVolumeRestore
+Completed. A provisão do disco é separada da restauração do seu conteúdo.
+
+## Referências operacionais
+
 - [HA regional e seus limites](https://cloud.google.com/sql/docs/postgres/high-availability)
 - [Replicação e custos de transferência](https://cloud.google.com/sql/docs/postgres/replication)
 - [Promoção cross-region](https://cloud.google.com/sql/docs/postgres/replication/cross-region-replicas)

@@ -1889,6 +1889,7 @@ register_checks() {
   register static policy-scripts check_policy_scripts
   register static destroy-flow check_destroy_flow
   register static region-target 'bash scripts/tests/region-target.sh'
+  register static dr-current-secrets 'bash scripts/tests/dr-secrets.sh'
   register static local-preflight check_local_preflight
   register static leftovers-flow check_leftovers_flow
   register static preflight-flow check_preflight_flow

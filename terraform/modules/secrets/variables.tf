@@ -1,5 +1,11 @@
 # Inputs are validated by the calling root (terraform/envs/lab); this module trusts them.
 
+variable "manage_versions" {
+  description = "Write primary values with Terraform; DR containers are populated from the current primary by the protected apply sync."
+  type        = bool
+  default     = true
+}
+
 variable "name" {
   description = "Prefix of the secret names (tx03v2-lab)."
   type        = string

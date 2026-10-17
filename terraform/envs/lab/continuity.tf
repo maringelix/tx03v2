@@ -135,10 +135,26 @@ module "secrets_dr" {
 
   name                = "${local.name}-dr"
   region              = var.dr_region
+  manage_versions     = false
   db_secret_value     = local.dr_db_secret_value
   db_secret_version   = var.db_password_version
   admin_token         = ephemeral.random_password.admin_token.result
   admin_token_version = var.admin_token_version
+}
+
+# Only the protected apply identity may read current credentials for replication. Plan and
+# application deploy identities receive no secret-value access. Scope is these four owned secrets.
+resource "google_secret_manager_secret_iam_member" "dr_sync" {
+  for_each = var.db_profile == "dr" ? {
+    primary_db      = module.secrets.db_secret_id
+    primary_admin   = module.secrets.admin_token_secret_id
+    secondary_db    = module.secrets_dr[0].db_secret_id
+    secondary_admin = module.secrets_dr[0].admin_token_secret_id
+  } : {}
+  project   = var.project_id
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:tx03v2-gha-apply@${var.project_id}.iam.gserviceaccount.com"
 }
 
 module "velero_dr" {

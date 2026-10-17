@@ -201,19 +201,19 @@ run "secrets_are_regional_and_write_only" {
   assert {
     # secret_data_wo_version is a string attribute in the google provider 8.6.0 schema.
     condition = (
-      google_secret_manager_secret_version.db.secret_data_wo_version == "1" &&
-      google_secret_manager_secret_version.admin_token.secret_data_wo_version == "3"
+      google_secret_manager_secret_version.db[0].secret_data_wo_version == "1" &&
+      google_secret_manager_secret_version.admin_token[0].secret_data_wo_version == "3"
     )
     error_message = "The version inputs drive new secret versions."
   }
 
   assert {
-    condition     = google_secret_manager_secret_version.db.secret_data == null && google_secret_manager_secret_version.admin_token.secret_data == null
+    condition     = google_secret_manager_secret_version.db[0].secret_data == null && google_secret_manager_secret_version.admin_token[0].secret_data == null
     error_message = "Values go only through secret_data_wo: the stored secret_data attribute stays empty (never in plan or state)."
   }
 
   assert {
-    condition     = google_secret_manager_secret_version.db.secret_data_wo == null && google_secret_manager_secret_version.admin_token.secret_data_wo == null
+    condition     = google_secret_manager_secret_version.db[0].secret_data_wo == null && google_secret_manager_secret_version.admin_token[0].secret_data_wo == null
     error_message = "Write-only arguments are never persisted."
   }
 }

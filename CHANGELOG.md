@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- R9: replicate current primary credentials to DR after protected apply, with exact-secret
+  access only for apply; monitor daily backup freshness/failed restores and native replica lag.
+
 ### Added
 
 - Complete GCP secondary full-profile wiring: managed mesh, contract target selection, independent

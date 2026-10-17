@@ -90,6 +90,11 @@ output "dr_cloudsql_replica_name" {
   value       = var.db_profile == "dr" ? google_sql_database_instance.dr[0].name : ""
 }
 
+output "dr_db_hostname" {
+  description = "Verified TLS name used by the apply-only current-credential replication."
+  value       = var.db_profile == "dr" ? trimsuffix(google_sql_database_instance.dr[0].dns_name, ".") : ""
+}
+
 output "dr_contract_parameter" {
   description = "Secondary contract with regional cluster, registry, secrets and PSC endpoint."
   value       = var.db_profile == "dr" ? module.contract_dr[0].parameter_id : ""

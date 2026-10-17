@@ -74,6 +74,8 @@ run "dr_has_independent_secondary_region" {
   assert {
     condition = (
       module.secrets_dr[0].db_secret_name == "tx03v2-lab-dr-db-app" &&
+      module.secrets_dr[0].manages_versions == false &&
+      length(google_secret_manager_secret_iam_member.dr_sync) == 4 &&
       module.contract_dr[0].parameter_id != module.contract.parameter_id &&
       module.velero_dr[0].bucket_name != module.velero.bucket_name &&
       length(google_artifact_registry_repository_iam_member.dr) >= 2 &&
@@ -100,6 +102,7 @@ run "full_dr_mesh_backup_and_dns" {
       one(google_dns_record_set.app[0].rrdatas) == module.network_dr[0].gateway_address &&
       google_storage_bucket_iam_member.velero_dr_recovery[0].role == "roles/storage.objectViewer" &&
       module.velero.bucket_location == "US" &&
+      google_monitoring_alert_policy.replica_lag[0].conditions[0].condition_threshold[0].threshold_value == 60 &&
       module.velero_dr[0].bucket_location == "us-east1" &&
       endswith(google_storage_bucket_iam_member.velero_dr_recovery[0].member, "/sa/velero-dr")
     )

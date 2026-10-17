@@ -46,6 +46,8 @@ locals {
     "roles/dns.admin",
     # Register only the lab cluster and enable its managed Cloud Service Mesh feature.
     "roles/gkehub.admin",
+    # Native Cloud SQL DR lag policy, independent of the Kubernetes runtime.
+    "roles/monitoring.alertPolicyEditor",
     "roles/parametermanager.admin",
     # Use the enabled APIs (Editor had it; the omission is a classic error of a narrower role).
     "roles/serviceusage.serviceUsageConsumer",

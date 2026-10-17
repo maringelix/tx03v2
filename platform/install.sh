@@ -287,6 +287,7 @@ install_full() {
   install_app_security
   install_observability
   apply_full full/app-monitoring.yaml
+  apply_full full/continuity-monitoring.yaml
   install_policies "$repository"
   install_image_admission
   install_gitops

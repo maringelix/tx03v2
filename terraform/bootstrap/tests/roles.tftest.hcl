@@ -114,6 +114,7 @@ run "apply_identity_has_the_service_roles_of_the_lab_and_no_editor" {
       "roles/dns.admin",
       "roles/gkehub.admin",
       "roles/parametermanager.admin",
+      "roles/monitoring.alertPolicyEditor",
       "roles/serviceusage.serviceUsageConsumer",
     ])
     error_message = "tx03v2-gha-apply gets the admin role of each service of the lab root (network, security policy, Cloud SQL, DNS, GKE, Artifact Registry, Parameter Manager) and nothing of the services it does not use."

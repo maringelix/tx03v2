@@ -426,3 +426,12 @@ variable "admin_token_version" {
     error_message = "The admin_token_version must be a positive integer."
   }
 }
+variable "continuity_notification_channels" {
+  description = "Existing Cloud Monitoring channel resource names; empty keeps incidents in the console. No channel credentials enter Terraform."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for channel in var.continuity_notification_channels : can(regex("^projects/${var.project_id}/notificationChannels/[0-9]+$", channel))])
+    error_message = "Use existing Cloud Monitoring notification channel resource names."
+  }
+}
