@@ -120,6 +120,14 @@ jobs:
       - name: terraform plan
         run: terraform -chdir=terraform/envs/lab plan -input=false -no-color -out=tfplan
 
+      - name: Reviewed estimate, budget and expiration gate
+        env:
+          FINOPS_PRICING_JSON: ${{ vars.LAB_FINOPS_PRICING_JSON }}
+          COST_BUDGET_USD: ${{ vars.LAB_COST_BUDGET_USD }}
+          COST_HOURS: ${{ vars.LAB_COST_HOURS }}
+          COST_EXPIRES_AT: ${{ vars.LAB_COST_EXPIRES_AT }}
+        run: bash scripts/cost-workflow.sh gcp "$TF_VAR_region"
+
       - name: terraform apply
         run: terraform -chdir=terraform/envs/lab apply -input=false -no-color tfplan
 

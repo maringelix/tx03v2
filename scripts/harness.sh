@@ -1885,6 +1885,8 @@ register_checks() {
   register static policy-labels check_policy_labels
   register static policy-identifiers check_policy_identifiers
   register static volume-restore-wiring 'bash scripts/tests/volume-restore-wiring.sh'
+  register static finops 'bash scripts/tests/finops.sh'
+  register static finops-charts 'bash scripts/tests/finops-charts.sh'
   register static policy-workflows check_policy_workflows
   register static policy-scripts check_policy_scripts
   register static destroy-flow check_destroy_flow

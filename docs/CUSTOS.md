@@ -187,3 +187,7 @@ malha gerenciada. O destroy termina com a checagem de sobras.
   apply e o deploy do dx03v2); o `terraform destroy` o apaga.
 - Créditos de avaliação escondem a fatura: confira os relatórios do Cloud Billing nas primeiras horas
   de cada rodada e mantenha os alertas do budget.
+
+## R10: capacidade e FinOps
+
+Consulte [FinOps e escala](FINOPS.md) para a topologia local HA, carga/HPA/PDB, OpenCost, VPA em recomenda??o, pre?o regional, or?amento/expira??o e limpeza. O caminho ? opt-in; o perfil core e o tamanho small continuam dispon?veis. Nada foi executado na nuvem (v2).

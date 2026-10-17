@@ -203,3 +203,7 @@ issues: [SECURITY.md](SECURITY.md).
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2025-2026 Bruno Maringeli.
+
+## R10: capacidade e FinOps
+
+Consulte [FinOps e escala](docs/FINOPS.md) para a topologia local HA, carga/HPA/PDB, OpenCost, VPA em recomenda??o, pre?o regional, or?amento/expira??o e limpeza. O caminho ? opt-in; o perfil core e o tamanho small continuam dispon?veis. Nada foi executado na nuvem (v2).
