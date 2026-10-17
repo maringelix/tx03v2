@@ -26,11 +26,6 @@ OWNER_RE='^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$'
 # <region>-docker.pkg.dev/<project>/dx03v2: the Artifact Registry repository of the contract.
 REPOSITORY_RE='^[a-z0-9-]+-docker\.pkg\.dev/[a-z][a-z0-9-]{4,28}[a-z0-9]/dx03v2$'
 DX_REVISION=gitops/gcp
-case "${LAB_TARGET:-primary}" in
-  primary) ;;
-  secondary) DX_REVISION=gitops/gcp-dr ;;
-  *) echo 'LAB_TARGET must be primary or secondary' >&2; exit 2 ;;
-esac
 
 usage() {
   echo "usage: $0 <project-id> <deployer-email>[,<e-mail>...] [--full <github-owner> --artifact-registry-repository <repository>] [--only <file>]" >&2
@@ -59,6 +54,14 @@ main() {
 
   while (($# > 0)); do
     case "$1" in
+      --target)
+        case "${2:-}" in
+          primary) DX_REVISION=gitops/gcp ;;
+          secondary) DX_REVISION=gitops/gcp-dr ;;
+          *) usage ;;
+        esac
+        shift 2
+        ;;
       --full)
         [[ "${2:-}" =~ $OWNER_RE ]] || usage
         full=1

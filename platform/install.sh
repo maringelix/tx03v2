@@ -39,6 +39,7 @@ OTEL_CHART_REPO="https://open-telemetry.github.io/opentelemetry-helm-charts"
 SECRET_STORE=gcp-secret-manager
 WORK_DIR=""
 PROFILE=core
+TARGET=primary
 OWNER=""
 OWNER_RE='^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$'
 CONTRACT_PROJECT=""
@@ -123,7 +124,7 @@ apply_manifests() {
 }
 
 usage() {
-  echo "usage: $0 [--profile core|full] [--github-owner OWNER]" >&2
+  echo "usage: $0 [--profile core|full] [--github-owner OWNER] [--target primary|secondary]" >&2
   exit 2
 }
 
@@ -132,7 +133,7 @@ apply_full() {
   local file=$1 attempt
   for attempt in 1 2 3 4 5; do
     if "$HERE/render-manifests.sh" "$CONTRACT_PROJECT" "$DEPLOYERS" --full "$OWNER" \
-      --artifact-registry-repository "$ARTIFACT_REPOSITORY" --only "$file" | kubectl apply -f - >/dev/null; then
+      --artifact-registry-repository "$ARTIFACT_REPOSITORY" --target "$LAB_TARGET" --only "$file" | kubectl apply -f - >/dev/null; then
       return 0
     fi
     log "kubectl apply of platform/manifests/$file failed (attempt $attempt/5); retrying in 15 s"
@@ -300,6 +301,7 @@ main() {
     case "$1" in
       --profile) [[ "${2:-}" == core || "${2:-}" == full ]] || usage; PROFILE=$2; shift 2 ;;
       --github-owner) [[ "${2:-}" =~ $OWNER_RE ]] || usage; OWNER=$2; shift 2 ;;
+      --target) [[ "${2:-}" == primary || "${2:-}" == secondary ]] || usage; TARGET=$2; shift 2 ;;
       *) usage ;;
     esac
   done
@@ -308,7 +310,7 @@ main() {
   require_cmd gcloud kubectl helm jq gke-gcloud-auth-plugin
   require_gcloud_login
   load_platform_versions
-  select_lab_target "${LAB_TARGET:-primary}"
+  select_lab_target "$TARGET"
   project="$(lab_project)"
   mask "$project"
   WORK_DIR="$(mktemp -d)"

@@ -76,7 +76,7 @@ main() {
       esac
       # Older mock inventories omit location; only the known primary has a default.
       [[ -n "$location" ]] || location="${REGION:-$LAB_REGION_DEFAULT}"
-      LAB_TARGET="$target" REGION="$location" bash "$REPO_ROOT/platform/uninstall.sh" || uninstalled=0
+      REGION="$location" bash "$REPO_ROOT/platform/uninstall.sh" --target "$target" || uninstalled=0
     done <<<"$clusters"
   fi
   if ((uninstalled == 0)) || [[ -n "$(controller_leftovers "$project" 2>/dev/null)" ]]; then

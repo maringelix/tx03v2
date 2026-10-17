@@ -124,9 +124,13 @@ delete_monitoring_pvcs() {
 }
 
 main() {
-  (($# == 0)) || die "usage: $0 (configuration through environment variables, see the header)"
-  local project
-  select_lab_target "${LAB_TARGET:-primary}"
+  local project target=primary
+  if (($# == 2)) && [[ "$1" == --target ]]; then
+    target=$2
+  elif (($# != 0)); then
+    die "usage: $0 [--target primary|secondary]"
+  fi
+  select_lab_target "$target"
   CLUSTER_NAME=$LAB_NAME
   require_cmd gcloud kubectl helm gke-gcloud-auth-plugin
   require_gcloud_login

@@ -126,8 +126,8 @@ O segundo cluster recebe sua própria associação ao Cloud Service Mesh gerenci
 Depois de aplicar a IaC e de conferir a região, instale a plataforma com:
 
 ```bash
-LAB_TARGET=secondary GCP_PROJECT_ID=tx03v2-lab-example \
-  bash platform/install.sh --profile full --github-owner your-github-user
+GCP_PROJECT_ID=tx03v2-lab-example \
+  bash platform/install.sh --profile full --github-owner your-github-user --target secondary
 ```
 
 O renderer usa `gitops/gcp-dr`. O deploy do par oferece `target=secondary`, lê os

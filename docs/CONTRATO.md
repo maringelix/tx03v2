@@ -8,7 +8,7 @@ primário permanece `tx03v2-lab-contract` e conserva as chaves/valores da v4 no 
 O perfil `ha` liga HA/PITR no banco sem mudar o contrato da aplicação. Veja
 [CONTINUIDADE.md](CONTINUIDADE.md) para o runbook e a distinção entre provas locais e cloud.
 
-`LAB_TARGET=secondary` seleciona apenas o runtime `tx03v2-lab-dr` e sua branch
+`--target secondary` no CLI ou `target=secondary` no workflow seleciona apenas o runtime `tx03v2-lab-dr` e sua branch
 `gitops/gcp-dr`; o primário usa `gitops/gcp`. O secundário pode instalar `full` com
 mesh próprio e o mapa TLS/WAF globais do projeto. A BSL `primary-recovery` lê o
 backup multirregião com identidade `velero-dr`; não confunda esse acesso com o

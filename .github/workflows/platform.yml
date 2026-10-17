@@ -50,7 +50,7 @@ jobs:
       APP_DEPLOYER_MEMBERS: ${{ secrets.LAB_APP_DEPLOYER_MEMBERS || '[]' }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       PROFILE: ${{ inputs.profile }}
-      LAB_TARGET: ${{ inputs.target }}
+      TARGET: ${{ inputs.target }}
     steps:
       - name: Check repository variables
         env:
@@ -109,7 +109,7 @@ jobs:
           ACTION: ${{ inputs.action }}
         run: |
           case "$ACTION" in
-            install) bash platform/install.sh --profile "$PROFILE" --github-owner "$GITHUB_REPOSITORY_OWNER" ;;
-            uninstall) bash platform/uninstall.sh ;;
+            install) bash platform/install.sh --profile "$PROFILE" --github-owner "$GITHUB_REPOSITORY_OWNER" --target "$TARGET" ;;
+            uninstall) bash platform/uninstall.sh --target "$TARGET" ;;
             *) echo "::error::unknown action: $ACTION"; exit 1 ;;
           esac

@@ -9,6 +9,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
+isolate_kubeconfig() {
+  WORK_DIR=$WORK
+  export KUBECONFIG="$WORK_DIR/kubeconfig"
+  printf 'apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n' >"$KUBECONFIG"
+}
+isolate_kubeconfig
 trap 'rm -rf "$WORK"' EXIT
 FAILED=0
 PROJECT="tx03v2-lab-example"
