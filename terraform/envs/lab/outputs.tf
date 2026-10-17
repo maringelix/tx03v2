@@ -45,6 +45,16 @@ output "gateway_address" {
   value       = module.network.gateway_address
 }
 
+output "dns_name_servers" {
+  description = "Name servers of the public Cloud DNS zone, to delegate at the registrar (empty without dns_zone_name). The Google-managed certificate stays PROVISIONING until the delegation resolves."
+  value       = local.public_edge_enabled ? google_dns_managed_zone.app[0].name_servers : []
+}
+
+output "app_hostname" {
+  description = "Hostname of the HTTPS endpoint of the full profile, or disabled."
+  value       = local.public_edge_enabled ? var.app_domain_name : "disabled"
+}
+
 output "waf_security_policy" {
   description = "Cloud Armor policy name, or none when enable_waf = false."
   value       = module.waf.security_policy_name

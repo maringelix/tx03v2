@@ -1,7 +1,14 @@
 # Overlay of platform/local/values/trivy-operator.yaml for GKE Autopilot. The mirror and plain-HTTP
 # registry belong only to the local lab. Autopilot node scans stay disabled by the base values
 # (infraAssessmentScannerEnabled=false): the node collector requires hostPath access that Autopilot
-# restricts. Without Artifact Registry credentials, reports for private app images can be missing.
+# restricts. The scan jobs run in trivy-system as the ServiceAccount trivy-operator, which is an IAM
+# principal of Workload Identity Federation for GKE with Artifact Registry Reader on the dx03v2
+# repository only (terraform/envs/lab/roles.tf): the GKE metadata server hands the job a short-lived
+# token, so private images of the app are scanned without a key or an image pull secret. A missing
+# VulnerabilityReport of a private image means the scan did not run, never that the image is clean.
+serviceAccount:
+  name: trivy-operator
+
 trivy:
   registry:
     mirror: null

@@ -13,6 +13,32 @@ variables {
 
 # --- identifiers ---
 
+run "rejects_a_hostname_without_a_zone" {
+  command = plan
+  variables {
+    app_domain_name = "lab.example.com"
+  }
+  expect_failures = [var.app_domain_name]
+}
+
+run "rejects_an_unrelated_hostname" {
+  command = plan
+  variables {
+    dns_zone_name   = "example.com"
+    app_domain_name = "lab.example.org"
+  }
+  expect_failures = [var.app_domain_name]
+}
+
+run "rejects_a_wildcard_domain" {
+  command = plan
+  variables {
+    dns_zone_name   = "example.com"
+    app_domain_name = "*.example.com"
+  }
+  expect_failures = [var.app_domain_name]
+}
+
 run "rejects_an_uppercase_project_id" {
   command = plan
   variables {
@@ -176,6 +202,30 @@ run "rejects_public_services" {
     services_cidr = "192.0.2.0/24"
   }
   expect_failures = [var.services_cidr]
+}
+
+run "rejects_a_control_plane_range_that_is_not_a_slash_28" {
+  command = plan
+  variables {
+    control_plane_cidr = "172.31.255.0/24"
+  }
+  expect_failures = [var.control_plane_cidr]
+}
+
+run "rejects_a_public_control_plane_range" {
+  command = plan
+  variables {
+    control_plane_cidr = "192.0.2.0/28"
+  }
+  expect_failures = [var.control_plane_cidr]
+}
+
+run "rejects_a_control_plane_range_inside_the_nodes_subnet" {
+  command = plan
+  variables {
+    control_plane_cidr = "10.30.0.0/28"
+  }
+  expect_failures = [var.control_plane_cidr]
 }
 
 run "accepts_another_private_layout" {

@@ -47,6 +47,7 @@ run "autopilot_private_dns_endpoint_gateway" {
     pods_range_name            = "pods"
     services_range_name        = "services"
     node_service_account_email = "tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"
+    control_plane_cidr         = "172.31.255.240/28"
   }
 
   assert {
@@ -65,6 +66,24 @@ run "autopilot_private_dns_endpoint_gateway" {
       google_container_cluster.this.private_cluster_config[0].enable_private_endpoint == true
     )
     error_message = "Nodes have private addresses only and the public IP endpoint of the control plane is off."
+  }
+
+  assert {
+    condition     = google_container_cluster.this.private_cluster_config[0].master_ipv4_cidr_block == "172.31.255.240/28"
+    error_message = "The control plane has a fixed private /28, the source of the webhook firewall rule."
+  }
+
+  assert {
+    condition = (
+      google_compute_firewall.control_plane_webhooks.direction == "INGRESS" &&
+      toset(google_compute_firewall.control_plane_webhooks.source_ranges) == toset(["172.31.255.240/28"]) &&
+      toset(google_compute_firewall.control_plane_webhooks.target_service_accounts) == toset(["tx03v2-lab-nodes@tx03v2-lab-example.iam.gserviceaccount.com"]) &&
+      length(google_compute_firewall.control_plane_webhooks.allow) == 1 &&
+      one([for a in google_compute_firewall.control_plane_webhooks.allow : a.protocol]) == "tcp" &&
+      toset(one([for a in google_compute_firewall.control_plane_webhooks.allow : a.ports])) == toset(["8443", "9443"]) &&
+      try(length(google_compute_firewall.control_plane_webhooks.source_tags), 0) == 0
+    )
+    error_message = "Only the control plane range reaches the nodes (their service account) on the webhook ports 8443 and 9443, nothing else."
   }
 
   assert {

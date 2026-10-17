@@ -244,7 +244,10 @@ Os pins são os mesmos do lab local do `tx01v2`: atualize os repositórios junto
 2. Confira a versão e os valores no upstream, baixe cada chart e registre SHA256 e digest OCI. Rode
    `helm-template-full` com os values em `platform/values/full`; inspecione as imagens, requests,
    Service types e comportamento do post-renderer Helm 4 do Chaos Mesh.
-3. Rode `kubeconform`, `policy-gator`, `contract-platform-full` e `platform-sizing`. Se mudar os
+3. Rode `kubeconform`, `policy-gator`, `contract-platform-full`, `image-admission-policy`,
+   `full-install-order` e `platform-sizing`. O Kyverno (`KYVERNO_*` em `platform/versions.env` e os
+   digests de `platform/values/full/kyverno.yaml`) tem de ficar igual ao do tx01v2 e do tx02v2
+   (`family-versions` e `family-digests`). Se mudar os
    requests, réplicas ou charts, atualize a soma e os custos de core/full em `docs/CUSTOS.md`;
    mantenha o core como padrão.
 4. Verifique o suporte no Autopilot e a documentação oficial antes de mudar uma exclusão. Registre

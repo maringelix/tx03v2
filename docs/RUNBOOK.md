@@ -134,6 +134,9 @@ abaixo (`gh secret set LAB_APP_DEPLOYER_MEMBERS -R <você>/tx03v2`).
 | `SLACK_WEBHOOK_URL` (**secret**) | — | workflow `platform`, alertas do perfil full | opcional; webhook de entrada do Slack, nunca use variável pública |
 | `LAB_ENABLE_WAF` | `true` | `TF_VAR_enable_waf` | opcional, padrão `true` (`docs/CUSTOS.md`) |
 | `LAB_DB_TIER` | `db-g1-small` | `TF_VAR_db_tier` | opcional, padrão `db-g1-small` (a validação recusa `db-f1-micro`) |
+| `LAB_DNS_ZONE_NAME` | `example.com` | `TF_VAR_dns_zone_name` (plan, apply, destroy) | opcional, vazio por padrão: zona pública do Cloud DNS que **você** controla (delegada no registrador); exigida pelo perfil `full` junto com `LAB_APP_DOMAIN_NAME` |
+| `LAB_APP_DOMAIN_NAME` | `lab.example.com` | `TF_VAR_app_domain_name` | opcional, vazio por padrão: hostname do app, subdomínio da zona acima; o Terraform valida que os dois vêm juntos |
+| `LAB_ENABLE_MANAGED_MESH` | `true` | `TF_VAR_enable_managed_mesh` | opcional, `false` por padrão: registra o cluster na frota e liga o Cloud Service Mesh gerenciado, exigido pelo perfil `full` |
 
 `TF_VAR_github_owner` vem de `github.repository_owner`. Os demais inputs usam os padrões de
 `terraform/envs/lab/variables.tf`; para mudar um (por exemplo `nodes_subnet_cidr`), adicione o
@@ -200,22 +203,63 @@ precisam de lista de IPs. O `platform/install.sh`:
 ### Perfil full (opcional)
 
 O input `profile` do workflow `platform` vem como `core` por padrão. Escolha `full` para instalar
-observabilidade in-cluster, cert-manager, Argo CD, Gatekeeper, Trivy Operator, Velero e o controller
-do Chaos Mesh. O GKE Autopilot deste fork não instala Istio ambient, node-exporter, Trivy node
-collector nem o daemon privilegiado do Chaos Mesh. O Chaos Mesh fica limitado a `PodChaos pod-kill`.
-O perfil full usa a revisão pública `gitops/gcp` do dx03v2; o primeiro deploy escreve a imagem nela
-e a Application do Argo CD sincroniza o app. O acesso à UI do Argo CD é por `kubectl port-forward`.
-Sem credenciais de leitura do Artifact Registry, os relatórios do Trivy Operator para imagens
-privadas do app podem faltar.
+observabilidade persistente no cluster, cert-manager, Argo CD, Gatekeeper, Kyverno, Trivy Operator,
+Velero e o controller do Chaos Mesh, com o app na malha gerenciada. O GKE Autopilot deste fork não
+instala Istio ambient, node-exporter, Trivy node collector nem o daemon privilegiado do Chaos Mesh. O
+Chaos Mesh fica limitado a `PodChaos pod-kill` (latência e falhas HTTP vêm da injeção de falha da
+malha, ADR 51). O perfil full usa a revisão pública `gitops/gcp` do dx03v2; o primeiro deploy escreve
+a imagem nela e a Application do Argo CD sincroniza o app. O acesso à UI do Argo CD é por `kubectl
+port-forward`.
+
+**Pré-requisitos do `full` (o instalador recusa sem eles, antes de instalar qualquer coisa):**
+
+1. `enable_managed_mesh = true` aplicado e a malha `ACTIVE` (`gcloud container fleet mesh describe
+   --project <id>`: o estado do plano de controle do membro `tx03v2-lab` tem de ser `ACTIVE`);
+2. `dns_zone_name` e `app_domain_name` aplicados, a zona delegada no registrador (os servidores de
+   nomes estão na saída `dns_name_servers`) e o certificado `tx03v2-lab-app` em `ACTIVE`
+   (`gcloud certificate-manager certificates describe tx03v2-lab-app --location=global
+   --project <id> --format='value(managed.state)'`);
+3. o dx03v2 assina a atestação de promoção do digest que publicou (workflow `deploy-gcp.yml` da `main`
+   do seu fork): sem ela o Kyverno recusa os pods do app, por desenho.
+
+O Trivy Operator e o Kyverno leem o repositório `dx03v2` do Artifact Registry como principais dos
+seus ServiceAccounts (Reader só nesse repositório, sem chave): um relatório de vulnerabilidade ausente
+significa que a varredura não rodou, nunca que a imagem está limpa.
 
 O workflow de deploy configura na Application viva o overlay, as imagens e os parâmetros do projeto.
 A branch pública `gitops/gcp` recebe a revisão e parâmetros de exemplo; endereços, CIDRs e nomes reais
 permanecem no cluster.
 
+### Domínio, HTTPS e malha (R8, `não executado em nuvem (v2)`)
+
+```bash
+# variáveis do GitHub do tx03v2 (seção 3) e um apply novo do root do lab
+gh variable set LAB_DNS_ZONE_NAME     -b example.com     -R <você>/tx03v2
+gh variable set LAB_APP_DOMAIN_NAME   -b lab.example.com -R <você>/tx03v2
+gh variable set LAB_ENABLE_MANAGED_MESH -b true           -R <você>/tx03v2
+# depois do apply: delegue no registrador os servidores de nomes da saída dns_name_servers
+```
+
+A emissão do certificado só começa depois que a delegação resolve; leva de minutos a algumas horas e
+só acontece com um domínio seu (`não executado em nuvem (v2)`: a v2 nunca emitiu um certificado
+público). O Gateway do dx03v2 no `full` usa o Certificate Map `tx03v2-lab-app` (HTTPS 443) e o
+listener HTTP só redireciona. O `destroy` apaga a zona, os registros, o certificado e a malha; o
+domínio e o registrador continuam seus.
+
+O R8 também pede ao cluster uma regra de firewall para os webhooks (Gatekeeper 8443, Kyverno e Chaos
+Mesh 9443) e um /28 fixo para o control plane (`control_plane_cidr`, padrão `172.31.255.240/28`); se
+esse range colidir com algo da sua VPC, mude a variável antes do primeiro apply (o cluster é recriado
+se ela mudar depois).
+
 Para alertas no Slack, grave o webhook como secret opcional `SLACK_WEBHOOK_URL` no repositório
 tx03v2. O perfil full usa o mesmo bucket regional do Velero criado pelo Terraform. Seus objetos
 expiram em 35 dias; Velero salva recursos Kubernetes, não Cloud SQL nem volumes persistentes. Não há
 transição suportada de `full` para `core`: destrua o lab e aplique-o de novo com `core`.
+
+Ao atualizar um lab criado antes do R8 (contrato v4): o bootstrap ganhou as APIs `certificatemanager` e
+`mesh` e os papéis `certificatemanager.editor` e `gkehub.admin` do apply; aplique o bootstrap antes do
+root do lab. O cluster passa a ter o range do control plane fixo (recriação do cluster num lab que
+já existia).
 
 Ao atualizar um lab criado antes do contrato v2: `roles/cloudtrace.agent` entrou na condição IAM de
 `tx03v2-gha-apply` e a API `cloudtrace.googleapis.com` na lista do bootstrap, então aplique o
@@ -450,3 +494,7 @@ Causas prováveis, não verificadas em nuvem na v2:
 | `preflight.sh` recusa o projeto (exit 1) | o projeto tem cluster, banco ou segredo que não é do lab | use um projeto dedicado (seção 1); o script nomeia o que encontrou |
 | `Error acquiring the state lock` | um apply ou destroy foi interrompido | `terraform-destroy` com `force_unlock_id` (seção 8), só com a certeza de que nenhum outro `terraform` roda |
 | `google-github-actions/auth` falha depois de renomear ou transferir o repositório | o `sub` imutável carrega o nome e o ID: mudou | aplique o bootstrap de novo com o dono e os IDs atuais (seção 2) |
+| O instalador do `full` diz que a malha gerenciada não está `ACTIVE` | `enable_managed_mesh` não aplicado, ou a frota ainda provisiona (pode levar vários minutos), ou a API `mesh.googleapis.com` não está ligada | `gcloud container fleet mesh describe --project <id>`; aplique o bootstrap (APIs) e o root do lab; espere e rode de novo |
+| O instalador do `full` diz que o certificado não está `ACTIVE` | a zona não foi delegada, o registro CNAME da autorização DNS ainda não resolve ou o domínio é de outra pessoa | delegue os servidores de nomes de `dns_name_servers`; `dig CNAME _acme-challenge...` conforme `gcloud certificate-manager dns-authorizations describe`; espere (`PROVISIONING` é normal no início) |
+| `FailedCreate` com `admission webhook ... denied` ou `context deadline exceeded` ao criar pods do app | o Kyverno recusou a imagem (sem digest, sem atestação do `deploy-gcp.yml` do fork) ou o control plane não alcança o webhook (regra de firewall ausente, Kyverno fora do ar) | `kubectl -n dx03v2 describe replicaset`; `kubectl -n kyverno get pods`; confira `gcloud compute firewall-rules describe tx03v2-lab-control-plane-webhooks`; refaça o deploy do dx03v2 para assinar e promover o digest |
+| `platform/uninstall.sh` falha com `monitoring PVCs remain` | um pod ainda monta o volume | `kubectl -n monitoring get pods,pvc`; rode de novo depois que os releases saírem; `leftovers.sh` lista discos que sobraram (`persistent disk`) |

@@ -15,7 +15,11 @@ app_deployer_members = ["user:you@example.com"]
 
 # Lab-friendly defaults (change only if you know the cost impact, see docs/CUSTOS.md):
 # enable_waf        = true
+# dns_zone_name      = "example.com"       # optional, delegate its name servers at the registrar
+# app_domain_name    = "lab.example.com"   # required with dns_zone_name for HTTPS
+# enable_managed_mesh = true                # required by platform --profile full
 # db_tier           = "db-g1-small"
 # nodes_subnet_cidr = "10.30.0.0/20"
 # pods_cidr         = "10.32.0.0/16"
 # services_cidr     = "10.33.0.0/20"
+# control_plane_cidr = "172.31.255.240/28"   # private /28 of the GKE control plane; must overlap nothing above

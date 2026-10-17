@@ -107,10 +107,12 @@ run "apply_identity_has_the_service_roles_of_the_lab_and_no_editor" {
       "roles/artifactregistry.admin",
       "roles/browser",
       "roles/cloudsql.admin",
+      "roles/certificatemanager.editor",
       "roles/compute.networkAdmin",
       "roles/compute.securityAdmin",
       "roles/container.admin",
       "roles/dns.admin",
+      "roles/gkehub.admin",
       "roles/parametermanager.admin",
       "roles/serviceusage.serviceUsageConsumer",
     ])

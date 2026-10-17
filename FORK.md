@@ -115,7 +115,7 @@ Before the first apply:
 
 - Read the [cost section of the README](README.md#cloud-path-costs-money) and [docs/CUSTOS.md](docs/CUSTOS.md) (reference
   prices: check the current ones). The default `core` profile is estimated at US$0.12/hour with the
-  GKE free tier or US$0.22/hour without it; optional `full` is about US$0.16/hour or US$0.26/hour.
+  GKE free tier or US$0.22/hour without it; optional `full` is about US$0.21/hour or US$0.31/hour (without the managed mesh, whose price could not be confirmed).
   Cloud SQL and the load balancer bill by the hour while the lab is up, and trial credits come with
   their own limits: check your quotas before the round. The bootstrap budget defaults to 5 units in
   the billing account currency. It only warns; destroy on the same day.
@@ -162,7 +162,8 @@ Then, from the root of your `tx03v2` clone:
    gh variable set -f /tmp/dx03v2.env -R <you>/dx03v2
    ```
 
-   The optional ones (`LAB_ENABLE_WAF`, `LAB_DB_TIER`) are in [docs/RUNBOOK.md](docs/RUNBOOK.md),
+   The optional ones (`LAB_ENABLE_WAF`, `LAB_DB_TIER`, and for `full` `LAB_DNS_ZONE_NAME`,
+   `LAB_APP_DOMAIN_NAME` and `LAB_ENABLE_MANAGED_MESH`) are in [docs/RUNBOOK.md](docs/RUNBOOK.md),
    section 3. The list of people who deploy from a laptop is a **secret**, not a variable (the logs of
    a public repository are public, and a secret is masked):
    `gh secret set LAB_APP_DEPLOYER_MEMBERS -R <you>/tx03v2` with a JSON list such as
@@ -175,12 +176,21 @@ Then, from the root of your `tx03v2` clone:
    the leftover check: [docs/RUNBOOK.md](docs/RUNBOOK.md), sections 4 to 9. The workflows take
    `github_owner` from the owner of the repository.
 
-In `full`, GKE Autopilot omits Istio ambient, node-exporter, the Trivy node collector and the
-privileged Chaos Mesh daemon; Chaos Mesh is limited to `PodChaos pod-kill`. The optional Slack
+`full` needs three things from you, and the platform installer refuses to run without them: the
+managed Cloud Service Mesh enabled and `ACTIVE` (`LAB_ENABLE_MANAGED_MESH=true`), a public Cloud DNS
+zone and hostname that **you own** (`LAB_DNS_ZONE_NAME`, `LAB_APP_DOMAIN_NAME`) with the name servers
+from the `dns_name_servers` output delegated at your registrar and the Google-managed certificate
+`ACTIVE`, and an app deploy that signs the promotion attestation of the image it publishes (Kyverno
+refuses any other image in the app namespace). `core` needs none of this and serves HTTP only. In
+`full`, GKE Autopilot omits Istio ambient, node-exporter, the Trivy node collector and the
+privileged Chaos Mesh daemon; the mesh is the managed sidecar-based one, and Chaos Mesh is limited to
+`PodChaos pod-kill` (latency and HTTP faults come from the mesh). The optional Slack
 incoming webhook is the repository secret `SLACK_WEBHOOK_URL`. Follow the Velero restore drill in
 the runbook using a disposable namespace. Velero backs up Kubernetes objects only, not Cloud SQL or
-persistent volume data. Without Artifact Registry read credentials, Trivy reports for private app
-images may be missing. A transition from `full` back to `core` is unsupported: destroy the lab and
+persistent volume data. Trivy Operator and Kyverno read the `dx03v2` Artifact Registry repository as
+workload identities (no key); a missing vulnerability report means the scan did not run, never that
+the image is clean. The observability disks are deleted by `platform/uninstall.sh` before the
+destroy. A transition from `full` back to `core` is unsupported: destroy the lab and
 apply it again with `core`. Before destroying a `full` lab, review and explicitly empty the Velero
 bucket as Owner; Terraform sets `force_destroy=false`.
 

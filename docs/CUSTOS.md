@@ -40,19 +40,29 @@ sem desconto, conferidas em 2026-10-16 na [página oficial de preços da GKE](ht
 | Perfil | Plataforma, com ESO e Collector | App dx03v2 | Requests totais estimados | Pods por hora | Total do lab com free tier | Total sem free tier |
 |---|---:|---:|---:|---:|---:|---:|
 | core | 250m CPU / 768MiB RAM | 300m CPU / 512MiB RAM | 550m CPU / 1280MiB RAM | ~US$0,031 | ~US$0,12 | ~US$0,22 |
-| full | 840m CPU / 3280MiB RAM | 300m CPU / 512MiB RAM | 1140m CPU / 3792MiB RAM | ~US$0,069 | ~US$0,16 | ~US$0,26 |
+| full | 1360m CPU / 3856MiB RAM | 300m CPU / 512MiB RAM | 1660m CPU / 4368MiB RAM | ~US$0,095 | ~US$0,18 | ~US$0,28 |
 
-O total `full` mantém os demais componentes da tabela principal e substitui apenas o custo dos pods
-do `core`. Em uma rodada de três horas, o `full` fica em cerca de US$0,49 com o crédito do cluster
-disponível ou US$0,79 sem ele; ligado por 730 horas, cerca de US$119 ou US$192. São estimativas de
-requests, sem impostos, tráfego, armazenamento de backup do Velero ou reajustes que o Autopilot faça
-para atender mínimos e proporções de CPU/memória. O GKE Autopilot administra a quantidade e o tamanho
+O total `full` da tabela acima mantém os demais componentes da tabela principal e substitui apenas o
+custo dos pods do `core`. O R8 acrescenta itens que a soma de requests do harness não vê:
+
+| Item do R8 (perfil `full`) | Hipótese | US$/hora |
+|---|---|---:|
+| Sidecars do Cloud Service Mesh nos 4 pods do app | 100m CPU / 128MiB por sidecar (o padrão do Istio; o valor do proxy gerenciado não foi confirmado) = 400m / 512MiB | ~0,020 |
+| PVCs `standard-rwo` (Persistent Disk balanceado) | 36 GiB (Prometheus 12, Alertmanager 2, Grafana 2, Loki 10, Tempo 10) a ~US$0,10 por GiB-mês | ~0,005 |
+| Zona pública do Cloud DNS, certificado gerenciado e Certificate Map | 1 zona (~US$0,20/mês e consultas); certificado público gerenciado sem cobrança de tabela que eu tenha confirmado | ~0,000 |
+| Cloud Service Mesh gerenciado | **preço não confirmado**: a página de preços do Cloud Service Mesh não pôde ser lida nesta revisão; confira em <https://cloud.google.com/service-mesh/pricing> antes de ligar `enable_managed_mesh` | não incluído |
+
+Com esses itens (exceto o do mesh), o `full` fica em cerca de **US$0,21 por hora com o crédito do
+cluster disponível e US$0,31 sem ele**. Em uma rodada de três horas, cerca de US$0,64 ou US$0,94;
+ligado por 730 horas, cerca de US$155 ou US$228. São estimativas de requests, sem impostos, tráfego,
+armazenamento de backup do Velero ou reajustes que o Autopilot faça para atender mínimos e proporções
+de CPU/memória. O GKE Autopilot administra a quantidade e o tamanho
 dos nós; este perfil não aceita `node_instance_types` nem `node_desired_size`. O argumento de nós do
 script de soma não muda o resultado GCP, pois o render não tem DaemonSet.
 
 O orçamento mensal do exemplo/bootstrap foi ajustado de US$10 para **US$5** (na moeda da conta).
-Com as tarifas em dólares, os alertas de 50%/100% do `full` chegam depois de aproximadamente 10/19
-horas sem o free tier ou 15/31 horas com ele. O budget avisa, não interrompe recursos.
+Com as tarifas em dólares, os alertas de 50%/100% do `full` chegam depois de aproximadamente 8/16
+horas sem o free tier ou 12/23 horas com ele. O budget avisa, não interrompe recursos.
 
 ### In-cluster versus observabilidade gerenciada
 
@@ -81,9 +91,9 @@ regra padrão do Cloud Armor não for cobrada, a política custa ~US$7/mês em v
 Leituras rápidas:
 
 - Uma rodada de 3 horas do `core` custa cerca de US$0,37 com o free tier e US$0,67 sem; o `full`,
-  US$0,49 ou US$0,79, mais dados e armazenamento dos backups.
+  US$0,64 ou US$0,94, mais dados e armazenamento dos backups e o preço do mesh, que não está na conta.
 - Esquecido ligado, o `core` custa cerca de US$2,98/dia com o free tier e US$5,38 sem; o `full`,
-  US$3,90 ou US$6,30. Em 730 horas, o `full` fica em cerca de US$119 ou US$192. Com o budget de
+  US$5,11 ou US$7,51. Em 730 horas, o `full` fica em cerca de US$155 ou US$228. Com o budget de
   US$5, o alerta de 50% chega em horas, não em dias.
 - Sem o free tier, a taxa do cluster é o maior item (~45 % do total), seguida do Cloud SQL (~17 %) e
   do load balancer (~11 %). Com o free tier, o Cloud SQL (~32 %), os pods (~22 %) e o load balancer
@@ -127,7 +137,8 @@ servem como orçamento atual e vários eram texto fixo, sem dado de faturamento:
 
 A lição continua valendo: cada forwarding rule e cada add-on custa todo mês. A v2 tem um único
 Gateway; o core usa ESO e OpenTelemetry Collector, enquanto o full acrescenta os add-ons compatíveis
-com Autopilot descritos acima. O destroy termina com a checagem de sobras.
+com Autopilot descritos acima, os discos persistentes da observabilidade (apagados no uninstall) e a
+malha gerenciada. O destroy termina com a checagem de sobras.
 
 ## Dicas
 

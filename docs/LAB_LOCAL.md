@@ -48,14 +48,17 @@ imagens por digest em `platform/local/values/`):
 
 | Camada | Componentes | Perfil |
 |---|---|---|
-| core | Gateway API 1.6.3 (standard), Istio 1.31.1 ambient (istiod, istio-cni, ztunnel, GatewayClass `istio`), cert-manager 1.21.2 + ClusterIssuer `lab-ca`, External Secrets 2.12.0 + ClusterSecretStore `local-secrets`, metrics-server 0.9.0, contrato `lab-system/lab-contract` | todos |
+| core | Gateway API 1.6.3 (canal experimental: o HTTPRoute com retries do exercício de malha), Istio 1.31.1 ambient (istiod, istio-cni, ztunnel, GatewayClasses `istio` e `istio-waypoint`), cert-manager 1.21.2 + ClusterIssuer `lab-ca`, External Secrets 2.12.0 + ClusterSecretStore `local-secrets`, metrics-server 0.9.0, contrato `lab-system/lab-contract` | todos |
 | observability | kube-prometheus-stack 92.3.0 (Prometheus 3.15 com exemplars, Alertmanager 0.34 → `alert-sink` e Slack, Grafana 13.2 só ClusterIP, kube-state-metrics, node-exporter), Loki 3.6 (single binary), Alloy 1.20, Tempo 3.1 (single binary), OpenTelemetry Collector 0.162 (OTLP → Tempo + spanmetrics), `Telemetry` do Istio (spans dos Gateways) | `observability`, `full` |
 | operations | Argo CD 3.5.5, Gatekeeper 3.23.1 + políticas, Trivy Operator 0.35, Velero 1.18 (plugin AWS/S3 → emulador; só no lab local), Chaos Mesh 2.8.4 | `operations`, `full` |
 
 Pod Security: `restricted` em todos os namespaces, menos `istio-system`, `monitoring-agents` e
 `chaos-mesh` (`privileged`: mexem na rede ou nos processos do nó) e `trivy-system` (`baseline`, com
 aviso de `restricted`). O namespace do app, `dx03v2`, é `restricted`, faz parte do mesh ambient e tem
-as constraints do Gatekeeper em `deny`.
+as constraints do Gatekeeper em `deny`. O dx03v2 declara o próprio waypoint (Gateway da classe `istio-waypoint`)
+para o exercício de malha (divisão de tráfego, retries, ejeção e autorização por identidade nos Services
+`mesh-*`): é o gêmeo local do exercício que o GKE roda nos sidecars do Cloud Service Mesh gerenciado (ADR 47),
+porque o Autopilot não roda ambient e a prova de comportamento fica no lab local.
 
 ## Como rodar
 

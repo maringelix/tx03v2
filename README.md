@@ -43,9 +43,9 @@ changes, so the comparison between clouds stays fair.
 | Bootstrap (APIs, state bucket, Workload Identity Federation pool and provider, CI service accounts, budget) | `not run in the cloud (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Lab apply (VPC + Cloud NAT, GKE Autopilot on the REGULAR channel, Cloud SQL PostgreSQL 17 through Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, Parameter Manager contract) | `not run in the cloud (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan on pull requests | `not run in the cloud (v2)` | `.github/workflows/terraform-plan.yml` |
-| Cloud platform profiles: `core` (ESO + OpenTelemetry Collector 0.176.0) and optional `full` (in-cluster observability, Argo CD, Gatekeeper, Trivy, Velero and Chaos Mesh controller) | `implemented as code; not run in the cloud (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; Autopilot exclusions are documented in `docs/ARQUITETURA.md` |
+| Cloud platform profiles: `core` (ESO + OpenTelemetry Collector 0.176.0) and optional `full` (persistent in-cluster observability with SLO alerts, Argo CD, Gatekeeper, Kyverno image admission, Trivy, Velero and the Chaos Mesh controller, with the app in the managed Cloud Service Mesh) | `implemented as code; not run in the cloud (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; Autopilot exclusions are documented in `docs/ARQUITETURA.md` |
 | Destroy + leftover check | `not run in the cloud (v2)` | `.github/workflows/terraform-destroy.yml`, `scripts/leftovers.sh` |
-| HTTPS on the Gateway | `planned` | outside contract v2 (`docs/CONTRATO.md`) |
+| HTTPS on the Gateway (optional, `full`): public Cloud DNS zone, Google-managed certificate in a Certificate Map, HTTP → HTTPS redirect; Cloud Armor with seven CRS categories and a per-IP limit | `implemented as code; not run in the cloud (v2)` | `terraform/envs/lab/edge.tf`, `edge_mesh.tftest.hcl`, `waf.tftest.hcl`, `docs/CONTRATO.md`; public issuance needs a domain you own and delegate |
 | Repository settings as code (ruleset, environment `lab`) | `verified locally` | `scripts/repo-guardrails.sh` applied; read back with `gh api` on 2026-10-14 (`docs/PUBLICACAO.md`) |
 | **Local lab, static checks**: `terraform/envs/local` plan tests (private network, labels, loopback-only registry, TLS-only database, digests, negative validations; 10 runs), 17 local charts by SHA256 rendering digests and ClusterIP only, Gatekeeper policies against their gator cases | `verified locally` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
 | **Local lab** (Terraform on Docker): kind cluster + emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (S3 API emulator), load balancer, git server; destroy + leftover check | `verified in CI` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
@@ -59,7 +59,7 @@ changes, so the comparison between clouds stays fair.
 | In-cluster scanning: Trivy Operator (vulnerability and configuration reports) | `verified in CI` | `make e2e` |
 | Backup and restore drill: Velero to the object storage emulator (namespace deleted, restored with its data) | `verified in CI` | `make e2e` |
 | Chaos engineering with hypotheses: Chaos Mesh pod kill, 100 ms network latency, CPU and memory stress; availability, latency and restarts measured | `verified in CI` | `make e2e` |
-| GKE full profile: cloud-safe add-ons from the local lab | `implemented as code; not run in the cloud (v2)` | GKE Autopilot omits Istio ambient, node-exporter, Trivy node collector and the privileged Chaos Mesh daemon; only PodChaos pod-kill is supported, and private image reports may be missing without registry credentials |
+| GKE full profile: cloud-safe add-ons from the local lab, persistent observability, signed-image admission (Kyverno), private image scans (Trivy reads Artifact Registry as a workload identity), managed Cloud Service Mesh with STRICT mTLS | `implemented as code; not run in the cloud (v2)` | `helm-template-full`, `image-admission-policy`, `full-install-order`, `roles.tftest.hcl`, `edge_mesh.tftest.hcl`; GKE Autopilot omits Istio ambient, node-exporter, the Trivy node collector and the privileged Chaos Mesh daemon, so the mesh is sidecar-based and only PodChaos pod-kill runs in the cluster (ADR 47, 51) |
 
 `verified in CI` rows (`HARNESS_STRICT=1 make verify`) run in the CI (`ci.yml`, jobs `static` and
 `test`, on every pull request, every push to `main` and weekly) and pass locally in a Linux
@@ -131,7 +131,7 @@ make local-down     # destroy + leftover check
 | Artifact Registry | registry (`registry.tx03v2.local`, push to `localhost:5003`) |
 | Cloud SQL for PostgreSQL 17 (Private Service Connect, shared CA, `verify-full`) | PostgreSQL 17, TLS only, lab CA |
 | GKE Gateway (global external Application Load Balancer) + Cloud Armor | cloud-provider-kind + Istio Gateway (Gateway API); no WAF |
-| HTTPS listener certificate (`planned` on the GKE Gateway) | cert-manager, ClusterIssuer `lab-ca` |
+| HTTPS listener certificate (Google-managed, Certificate Map; `full` only) | cert-manager, ClusterIssuer `lab-ca` |
 | Secret Manager + ESO (Workload Identity Federation for GKE) | Secrets of `lab-secrets` + ESO |
 | Cloud Storage (backups) | Versity S3 Gateway (S3 API) |
 | Parameter Manager contract | ConfigMap `lab-system/lab-contract` (`docs/CONTRATO.md`) |
@@ -144,9 +144,10 @@ is `planned` in dx03v2.
 ## Cloud path (costs money)
 
 **Cost first:** the default `core` profile costs about US$0.12/hour with the GKE free tier or
-US$0.22/hour without it. Optional `full` is about US$0.16/hour or US$0.26/hour, respectively.
-Three hours are about US$0.37–0.67 for `core` or US$0.49–0.79 for `full`, plus data and backup
-storage; a forgotten full lab costs roughly US$119–192/month. These are estimates from list prices
+US$0.22/hour without it. Optional `full` is about US$0.21/hour or US$0.31/hour, respectively (the managed mesh price could
+not be confirmed and is not included). Three hours are about US$0.37–0.67 for `core` or
+US$0.64–0.94 for `full`, plus data and backup storage; a forgotten full lab costs roughly
+US$155–228/month. These are estimates from list prices
 checked on 2026-10-16, not a bill, and your billing account may use another currency:
 see [docs/CUSTOS.md](docs/CUSTOS.md). The bootstrap budget defaults to 5 units in that currency and
 only warns. Use a dedicated project and destroy on the same day.

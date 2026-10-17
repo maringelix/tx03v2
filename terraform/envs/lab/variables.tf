@@ -152,6 +152,35 @@ variable "services_cidr" {
   }
 }
 
+variable "control_plane_cidr" {
+  description = "Private /28 of the GKE control plane (RFC 1918, overlapping nothing in the VPC). The firewall rule of modules/gke lets this range reach the admission webhooks of the full profile on 8443 and 9443."
+  type        = string
+  default     = "172.31.255.240/28"
+
+  validation {
+    condition     = can(regex("^[0-9.]+/28$", var.control_plane_cidr)) && try(cidrsubnet(var.control_plane_cidr, 0, 0) == var.control_plane_cidr, false)
+    error_message = "The control_plane_cidr must be a canonical IPv4 network with prefix /28, e.g. 172.31.255.240/28."
+  }
+
+  validation {
+    condition = try(anytrue([
+      for p in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
+      tonumber(split("/", var.control_plane_cidr)[1]) >= tonumber(split("/", p)[1]) &&
+      cidrhost("${split("/", var.control_plane_cidr)[0]}/${split("/", p)[1]}", 0) == split("/", p)[0]
+    ]), false)
+    error_message = "The control_plane_cidr must be inside an RFC 1918 range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)."
+  }
+
+  validation {
+    condition = try(alltrue([
+      for other in [var.nodes_subnet_cidr, var.pods_cidr, var.services_cidr] :
+      cidrhost("${split("/", var.control_plane_cidr)[0]}/${min(28, tonumber(split("/", other)[1]))}", 0) !=
+      cidrhost("${split("/", other)[0]}/${min(28, tonumber(split("/", other)[1]))}", 0)
+    ]), true)
+    error_message = "The control_plane_cidr must not overlap nodes_subnet_cidr, pods_cidr or services_cidr."
+  }
+}
+
 # --- Data stores, edge, secrets ---
 
 variable "db_tier" {
@@ -174,6 +203,43 @@ variable "enable_waf" {
   description = "Cloud Armor policy tx03v2-lab-waf (preconfigured SQLi and XSS rules) for the Gateway backends. Parity with tx01v2/tx02v2; about US$7/month for the policy and its rules (docs/CUSTOS.md)."
   type        = bool
   default     = true
+}
+
+variable "dns_zone_name" {
+  description = "Optional public Cloud DNS zone for the app hostname. Delegate the published name servers before expecting certificate issuance. Empty keeps the core profile free of a public domain."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.dns_zone_name == "" || can(regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$", var.dns_zone_name))
+    error_message = "dns_zone_name must be empty or a lowercase public DNS zone such as example.com."
+  }
+}
+
+variable "app_domain_name" {
+  description = "Optional hostname for the full HTTPS profile, inside dns_zone_name. A delegated public domain is required for the Google-managed certificate."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.app_domain_name == "" || can(regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$", var.app_domain_name))
+    error_message = "app_domain_name must be empty or a lowercase public DNS hostname."
+  }
+
+  validation {
+    condition = (
+      (var.app_domain_name == "" && var.dns_zone_name == "") ||
+      (var.app_domain_name != "" && var.dns_zone_name != "" &&
+      endswith(var.app_domain_name, ".${var.dns_zone_name}"))
+    )
+    error_message = "Set app_domain_name and dns_zone_name together; the app must be a subdomain of the delegated zone."
+  }
+}
+
+variable "enable_managed_mesh" {
+  description = "Register the GKE Autopilot cluster with the project's fleet and enable managed Cloud Service Mesh. Required by the full profile; core may leave this false."
+  type        = bool
+  default     = false
 }
 
 variable "db_password_version" {

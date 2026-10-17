@@ -41,21 +41,23 @@ TRIVYIGNORE_MAX_DAYS=214
 # Placeholder inputs used to render platform/manifests (never real identifiers).
 RENDER_PROJECT_ID="tx03v2-lab-example"
 RENDER_DEPLOYERS=(dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com you@example.com)
+RENDER_REPOSITORY="us-central1-docker.pkg.dev/tx03v2-lab-example/dx03v2"
 # The only project IDs and project number that may appear in the repository (placeholders).
 PLACEHOLDER_PROJECTS_RE='^(tx03v2-lab-example|other-lab-project|example-tenant-project)$'
 
-# Contract v2 (docs/CONTRATO.md): the keys of the Parameter Manager parameter tx03v2-lab-contract
+# Contract v4 (docs/CONTRATO.md): the keys of the Parameter Manager parameter tx03v2-lab-contract
 # that dx03v2 and platform/install.sh read.
 CONTRACT_KEYS=(
   project-id region cluster-name network-name nodes-subnet-cidr db/endpoint-ip lb-source-ranges
   artifact-registry/repository db/secret-name app/admin-token-secret-name eso/cluster-secret-store
   gateway/address-name gateway/address waf/security-policy deploy/service-account
+  dns/hostname dns/certificate-map mesh/management
 )
 # Sources of the traffic and health checks of the global external Application Load Balancer for
 # zonal NEGs (Google Cloud load balancing docs, verified 2026-10-11): the only public ranges allowed
 # in the repository.
 LB_SOURCE_RANGES="35.191.0.0/16,130.211.0.0/22"
-# Contract v2 (unchanged since v1): rules of the Role dx03v2-deployer, one "apiGroup|resource|verbs" per resource
+# Contract v3: rules of the Role dx03v2-deployer, one "apiGroup|resource|verbs" per resource
 # (verbs sorted).
 ROLE_CRUD="create,delete,get,list,patch,update,watch"
 ROLE_READ="get,list,watch"
@@ -64,6 +66,8 @@ CONTRACT_ROLE_RULES=(
   "|services|$ROLE_CRUD" "|configmaps|$ROLE_CRUD" "|serviceaccounts|$ROLE_CRUD"
   "|pods|$ROLE_READ" "|pods/log|$ROLE_READ" "|events|$ROLE_READ" "|endpoints|$ROLE_READ" "|secrets|$ROLE_READ"
   "networking.k8s.io|networkpolicies|$ROLE_CRUD"
+  "networking.istio.io|destinationrules|$ROLE_CRUD" "networking.istio.io|virtualservices|$ROLE_CRUD"
+  "security.istio.io|authorizationpolicies|$ROLE_CRUD"
   "gateway.networking.k8s.io|gateways|$ROLE_CRUD" "gateway.networking.k8s.io|httproutes|$ROLE_CRUD"
   "networking.gke.io|healthcheckpolicies|$ROLE_CRUD" "networking.gke.io|gcpbackendpolicies|$ROLE_CRUD"
   "autoscaling|horizontalpodautoscalers|$ROLE_CRUD" "policy|poddisruptionbudgets|$ROLE_CRUD"
@@ -95,10 +99,13 @@ REQUIRED_FILES=(
   platform/gitops/Chart.yaml platform/gitops/values.yaml
   platform/gitops/templates/appproject.yaml platform/gitops/templates/application.yaml
   platform/manifests/full/namespaces.yaml platform/manifests/full/argocd-platform.yaml
-  platform/manifests/full/rbac-argocd-deployer.yaml
-  platform/values/full/chaos-mesh.yaml platform/values/full/gatekeeper.yaml
+  platform/manifests/full/rbac-argocd-deployer.yaml platform/manifests/full/app-security.yaml
+  platform/manifests/full/app-monitoring.yaml platform/manifests/full/image-verification.yaml
+  platform/values/full/chaos-mesh.yaml platform/values/full/gatekeeper.yaml platform/values/full/kyverno.yaml
   platform/values/full/kube-prometheus-stack.yaml platform/values/full/kube-prometheus-stack-slack.yaml
+  platform/values/full/kube-prometheus-stack-storage.yaml platform/values/full/loki.yaml platform/values/full/tempo.yaml
   platform/values/full/otel-collector.yaml platform/values/full/trivy-operator.yaml platform/values/full/velero.yaml
+  terraform/envs/lab/edge.tf terraform/envs/lab/mesh.tf terraform/envs/lab/tests/edge_mesh.tftest.hcl
   terraform/modules/velero/main.tf
   terraform/modules/velero/outputs.tf terraform/modules/velero/variables.tf terraform/modules/velero/versions.tf
   terraform/envs/lab/tests/velero.tftest.hcl
@@ -232,6 +239,12 @@ tf_init() {
 render_platform() {
   local IFS=,
   bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[*]}"
+}
+
+# render_platform_full -> platform/manifests plus platform/manifests/full rendered with example fork values.
+render_platform_full() {
+  local IFS=,
+  bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[*]}" --full example-owner     --artifact-registry-repository "$RENDER_REPOSITORY"
 }
 
 # kubectl_local FILE GO_TEMPLATE -> evaluates the template on every object of FILE without any
@@ -962,7 +975,7 @@ check_kubeconform() {
   need kubeconform helm
   mkdir -p "$HARNESS_WORK_DIR/kubeconform-cache"
   render_platform >"$rendered"
-  bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[0]}" --full example-owner >"$full"
+  render_platform_full >"$full"
   helm template platform platform/gitops --namespace argocd --kube-version "$K8S_SCHEMA_KUBERNETES_VERSION" \
     --set-string dxRepoURL=https://github.com/example-owner/dx03v2.git --set-string dxRevision=gitops/gcp >"$gitops"
   kubeconform -strict -summary -output text \
@@ -1126,11 +1139,10 @@ check_contract_parameter() {
 # keeps the Autopilot exception visible (no Istio ambient or node-level agents).
 check_contract_platform_full() {
   local rc=0 full apps e got want
-  local IFS=,
   need helm kubectl
   full="$HARNESS_WORK_DIR/platform-manifests-full.yaml"
   apps="$HARNESS_WORK_DIR/platform-gitops.yaml"
-  bash platform/render-manifests.sh "$RENDER_PROJECT_ID" "${RENDER_DEPLOYERS[*]}" --full example-owner >"$full"
+  render_platform_full >"$full"
   local -a expect=(
     "name: dx03v2" 'policy.lab/enforce: "true"'
     "name: cert-manager" "name: monitoring" "name: argocd" "name: gatekeeper-system"
@@ -1201,6 +1213,112 @@ check_contract_platform_full() {
     echo "platform.yml must pass the optional Slack webhook through a secret"
     rc=1
   }
+  return "$rc"
+}
+
+# Image admission binds the Artifact Registry repository of the contract to the same fork-specific workflow
+# that signs the promotion statement. Kyverno reads the registry as an IAM principal of Workload Identity
+# Federation for GKE: no key, no Google service account, no pull secret. The mesh policies must also be
+# valid for the Istio CRDs of the managed Cloud Service Mesh, which the JSON schemas of kubeconform cannot
+# tell.
+check_image_admission_policy() {
+  local rc=0 file=platform/manifests/full/image-verification.yaml rendered="$HARNESS_WORK_DIR/image-verification.yaml" expected got
+  need kubectl
+  mkdir -p "$HARNESS_WORK_DIR"
+  for expected in \
+    'kind: ImageValidatingPolicy' \
+    'failurePolicy: Fail' \
+    'validationActions:' \
+    '    - Deny' \
+    '__ARTIFACT_REGISTRY_REPOSITORY__/api@sha256:*' \
+    '__ARTIFACT_REGISTRY_REPOSITORY__/web@sha256:*' \
+    '      - google' \
+    'deploy-gcp.yml@refs/heads/main' \
+    'https://token.actions.githubusercontent.com' \
+    'https://github.com/maringelix/tx00v2/attestations/promoted-image/v1'; do
+    grep -qF -- "$expected" "$file" || {
+      echo "$file: missing fail-closed GCP promotion verification contract '$expected'"
+      rc=1
+    }
+  done
+  render_platform_full >"$rendered" || return 1
+  for expected in \
+    "glob: \"$RENDER_REPOSITORY/api@sha256:*\"" \
+    "glob: \"$RENDER_REPOSITORY/web@sha256:*\"" \
+    'https://github.com/example-owner/dx03v2/.github/workflows/deploy-gcp.yml@refs/heads/main'; do
+    grep -qF -- "$expected" "$rendered" || {
+      echo "render-manifests.sh did not bind the admission policy to the fork owner and the repository of the contract: missing $expected"
+      rc=1
+    }
+  done
+  if grep -qE '__[A-Z][A-Z0-9_]*__' "$rendered"; then
+    echo "the rendered full manifest still contains a template placeholder"
+    rc=1
+  fi
+  if grep -vE '^[[:space:]]*#' platform/values/full/kyverno.yaml platform/values/full/trivy-operator.yaml | grep -qE 'iam\.gke\.io/gcp-service-account|azure\.workload\.identity|eks\.amazonaws\.com'; then
+    echo "Kyverno and Trivy Operator read Artifact Registry as IAM principals of their ServiceAccounts: no service account annotation of any provider"
+    rc=1
+  fi
+  # portLevelMtls is valid only with a workload selector: the CRD refuses it on a namespace-wide
+  # PeerAuthentication.
+  got="$(kubectl_local "$rendered" '{{if eq .kind "PeerAuthentication"}}{{.metadata.name}}|{{if .spec.portLevelMtls}}ports{{end}}|{{if .spec.selector}}selector{{end}}{{"\n"}}{{end}}')" || return 1
+  if grep -qE '\|ports\|$' <<<"$got"; then
+    printf 'a PeerAuthentication with portLevelMtls needs a workload selector (the CRD refuses it otherwise):\n%s\n' "$(grep -E '\|ports\|$' <<<"$got")"
+    rc=1
+  fi
+  grep -qxF 'default||' <<<"$got" || {
+    echo "the namespace-wide PeerAuthentication default (STRICT, no selector, no port exception) is missing"
+    rc=1
+  }
+  # The identity of a Cloud Service Mesh workload is <project>.svc.id.goog/ns/..., never cluster.local.
+  if grep -qF 'cluster.local/' platform/manifests/full/app-security.yaml; then
+    echo "app-security.yaml: the trust domain of Cloud Service Mesh is <project>.svc.id.goog; match the principal with */ns/<namespace>/sa/<account>"
+    rc=1
+  fi
+  # The plaintext paths from outside the mesh are the two load balancer ranges of the contract, and
+  # nothing else is named as a source address.
+  got="$(sed -n '/^ *ipBlocks:/,/^ *to:/p' platform/manifests/full/app-security.yaml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' | sort -u | tr '\n' ',')"
+  [[ "$got" == "130.211.0.0/22,35.191.0.0/16," ]] || {
+    echo "app-security.yaml: the only external sources are lb-source-ranges (35.191.0.0/16 and 130.211.0.0/22); got: $got"
+    rc=1
+  }
+  return "$rc"
+}
+
+# Admission must be installed before Argo CD can start the application, the mesh policies before the
+# observability that probes the app, and uninstall must remove the full-profile releases and the
+# Persistent Disk volumes before terraform destroy leaves them behind.
+check_full_install_order() {
+  local body line last=0 n rc=0
+  local -a expected=(
+    'apply_full full/namespaces.yaml'
+    'install_chart cert-manager'
+    'install_app_security'
+    'install_observability'
+    'apply_full full/app-monitoring.yaml'
+    'install_policies'
+    'install_image_admission'
+    'install_gitops'
+    'install_chart trivy-operator'
+    'install_backup'
+    'install_chart chaos-mesh'
+  )
+  body="$(sed -n '/^install_full() {/,/^}/p' platform/install.sh)"
+  for line in "${expected[@]}"; do
+    n="$(grep -nF -- "$line" <<<"$body" | head -n 1 | cut -d: -f1)"
+    if [[ -z "$n" || "$n" -le "$last" ]]; then
+      echo "platform/install.sh: expected full-profile step '$line' after line $last"
+      rc=1
+    else
+      last=$n
+    fi
+  done
+  for line in 'uninstall_full_releases' 'delete_monitoring_pvcs' '"kyverno kyverno"' '"kube-prometheus-stack monitoring"'; do
+    grep -qF -- "$line" platform/uninstall.sh || {
+      echo "platform/uninstall.sh must remove the full-profile releases and the monitoring PVCs ('$line' is missing)"
+      rc=1
+    }
+  done
   return "$rc"
 }
 
@@ -1431,6 +1549,29 @@ check_helm_template_full() {
     echo "GKE Autopilot kube-prometheus-stack must not render node-exporter"
     rc=1
   fi
+
+  # The registry readers of the full profile are IAM principals of their own ServiceAccounts
+  # (terraform/envs/lab/roles.tf): the names must match and no provider annotation may stand in for them.
+  grep -qE '^  name: kyverno-admission-controller$' "$out/kyverno.yaml" || {
+    echo "Kyverno full render: the admission controller ServiceAccount must be kyverno-admission-controller"
+    rc=1
+  }
+  grep -qE '^  name: trivy-operator$' "$out/trivy-operator.yaml" || {
+    echo "Trivy Operator full render: the ServiceAccount must be trivy-operator"
+    rc=1
+  }
+  if grep -qE 'azure\.workload\.identity|iam\.gke\.io/gcp-service-account|eks\.amazonaws\.com' "$out/kyverno.yaml" "$out/trivy-operator.yaml"; then
+    echo "Kyverno and Trivy Operator read Artifact Registry as IAM principals: no service account annotation of any provider"
+    rc=1
+  fi
+  grep -qF -- 'name: dx03v2-api-dashboard' platform/manifests/full/app-monitoring.yaml || {
+    echo "platform/manifests/full/app-monitoring.yaml must ship the SLO dashboard of the app"
+    rc=1
+  }
+  grep -qF -- 'metrics/httpcheck:' "$out/opentelemetry-collector.yaml" || {
+    echo "OpenTelemetry Collector full render: the httpcheck pipeline feeds the SyntheticProbeFailed alert and must be rendered"
+    rc=1
+  }
 
   alertmanager_b64="$(awk '/^  alertmanager.yaml:/ { sub(/^  alertmanager.yaml: "/, ""); sub(/"$/, ""); print; exit }' "$out/kube-prometheus-stack.yaml")"
   alertmanager_config="$(base64 -d <<<"$alertmanager_b64")"
@@ -1752,6 +1893,8 @@ register_checks() {
   register static trivyignore-policy check_trivyignore_policy
   register static contract-platform check_contract_platform
   register static contract-platform-full check_contract_platform_full
+  register static image-admission-policy check_image_admission_policy
+  register static full-install-order check_full_install_order
   register static contract-parameter check_contract_parameter
   register static fork-references check_fork_references
   register static terraform-fmt check_terraform_fmt

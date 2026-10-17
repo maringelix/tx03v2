@@ -1,0 +1,113 @@
+# Cloud-full security for the GCP application on managed Cloud Service Mesh (Google-managed Istio
+# control plane, sidecar data plane: Autopilot cannot run the privileged ambient DaemonSets). Only the
+# namespace dx03v2 is injected (platform/manifests/full/namespaces.yaml); monitoring and observability
+# stay outside the mesh so the Prometheus Operator hook Jobs finish and the core Collector is untouched.
+# Service-to-service traffic inside dx03v2 is STRICT mTLS and authorized by identity (web -> api). Three
+# plaintext paths come from outside the mesh, each limited to one workload and one port by its own
+# policy: the Google load balancers (the two public ranges of the contract key lb-source-ranges, also
+# fixed by the NetworkPolicies of dx03v2), Prometheus on the metrics port (only the monitoring
+# namespace reaches it, by NetworkPolicy), and the health endpoints (the synthetic probe of the
+# Collector). Everything else on a workload port is refused.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: dx03v2
+spec:
+  mtls:
+    mode: STRICT
+---
+# portLevelMtls is valid only with a workload selector (the CRD refuses it on the namespace-wide
+# policy above), so each plaintext exception is its own policy.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: gcp-edge-web
+  namespace: dx03v2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    "8080":
+      mode: PERMISSIVE
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: gcp-edge-api
+  namespace: dx03v2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    "3000":
+      mode: PERMISSIVE
+    "9464":
+      mode: PERMISSIVE
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: api
+  namespace: dx03v2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              # The trust domain of Cloud Service Mesh is <project>.svc.id.goog, not cluster.local.
+              - "*/ns/dx03v2/sa/web"
+      to:
+        - operation:
+            ports: ["3000"]
+    - from:
+        - source:
+            ipBlocks:
+              - 35.191.0.0/16
+              - 130.211.0.0/22
+      to:
+        - operation:
+            ports: ["3000"]
+    # Prometheus is outside the mesh: the NetworkPolicy of dx03v2 admits only the monitoring namespace.
+    - to:
+        - operation:
+            ports: ["9464"]
+    # The synthetic probe of the Collector (httpcheck receiver) reads only the health endpoints.
+    - to:
+        - operation:
+            ports: ["3000"]
+            paths: ["/healthz", "/readyz"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: web
+  namespace: dx03v2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            ipBlocks:
+              - 35.191.0.0/16
+              - 130.211.0.0/22
+      to:
+        - operation:
+            ports: ["8080"]
+    - to:
+        - operation:
+            ports: ["8080"]
+            paths: ["/healthz"]

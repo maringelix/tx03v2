@@ -14,6 +14,7 @@ validatingWebhookExemptNamespacesLabels:
     - monitoring
     - observability
     - argocd
+    - kyverno
     - gatekeeper-system
     - trivy-system
     - velero

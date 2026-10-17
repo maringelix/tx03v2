@@ -44,6 +44,7 @@ OWNER_RE='^[A-Za-z0-9]([A-Za-z0-9-]{0,38})$'
 CONTRACT_PROJECT=""
 DEPLOYERS=""
 VELERO_BUCKET=""
+ARTIFACT_REPOSITORY=""
 
 cleanup() {
   [[ -z "$WORK_DIR" ]] || rm -rf "$WORK_DIR"
@@ -130,7 +131,8 @@ usage() {
 apply_full() {
   local file=$1 attempt
   for attempt in 1 2 3 4 5; do
-    if "$HERE/render-manifests.sh" "$CONTRACT_PROJECT" "$DEPLOYERS" --full "$OWNER" --only "$file" | kubectl apply -f - >/dev/null; then
+    if "$HERE/render-manifests.sh" "$CONTRACT_PROJECT" "$DEPLOYERS" --full "$OWNER" \
+      --artifact-registry-repository "$ARTIFACT_REPOSITORY" --only "$file" | kubectl apply -f - >/dev/null; then
       return 0
     fi
     log "kubectl apply of platform/manifests/$file failed (attempt $attempt/5); retrying in 15 s"
@@ -218,6 +220,26 @@ install_policies() {
   retry 10 6 kubectl apply -f "$repos" >/dev/null || die "could not apply Gatekeeper constraint allowed-repos"
 }
 
+# Kyverno and its fail-closed image policy: only digests of the two dx03v2 repositories that carry the
+# promotion attestation signed by deploy-gcp.yml start in the app namespace. Installed before Argo CD can
+# sync the app, so the app never runs unverified.
+install_image_admission() {
+  install_chart kyverno
+  kubectl wait --for=condition=Established --timeout=180s \
+    crd/imagevalidatingpolicies.policies.kyverno.io >/dev/null
+  kubectl --namespace kyverno rollout status deployment/kyverno-admission-controller --timeout=300s >/dev/null ||
+    die "Kyverno's admission controller is not ready; image verification stays fail-closed"
+  apply_full full/image-verification.yaml
+}
+
+# The Istio CRDs come with the managed Cloud Service Mesh (checked ACTIVE in main), but they can appear a
+# few seconds after the fleet feature reports it.
+install_app_security() {
+  retry 30 5 kubectl get crd peerauthentications.security.istio.io authorizationpolicies.security.istio.io >/dev/null 2>&1 ||
+    die "the Istio security CRDs of the managed Cloud Service Mesh are missing"
+  apply_full full/app-security.yaml
+}
+
 install_backup() {
   install_chart velero
   # shellcheck disable=SC2016 # expanded by the inner bash
@@ -233,16 +255,20 @@ install_full() {
   repository="$(contract artifact-registry/repository)"
   [[ "$repository" == *"-docker.pkg.dev/$CONTRACT_PROJECT/dx03v2" ]] ||
     die "contract key artifact-registry/repository is not the dx03v2 Artifact Registry repository"
+  ARTIFACT_REPOSITORY="$repository"
 
   apply_full full/namespaces.yaml
   install_chart cert-manager
+  install_app_security
   install_observability
-  install_gitops
+  apply_full full/app-monitoring.yaml
   install_policies "$repository"
+  install_image_admission
+  install_gitops
   install_chart trivy-operator
   install_backup
   install_chart chaos-mesh
-  log "profile full ready (GKE Autopilot: Istio ambient, node-exporter and Chaos Mesh daemon are not installed)"
+  log "profile full ready (GKE Autopilot: managed Cloud Service Mesh; Istio ambient, node-exporter and the Chaos Mesh daemon are not installed)"
 }
 
 main() {
@@ -286,6 +312,21 @@ main() {
   done <<<"$extra"
   CONTRACT_PROJECT="$project"
   DEPLOYERS="$deployers"
+
+  if [[ "$PROFILE" == full ]]; then
+    [[ "$(contract mesh/management)" == managed ]] ||
+      die "profile full requires Terraform enable_managed_mesh=true and an active managed Cloud Service Mesh"
+    [[ "$(contract dns/hostname)" != disabled && "$(contract dns/certificate-map)" == "$LAB_NAME-app" ]] ||
+      die "profile full requires a delegated app_domain_name/dns_zone_name and the Certificate Map $LAB_NAME-app"
+    gcloud container fleet mesh describe --project "$project" --format=json >"$WORK_DIR/mesh-status.json" ||
+      die "cannot inspect the managed Cloud Service Mesh fleet feature"
+    jq -e --arg cluster "$cluster" \
+      '[.membershipStates | to_entries[] | select(.key | endswith("/memberships/" + $cluster)) | .value.servicemesh.controlPlaneManagement.state] | any(. == "ACTIVE")' \
+      "$WORK_DIR/mesh-status.json" >/dev/null ||
+      die "managed Cloud Service Mesh for $cluster is not ACTIVE yet; inspect the fleet feature before installing full"
+    [[ "$(gcloud certificate-manager certificates describe "$LAB_NAME-app" --location=global --project "$project" --format='value(managed.state)')" == ACTIVE ]] ||
+      die "Google-managed certificate $LAB_NAME-app is not ACTIVE; delegate the zone and publish its DNS authorization before installing full"
+  fi
 
   # Rendered before anything is installed: a malformed contract value stops the script here.
   "$HERE/render-manifests.sh" "$project" "$deployers" >"$WORK_DIR/manifests.yaml"

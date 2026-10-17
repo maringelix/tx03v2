@@ -43,9 +43,9 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | Bootstrap (APIs, bucket do state, pool e provider do Workload Identity Federation, contas de serviço do CI, budget) | `não executado em nuvem (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Apply do lab (VPC + Cloud NAT, GKE Autopilot no canal REGULAR, Cloud SQL PostgreSQL 17 por Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, contrato no Parameter Manager) | `não executado em nuvem (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan em pull requests | `não executado em nuvem (v2)` | `.github/workflows/terraform-plan.yml` |
-| Perfis da plataforma em nuvem: `core` (ESO + OpenTelemetry Collector 0.176.0) e `full` opcional (observabilidade no cluster, Argo CD, Gatekeeper, Trivy, Velero e controller do Chaos Mesh) | `implementado como código; não executado em nuvem (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; exclusões do Autopilot em `docs/ARQUITETURA.md` |
+| Perfis da plataforma em nuvem: `core` (ESO + OpenTelemetry Collector 0.176.0) e `full` opcional (observabilidade persistente no cluster com alertas de SLO, Argo CD, Gatekeeper, admissão de imagens assinadas com Kyverno, Trivy, Velero e controller do Chaos Mesh, com o app no Cloud Service Mesh gerenciado) | `implementado como código; não executado em nuvem (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; exclusões do Autopilot em `docs/ARQUITETURA.md` |
 | Destroy + checagem de sobras | `não executado em nuvem (v2)` | `.github/workflows/terraform-destroy.yml`, `scripts/leftovers.sh` |
-| HTTPS no Gateway | `planejado` | fora do contrato v2 (`docs/CONTRATO.md`) |
+| HTTPS no Gateway (opcional, `full`): zona pública do Cloud DNS, certificado gerenciado do Google num Certificate Map, redirecionamento HTTP → HTTPS; Cloud Armor com sete categorias CRS e limite por IP | `implementado como código; não executado em nuvem (v2)` | `terraform/envs/lab/edge.tf`, `edge_mesh.tftest.hcl`, `waf.tftest.hcl`, `docs/CONTRATO.md`; a emissão pública exige um domínio seu, delegado |
 | Configurações do repositório como código (ruleset, environment `lab`) | `verificado localmente` | `scripts/repo-guardrails.sh` aplicado; conferido com `gh api` em 2026-10-14 (`docs/PUBLICACAO.md`) |
 | **Lab local, checks estáticos**: testes de plan do `terraform/envs/local` (rede privada, labels, registry só em loopback, banco só TLS, digests, validações negativas; 10 casos), 17 charts locais por SHA256 renderizando só digests e ClusterIP, políticas do Gatekeeper contra os casos do gator | `verificado localmente` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
 | **Lab local** (Terraform no Docker): cluster kind + Artifact Registry, Cloud SQL (PostgreSQL, só TLS), Cloud Storage (emulador com API S3), load balancer e servidor git emulados; destroy + checagem de sobras | `verificado no CI` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
@@ -59,7 +59,7 @@ deploy muda, para que a comparação entre as nuvens seja justa.
 | Scan dentro do cluster: Trivy Operator (relatórios de vulnerabilidade e de configuração) | `verificado no CI` | `make e2e` |
 | Ensaio de backup e restore: Velero no emulador de objetos (namespace apagado e restaurado com os dados) | `verificado no CI` | `make e2e` |
 | Chaos engineering com hipóteses: pod kill, 100 ms de latência de rede, stress de CPU e memória (Chaos Mesh); disponibilidade, latência e reinícios medidos | `verificado no CI` | `make e2e` |
-| Perfil GKE full: add-ons do lab local compatíveis com a nuvem | `implementado como código; não executado em nuvem (v2)` | GKE Autopilot omite Istio ambient, node-exporter, Trivy node collector e o daemon privilegiado do Chaos Mesh; só usa PodChaos pod-kill e pode faltar relatório de imagem privada sem credencial do registry |
+| Perfil GKE full: add-ons do lab local compatíveis com a nuvem, observabilidade persistente, admissão de imagens assinadas (Kyverno), varredura de imagens privadas (o Trivy lê o Artifact Registry como identidade de workload), Cloud Service Mesh gerenciado com mTLS STRICT | `implementado como código; não executado em nuvem (v2)` | `helm-template-full`, `image-admission-policy`, `full-install-order`, `roles.tftest.hcl`, `edge_mesh.tftest.hcl`; o GKE Autopilot omite Istio ambient, node-exporter, o Trivy node collector e o daemon privilegiado do Chaos Mesh, então a malha usa sidecars e só o PodChaos pod-kill roda no cluster (ADR 47 e 51) |
 
 As linhas `verificado no CI` (`HARNESS_STRICT=1 make verify`) rodam no CI (`ci.yml`, jobs `static`
 e `test`, em todo pull request, em todo push para a `main` e toda semana) e passam localmente num
@@ -130,7 +130,7 @@ make local-down     # destroy + checagem de sobras
 | Artifact Registry | registry (`registry.tx03v2.local`, push em `localhost:5003`) |
 | Cloud SQL for PostgreSQL 17 (Private Service Connect, CA compartilhada, `verify-full`) | PostgreSQL 17, só TLS, CA do lab |
 | Gateway da GKE (Application Load Balancer externo global) + Cloud Armor | cloud-provider-kind + Gateway do Istio (Gateway API); sem WAF |
-| Certificado do listener HTTPS (`planejado` no Gateway da GKE) | cert-manager, ClusterIssuer `lab-ca` |
+| Certificado do listener HTTPS (gerenciado pelo Google, Certificate Map; só no `full`) | cert-manager, ClusterIssuer `lab-ca` |
 | Secret Manager + ESO (Workload Identity Federation for GKE) | Secrets de `lab-secrets` + ESO |
 | Cloud Storage (backups) | Versity S3 Gateway (API S3) |
 | Contrato no Parameter Manager | ConfigMap `lab-system/lab-contract` (`docs/CONTRATO.md`) |
@@ -143,9 +143,10 @@ Detalhes, sondas e limites: [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) e
 ## Caminho em nuvem (custa dinheiro)
 
 **Custo primeiro:** o perfil padrão `core` custa cerca de US$0,12/h com o free tier da GKE ou
-US$0,22/h sem ele. O `full` opcional custa cerca de US$0,16/h ou US$0,26/h, respectivamente.
-Três horas custam cerca de US$0,37–0,67 no `core` ou US$0,49–0,79 no `full`, mais dados e
-armazenamento de backup; um lab full esquecido custa aproximadamente US$119–192/mês. São estimativas
+US$0,22/h sem ele. O `full` opcional custa cerca de US$0,21/h ou US$0,31/h, respectivamente (o preço da malha
+gerenciada não pôde ser confirmado e não está na conta). Três horas custam cerca de US$0,37–0,67 no
+`core` ou US$0,64–0,94 no `full`, mais dados e armazenamento de backup; um lab full esquecido custa
+aproximadamente US$155–228/mês. São estimativas
 de preços de tabela conferidos em 2026-10-16, não uma fatura, e a conta pode usar outra moeda:
 veja [docs/CUSTOS.md](docs/CUSTOS.md). O budget do bootstrap começa em 5 unidades da moeda e só
 avisa. Use um projeto dedicado e destrua no mesmo dia.
