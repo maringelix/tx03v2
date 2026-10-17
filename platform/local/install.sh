@@ -3,7 +3,7 @@
 # scripts/local-lab.sh up; re-running it upgrades in place). Components, in order:
 #   1. cluster preparation: namespaces, registry hosting ConfigMap, load balancer label of the node
 #   2. Gateway API CRDs (experimental channel for the HTTPRoute retries of the mesh exercise, pinned asset)
-#   3. Istio ambient (base, istiod, istio-cni, ztunnel; GatewayClass istio, waypoint of the app namespace)
+#   3. Istio ambient (base, istiod, istio-cni, ztunnel; GatewayClasses istio and istio-waypoint)
 #   4. cert-manager + ClusterIssuer lab-ca (lab CA of terraform/envs/local)
 #   5. External Secrets Operator + ClusterSecretStore local-secrets (Secrets of lab-secrets)
 #   6. contract of the local lab: ConfigMaps lab-contract and lab-ca (namespace lab-system)
@@ -87,15 +87,9 @@ install_istio() {
     --values "$HERE/values/ztunnel.yaml"
   # istiod creates the GatewayClass once it runs.
   retry 60 2 kubectl get gatewayclass istio >/dev/null 2>&1 || die "istiod did not create the GatewayClass istio"
+  # Waypoints are created by the apps (dx03v2 declares its own Gateway of this class for the mesh exercise).
   retry 60 2 kubectl get gatewayclass istio-waypoint >/dev/null 2>&1 || die "istiod did not create the GatewayClass istio-waypoint"
   kubectl wait --for=condition=Accepted gatewayclass/istio --timeout=120s >/dev/null
-  # The waypoint of the app namespace: L7 policy, routing and ejection for the service-mesh exercise of dx03v2.
-  retry 10 6 kubectl apply -f "$HERE/manifests/waypoint.yaml" >/dev/null ||
-    die "could not apply the dx03v2 ambient waypoint (istiod webhook not ready?)"
-  kubectl wait --namespace dx03v2 --for=condition=Programmed gateway/dx03v2-waypoint --timeout=300s >/dev/null ||
-    die "Istio did not program the dx03v2 ambient waypoint"
-  kubectl label namespace dx03v2 istio.io/use-waypoint=dx03v2-waypoint --overwrite >/dev/null
-  kubectl label namespace dx03v2 istio.io/ingress-use-waypoint=true --overwrite >/dev/null
   retry 10 6 kubectl apply -f "$HERE/manifests/gateway-request-id.yaml" >/dev/null ||
     die "could not apply the EnvoyFilter gateway-preserve-request-id (istiod webhook not ready?)"
 }
