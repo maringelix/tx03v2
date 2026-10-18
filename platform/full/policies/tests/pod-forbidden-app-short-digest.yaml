@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: forbidden-app-short-digest
+  namespace: dx03v2
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  containers:
+    - name: api
+      image: __ARTIFACT_REGISTRY_REPOSITORY__/api@sha256:abc
+    - name: istio-proxy
+      image: gcr.io/gke-release/asm/proxyv2:1.31.1-asm.19-distroless@sha256:79203f710b6568d832907e2184aaa345b1aecc9d9b21afcc8f477302c7dbbee9

@@ -279,9 +279,20 @@ Ao atualizar um lab criado antes do contrato v2: `roles/cloudtrace.agent` entrou
 bootstrap de novo (seção 2) antes do apply.
 
 Na primeira atualização do bootstrap para esta rodada R4, aplique-o antes do root `terraform/envs/lab`
-para criar o papel `tx03v2VeleroBucket` e sua concessão condicionada ao bucket derivado. O root do lab
-usa essa identidade para criar e gerir somente os metadados do bucket do Velero (SEC-21); esse papel
+para criar o papel `tx03v2VeleroBucket` e sua concessão condicionada aos dois nomes derivados,
+`tx03v2-lab-velero-<project_id>` e `tx03v2-lab-dr-velero-<project_id>`. Antes do primeiro apply DR,
+reaplique o bootstrap: a condição antiga admitia somente o bucket primário. O root do lab
+usa essa identidade para criar e gerir somente os metadados dos buckets do Velero (SEC-21); esse papel
 não lê nem altera os objetos de backup.
+
+Ao reinstalar `full`, o instalador aplica a constraint `LabGcpAllowedImages/allowed-repos` antes de
+remover somente a antiga `LabAllowedRepos/allowed-repos`. Ela verifica o Pod depois da injeção:
+API, web, migração e outros containers precisam dos digests do app; a exceção do mesh permite apenas
+`istio-proxy` e `istio-validation` com `gcr.io/gke-release/asm/proxyv2:<tag>` ou `@sha256:<digest>`.
+Um path ou nome novo do proxy deve ser revisado, nunca liberar todo `gcr.io`. A versão do proxy é
+gerenciada pelo Google; o teste de fixture não fixa a versão no cluster. A política Kyverno fica em
+`mode: Kubernetes` e verifica os três grupos de imagens do app, sem exigir a atestação GitHub do
+fork para a imagem gerenciada pelo Google. A homologação dessa admissão no Autopilot segue pendente.
 
 Ao atualizar um lab criado antes da R3.16 (o apply perdeu Editor, Secret Manager Admin e Service
 Account User no projeto): a conta `tx03v2-lab-nodes` passou do root do lab para o bootstrap. Tire-a do

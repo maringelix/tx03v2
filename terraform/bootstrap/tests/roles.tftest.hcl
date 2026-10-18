@@ -235,7 +235,7 @@ run "apply_manages_velero_bucket_metadata_but_not_backup_objects" {
       "storage.buckets.setIamPolicy",
       "storage.buckets.update",
     ])
-    error_message = "The apply identity may manage only the dedicated backup bucket and its IAM policy."
+    error_message = "The apply identity may manage only backup bucket metadata and IAM, with no object permission."
   }
 
   assert {
@@ -246,9 +246,9 @@ run "apply_manages_velero_bucket_metadata_but_not_backup_objects" {
       google_project_iam_member.apply_velero_bucket.role == "projects/tx03v2-lab-example/roles/tx03v2VeleroBucket" &&
       google_project_iam_member.apply_velero_bucket.member == "serviceAccount:tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com" &&
       google_project_iam_member.apply_velero_bucket.condition[0].title == "velero-bucket-only" &&
-      google_project_iam_member.apply_velero_bucket.condition[0].expression == "resource.type == 'storage.googleapis.com/Bucket' && resource.name == 'projects/_/buckets/tx03v2-lab-velero-tx03v2-lab-example'"
+      google_project_iam_member.apply_velero_bucket.condition[0].expression == "resource.type == 'storage.googleapis.com/Bucket' && resource.name in ['projects/_/buckets/tx03v2-lab-velero-tx03v2-lab-example', 'projects/_/buckets/tx03v2-lab-dr-velero-tx03v2-lab-example']"
     )
-    error_message = "Terraform can manage metadata only on the exact Velero bucket, cannot read backup contents, and cannot affect other buckets."
+    error_message = "Terraform can manage metadata only on the two exact Velero buckets, cannot read backup contents, and cannot affect other buckets."
   }
 }
 

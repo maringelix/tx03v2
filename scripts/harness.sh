@@ -93,6 +93,7 @@ REQUIRED_FILES=(
   platform/full/charts.txt platform/full/helm-plugins/chaos-mesh-no-daemon/plugin.yaml
   platform/full/helm-plugins/chaos-mesh-no-daemon/no-daemon.sh
   platform/full/policies/constraints/allowed-repos.yaml
+  platform/full/policies/templates/labgcpallowedimages.yaml scripts/tests/image-admission.sh
   platform/full/policies/tests/suite.yaml platform/full/policies/tests/pod-artifact-registry.yaml
   platform/full/policies/tests/pod-other-project.yaml
   platform/full/policies/tests/namespace-dx03v2.yaml
@@ -983,7 +984,7 @@ check_kubeconform() {
     -cache "$HARNESS_WORK_DIR/kubeconform-cache" \
     -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/$K8S_SCHEMA_REF/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
     -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRD_SCHEMA_REF/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
-    "$rendered" "$full" "$gitops"
+    "$rendered" "$full" "$gitops" platform/full/policies/templates
 }
 
 # The platform layer of contract v2, parsed from the rendered manifests (kubectl, no cluster):
@@ -1886,6 +1887,7 @@ register_checks() {
   register static policy-identifiers check_policy_identifiers
   register static volume-restore-wiring 'bash scripts/tests/volume-restore-wiring.sh'
   register static finops 'bash scripts/tests/finops.sh'
+  register static cost-allocation 'bash scripts/tests/cost-allocation.sh'
   register static finops-charts 'bash scripts/tests/finops-charts.sh'
   register static policy-workflows check_policy_workflows
   register static policy-scripts check_policy_scripts
@@ -1899,6 +1901,7 @@ register_checks() {
   register static contract-platform check_contract_platform
   register static contract-platform-full check_contract_platform_full
   register static image-admission-policy check_image_admission_policy
+  register static image-admission-fixtures 'bash scripts/tests/image-admission.sh'
   register static full-install-order check_full_install_order
   register static contract-parameter check_contract_parameter
   register static fork-references check_fork_references

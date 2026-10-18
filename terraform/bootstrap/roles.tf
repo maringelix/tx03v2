@@ -110,7 +110,7 @@ resource "google_project_iam_custom_role" "lab_secrets" {
   depends_on = [google_project_service.lab]
 }
 
-# tx03v2-gha-apply manages metadata and IAM only on the exact derived Velero bucket. The IAM
+# tx03v2-gha-apply manages metadata and IAM only on the two exact derived Velero buckets. The IAM
 # condition also scopes bucket creation by its requested name; the role cannot inspect or alter any
 # other bucket. It cannot read, list, create or delete backup objects.
 resource "google_project_iam_custom_role" "velero_bucket" {
@@ -142,8 +142,8 @@ resource "google_project_iam_member" "apply_velero_bucket" {
 
   condition {
     title       = "velero-bucket-only"
-    description = "Limit bucket metadata operations, including create, to tx03v2-lab's derived Velero bucket."
-    expression  = "resource.type == 'storage.googleapis.com/Bucket' && resource.name == 'projects/_/buckets/tx03v2-lab-velero-${var.project_id}'"
+    description = "Limit bucket metadata operations to the exact primary and optional DR Velero buckets."
+    expression  = "resource.type == 'storage.googleapis.com/Bucket' && resource.name in ['projects/_/buckets/tx03v2-lab-velero-${var.project_id}', 'projects/_/buckets/tx03v2-lab-dr-velero-${var.project_id}']"
   }
 }
 
