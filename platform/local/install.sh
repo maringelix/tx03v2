@@ -156,7 +156,7 @@ install_external_secrets() {
   kubectl wait --for=condition=Ready clustersecretstore/local-secrets --timeout=180s >/dev/null
 }
 
-# Contract of the local lab (docs/CONTRACT.md, "Lab local"): what the dx03v2 local deploy reads, like
+# Contract of the local lab (docs/CONTRACT.md, "Local lab"): what the dx03v2 local deploy reads, like
 # the Parameter Manager parameter tx03v2-lab-contract in the cloud.
 publish_contract() {
   local ca="$WORK_DIR/ca.crt"
