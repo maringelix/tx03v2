@@ -1,144 +1,151 @@
-# R10 — escala, capacidade e FinOps
+# R10 — scaling, capacity and FinOps
 
-## Estado e pré-requisitos
+## Status and prerequisites
 
-Construção para fork; nenhuma operação foi executada em GCP (v2).
-O CI executa Docker. Os comandos cloud abaixo exigem a rodada autorizada do dono
-do fork, domínio/conta e orçamento próprios. FinOps é opt-in, perfil full.
-O caminho local padrão continua com um nó; o ensaio de capacidade usa três nós
-kind e recomenda 12 GiB disponíveis no Docker. Não combine HA com LOCAL_SIZE=small.
+Built for forks; no GCP v2 operation has run in the cloud.
+CI runs Docker. The cloud commands below require a run authorized by the fork's
+owner, using their own domain/account and budget. FinOps is opt-in with profile
+`full`. The default local path still uses one node; the capacity experiment uses
+three kind nodes and recommends 12 GiB available to Docker. Do not combine HA
+with `LOCAL_SIZE=small`.
 
-## Aula local: HPA, PDB e interrupção
+## Local lesson: HPA, PDB and interruption
 
-Em Linux/devcontainer, execute:
+On Linux/a devcontainer, run:
 
     make tools
     LOCAL_TOPOLOGY=ha LOCAL_FINOPS=1 make e2e
 
-scripts/local/capacity-drill.sh cria um namespace exclusivo e recusa adotá-lo
-caso já exista. Uma fixture Node fixada por digest gera CPU numa worker thread;
-o HTTP fica responsivo. A sonda exige HPA 1 → 3 → 1 sob carga limitada,
-recusa de eviction do último pod pelo PDB, drenagem de um worker pertencente ao
-kind e redistribuição dos três pods nos nós restantes. A drenagem usa seletor
-somente da fixture: não remove os pods persistentes da plataforma.
+`scripts/local/capacity-drill.sh` creates an exclusive namespace and refuses to
+adopt an existing one. A Node fixture pinned by digest generates CPU load in a
+worker thread while HTTP stays responsive. The probe requires HPA 1 → 3 → 1
+under bounded load, refusal to evict the last pod under its PDB, draining a worker
+owned by kind and rescheduling the three pods onto the remaining nodes. The drain
+selects only the fixture; it does not remove persistent platform pods.
 
-O cliente acessa o Service durante a drenagem, mede erro <= 1% e p99 <= 1 s,
-sem usar port-forward para um pod. A limpeza sempre descordona o nó e remove
-o namespace criado. Falhas mostram pods/HPA/PDB/VPA/eventos; não imprimem Secrets.
-O relatório JSON contém as medidas e os critérios. As sondas anteriores de
-mesh, backup, PITR, observabilidade, políticas e Chaos continuam obrigatórias.
+The client accesses the Service during the drain and measures errors <=1% and
+p99 <=1 s, without forwarding a pod port. Cleanup always uncordons the node and
+removes the created namespace. Failures show pods/HPA/PDB/VPA/events without
+printing Secrets. The JSON report contains measurements and acceptance criteria.
+The preceding mesh, backup, PITR, observability, policy and Chaos probes remain
+mandatory.
 
-O VPA precisa produzir uma recomendação, mantendo updateMode Off e os requests
-originais. OpenCost precisa retornar custo positivo medido para o namespace da
-fixture pela API /allocation. A sonda consulta novamente por até cinco minutos
-(sete tentativas com intervalo de 30 s e timeout HTTP de 15 s), porque os scrapes
-e o modelo de alocação convergem de forma assíncrona. A primeira resposta sem
-custo positivo continua sendo rejeitada; esgotar as tentativas falha com diagnóstico
-somente dos metadados sintéticos de custo. A correção porta o comportamento já
-usado no par AWS, após uma falha preexistente do gate R10 no GCP. O pin local do
-dx03v2 deve acompanhar esse commit após o merge (guardrail `family-ref`).
-As tarifas locais são uma simulação determinística,
-explicitamente identificada em platform/finops/pricing/local.json.
+VPA must produce a recommendation while retaining `updateMode: Off` and the
+original requests. OpenCost must return a measured positive cost for the fixture
+namespace through `/allocation`. The probe retries for up to five minutes (seven
+attempts, 30 s intervals and a 15 s HTTP timeout), because scrapes and allocation
+model convergence are asynchronous. The first response without a positive cost
+still fails the assertion; exhausting retries fails with diagnostics containing
+only synthetic cost metadata. This correction ports the behavior already used
+by the AWS pair after a pre-existing GCP R10 convergence failure. The dx03v2 local
+pin must follow that commit after merge (`family-ref` guardrail).
+Local rates are a deterministic simulation, explicitly identified in
+`platform/finops/pricing/local.json`.
 
-## GKE Autopilot e Spot
+## GKE Autopilot and Spot
 
-Autopilot provisiona capacidade a partir dos requests dos pods e já oferece VPA.
-Não instalamos outro controlador VPA na nuvem: somente o objeto Off. HPA escala
-réplicas; VPA recomenda requests; a capacidade gerenciada permanece uma prova
-separada. Sem homologação cloud não afirmamos tempo de escala nem economia.
+Autopilot provisions capacity from pod requests and already provides VPA. We do
+not install another cloud VPA controller, only the Off object. HPA scales replicas;
+VPA recommends requests; managed capacity remains a separate proof. Without cloud
+validation, we claim neither scaling time nor savings.
 
-O Job platform/finops/manifests/spot-job.yaml é uma aula finita, com requests,
-limites, deadline e TTL. Exige Spot; disponibilidade não é garantida. Nunca migre
-PostgreSQL, Argo CD, monitoramento ou o mínimo de réplicas críticas para esse Job.
-Na rodada autorizada, aplique o Job e observe eventos, nó escolhido e conclusão.
-Se ficar Pending por falta de Spot, cancele-o e execute a mesma tarefa num Job
-com outro nome, removendo nodeSelector/tolerations de Spot. Para exigir on-demand,
-adicione nodeAffinity required com a chave cloud.google.com/gke-spot e operador
-DoesNotExist. Registre a decisão, deadline e custo; não deixe a tentativa pendente.
-A interrupção real de Spot e o aumento/redução de nós GKE não são inferidos do kind.
+`platform/finops/manifests/spot-job.yaml` is a finite lesson with requests, limits,
+a deadline and TTL. It requires Spot; availability is not guaranteed. Never move
+PostgreSQL, Argo CD, monitoring or the critical replica minimum into this Job.
+During an authorized run, apply the Job and observe events, the chosen node and
+completion. If Spot capacity leaves it Pending, cancel it and run the same task
+in a differently named Job, removing Spot `nodeSelector`/tolerations. To require
+on-demand capacity, add required nodeAffinity with key `cloud.google.com/gke-spot`
+and operator `DoesNotExist`. Record the decision, deadline and cost; do not leave
+the attempt pending. A kind result cannot establish real Spot interruption or
+GKE node scaling behavior.
 
-## Tarifas e instalação
+## Rates and installation
 
-OpenCost 2.5.33 / 1.121.3 e VPA 0.14.0 / 1.8.0 têm archives SHA256 e imagens
-fixados em platform/finops/versions.env e nos values. A API é ClusterIP,
-UI/MCP/cloud billing ingestion ficam desligados. O exporter usa preços configurados
-e Prometheus existente; não recebe credenciais de faturamento.
+OpenCost chart 2.5.33 / app 1.121.3 and VPA chart 0.14.0 / app 1.8.0 have archive
+SHA256 checksums and image pins in `platform/finops/versions.env` and values files.
+The API is ClusterIP; UI/MCP/cloud billing ingestion are disabled. The exporter
+uses configured rates and the existing Prometheus, without billing credentials.
 
-Para cloud, forneça FINOPS_PRICING_FILE: JSON com cloud=gcp, region da região
-selecionada, currency=USD, mode=estimate, source HTTPS, asOf revisado nos últimos
-31 dias, description, cpuPerCoreHour, ramPerGiBHour e storagePerGiBHour como
-strings decimais positivas. Consulte os preços atuais do provedor; não reutilize
-a simulação local como cotação. Spot usa a tarifa on-demand como limite conservador.
+For the cloud, provide `FINOPS_PRICING_FILE`: JSON with `cloud=gcp`, `region` equal
+to the selected region, `currency=USD`, `mode=estimate`, an HTTPS `source`, `asOf`
+reviewed within 31 days, `description`, and `cpuPerCoreHour`, `ramPerGiBHour` and
+`storagePerGiBHour` as positive decimal strings. Consult current provider prices;
+do not reuse the local simulation as a quote. Spot uses the on-demand rate as a
+conservative upper bound.
 
-Na rodada autorizada, o instalador aceita --profile full --finops. O workflow
-platform tem input finops e obtém as tarifas da variável LAB_FINOPS_PRICING_JSON.
-Secondary precisa de tarifas da região secondary. Valores errados/stale falham.
-O dashboard Grafana "Lab FinOps" mostra CPU/RAM por namespace e explica idle/shared.
-Compare /allocation?window=1h&aggregate=namespace&includeIdle=true e
-aggregate=label:cost_lab_owner para showback. Labels de owner/ambiente são obrigatórios
-nas aulas; os DX verificam os próprios manifests e fazem rightsizing sob SLO.
+During an authorized run, the installer accepts `--profile full --finops`.
+The `platform` workflow has input `finops` and reads rates from variable
+`LAB_FINOPS_PRICING_JSON`. Secondary requires rates for the secondary region.
+Wrong/stale values fail. The Grafana "Lab FinOps" dashboard shows CPU/RAM by
+namespace and explains idle/shared costs. Compare
+`/allocation?window=1h&aggregate=namespace&includeIdle=true` and
+`aggregate=label:cost_lab_owner` for showback. Owner/environment labels are
+mandatory in lessons; each DX checks its own manifests and rightsizes under an SLO.
 
-## Estimativa antes do apply e expiração
+## Estimate before apply and expiry
 
-Os workflows terraform-plan e terraform-apply chamam scripts/cost-workflow.sh
-depois de salvar tfplan; apply só ocorre se o gate passar.
-Configure LAB_FINOPS_PRICING_JSON, LAB_COST_BUDGET_USD, LAB_COST_HOURS (<=24)
-e LAB_COST_EXPIRES_AT (UTC nas próximas 24h). Atualize o prazo a cada rodada.
-O prazo precisa caber na duração orçada. São entradas públicas sem identificadores.
+`terraform-plan` and `terraform-apply` call `scripts/cost-workflow.sh` after saving
+`tfplan`; apply occurs only if the gate passes. Configure `LAB_FINOPS_PRICING_JSON`,
+`LAB_COST_BUDGET_USD`, `LAB_COST_HOURS` (<=24) and `LAB_COST_EXPIRES_AT` (UTC within
+the next 24 hours). Update the deadline for each run. The deadline must fit inside
+the budgeted duration. These public inputs contain no identifiers.
 
-Para preparar a planilha de revisão fora do CI:
+To prepare the review worksheet outside CI:
 
     umask 077
     terraform -chdir=terraform/envs/lab show -json tfplan > /tmp/plan-private.json
     bash scripts/cost-pricing-template.sh gcp us-central1 /tmp/plan-private.json /tmp/rates.json
 
-A planilha é deliberadamente incompleta: preencha todos os tipos com custo por
-recurso/hora na MAIOR configuração prevista (HA/DR, nós máximos, tamanhos de DB).
-Use zero somente para tipos sem cobrança ou já incluídos, registrando a justificativa.
-O gate recusa qualquer tipo sem preço. Também exige as categorias externas backup,
-controlPlane, database, dr, egress, loadBalancer, nat, storage e waf, inclusive zero justificado para evitar
-dupla contagem. Isso cobre custos dos controladores fora do Terraform.
-As tarifas de CPU/RAM/disco do OpenCost e o inventário do plano são complementares:
-não some os dois relatórios como se fossem faturas independentes.
+The worksheet is deliberately incomplete: fill every type with a per-resource
+hourly cost at the LARGEST planned configuration (HA/DR, maximum nodes, database
+sizes). Use zero only for unbilled/already included types, with a justification.
+The gate rejects unpriced types. It also requires external categories `backup`,
+`controlPlane`, `database`, `dr`, `egress`, `loadBalancer`, `nat`, `storage` and
+`waf`, including justified zeros to avoid double counting. This covers costs
+created by controllers outside Terraform. OpenCost CPU/RAM/disk rates and the
+plan inventory complement each other; do not add the reports as independent bills.
 
-O JSON do plano pode conter segredos e nunca é artefato público. O relatório
-mostra apenas tipos, contagens, tarifas, fonte/data, total, budget e expiração.
-As fixtures do CI provam aritmética, rejeição de cenário caro, tarifas antigas e
-recursos não precificados. Não são preços de GCP.
+Plan JSON may contain secrets and must never become a public artifact. The report
+shows only types, counts, rates, source/date, total, budget and expiry. CI fixtures
+prove arithmetic and rejection of expensive scenarios, stale rates and unpriced
+resources. They are not GCP prices.
 
-Budget é alerta e este gate é estimativa: nenhum deles limita faturamento.
-A expiração bloqueia novos plans/applies com prazo vencido e exige destruir ao fim
-da aula; não cria um robô com credencial para destruir contas. Use o teardown
-existente, verifique o inventário de sobras e registre retenções de backup/state
-que continuam cobrando. Interrompa carga no deadline mesmo se o exercício falhar.
+A budget is an alert and this gate is an estimate; neither caps billing. Expiry
+blocks new plans/applies after the deadline and requires destruction at lesson
+end; it does not create a credentialed robot to destroy accounts. Use existing
+teardown, inspect leftovers and record backup/state retention that continues to
+incur charges. Stop load at the deadline even if the exercise fails.
 
-## Diagnóstico e limites
+## Diagnosis and limits
 
-Sem HPA: veja metrics-server, requests e ScalingActive. Sem rescheduling: veja
-cordon, PDB, afinidade, quotas e eventos. VPA Off nunca atualiza requests sozinho.
-Sem alocação: confira ServiceMonitor, targets do Prometheus, janela com amostras,
-permissões de leitura do exporter e preços. Sem preço regional revisado, o gate falha.
-Compare carga/SLO antes e depois; não declare economia apenas reduzindo requests.
+No HPA: inspect metrics-server, requests and `ScalingActive`. No rescheduling:
+inspect cordon, PDB, affinity, quotas and events. VPA Off never changes requests
+itself. No allocation: inspect ServiceMonitor, Prometheus targets, the sampling
+window, exporter read permissions and rates. Without reviewed regional rates, the
+gate fails. Compare load/SLO before and after; lowering requests alone is no proof
+of savings.
 
-Leia [OpenCost Helm](https://opencost.io/docs/installation/helm/),
-[API de alocação](https://opencost.io/docs/integrations/api-examples/),
-[VPA no GKE](https://cloud.google.com/kubernetes-engine/docs/how-to/vertical-pod-autoscaling)
-e [Spot no Autopilot](https://cloud.google.com/kubernetes-engine/docs/how-to/autopilot-spot-pods).
+Read [OpenCost Helm](https://opencost.io/docs/installation/helm/),
+[allocation API](https://opencost.io/docs/integrations/api-examples/),
+[GKE VPA](https://cloud.google.com/kubernetes-engine/docs/how-to/vertical-pod-autoscaling)
+and [Autopilot Spot](https://cloud.google.com/kubernetes-engine/docs/how-to/autopilot-spot-pods).
 
-### Custo externo, idle e owner no dashboard
+### External cost, idle and owner in the dashboard
 
-O arquivo de tarifas também exige externalHourly com backup, controlPlane, database,
-dr, egress, loadBalancer, nat, storage e waf (USD/h). Zero exige justificativa de
-inclusão/ausência; evite contar o mesmo custo no recurso Terraform e na categoria
-externa. O instalador cria a recording rule lab_external_hourly_estimate; o dashboard
-mostra as categorias, owner/ambiente, infraestrutura compartilhada e idle estimado.
-Kube-state-metrics expõe somente as duas labels de showback adicionais. A simulação
-local tem externos zero; tarifas cloud são preenchidas pelo dono do fork.
+The rates file also requires `externalHourly` with `backup`, `controlPlane`,
+`database`, `dr`, `egress`, `loadBalancer`, `nat`, `storage` and `waf` (USD/h).
+Zero requires an inclusion/absence justification; avoid counting the same cost
+in a Terraform resource and an external category. The installer creates recording
+rule `lab_external_hourly_estimate`; the dashboard shows categories,
+owner/environment, shared infrastructure and estimated idle. Kube-state-metrics
+exposes only the two additional showback labels. Local simulation uses zero
+external costs; the fork owner fills cloud rates.
 
-LimitRange preenche limites ausentes antes da quota (CPU 1, RAM 512Mi por container;
-requests padrão 10m/64Mi). Requests/limits explícitos são preservados, incluindo os
-recursos dos proxies. A quota continua bloqueante.
+LimitRange fills missing limits before quota admission (CPU 1, RAM 512Mi per
+container; default requests 10m/64Mi). Explicit requests/limits, including proxy
+resources, are preserved. Quotas remain enforcing.
 
-Para o plano com DR, estime o maior SKU e a maior tarifa entre as regiões abrangidas;
-registre essa escolha na descrição da fonte. No Autopilot, idle de nós é um modelo
-de capacidade e não cobrança de VM ociosa: a alocação usa requests dos pods.
+For a DR plan, estimate the largest SKU and highest rate among the covered regions;
+record that choice in the source description. In Autopilot, node idle is a capacity
+model rather than idle VM billing: allocation uses pod requests.

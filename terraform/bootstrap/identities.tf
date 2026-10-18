@@ -1,4 +1,4 @@
-# GitHub Actions identities of the contract (docs/CONTRATO.md): a Workload Identity Federation
+# GitHub Actions identities of the contract (docs/CONTRACT.md): a Workload Identity Federation
 # pool with one OIDC provider for GitHub, three service accounts (no keys, ever) and one
 # roles/iam.workloadIdentityUser grant per exact subject. The provider condition admits only
 # tokens of the two lab repositories of the owner, by the numeric IDs of the owner and of the

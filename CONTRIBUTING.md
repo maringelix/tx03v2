@@ -22,11 +22,11 @@ Forking the lab to run it on your own machine and cloud account? Start with [FOR
 - Do not weaken checks or add scanner ignores without `statement` and `expired_at`.
 - Explain any IAM role (including the list of `terraform/modules/project-roles`), network,
   Kubernetes RBAC or CORS widening in the PR.
-- Contract changes (`docs/CONTRATO.md`) need a coordinated PR in `dx03v2` and a version bump.
+- Contract changes (`docs/CONTRACT.md`) need a coordinated PR in `dx03v2` and a version bump.
 - Pin new actions (full commit SHA + `# vX.Y.Z`), charts and images (SHA256/digest) and tools
   (version + SHA256).
-- Docs live in Brazilian Portuguese (`docs/`, `README.pt-BR.md`); `README.md`, `AGENTS.md`,
-  `CONTRIBUTING.md`, `SECURITY.md` and `CHANGELOG.md` in English.
+- All public documentation, examples, comments and contributor guidance are written in English.
+  Use the single `README.md` and the [family onboarding guide](https://github.com/maringelix/tx00v2/blob/main/docs/GETTING_STARTED.md).
 
 ## Cloud runs
 

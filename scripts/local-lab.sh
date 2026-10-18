@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The local lab (docs/LAB_LOCAL.md): the Google Cloud lab of tx03v2 emulated on the Docker daemon of
+# The local lab (docs/LOCAL_LAB.md): the Google Cloud lab of tx03v2 emulated on the Docker daemon of
 # this machine, with the full platform of the v1 lab on top. Nothing here touches Google Cloud.
 # usage: scripts/local-lab.sh <command>
 #   preflight          checks the machine (what up checks first); creates nothing

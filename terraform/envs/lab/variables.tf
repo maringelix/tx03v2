@@ -363,7 +363,7 @@ variable "dr_control_plane_cidr" {
 }
 
 variable "enable_waf" {
-  description = "Cloud Armor policy tx03v2-lab-waf (preconfigured SQLi and XSS rules) for the Gateway backends. Parity with tx01v2/tx02v2; about US$7/month for the policy and its rules (docs/CUSTOS.md)."
+  description = "Cloud Armor policy tx03v2-lab-waf (preconfigured SQLi and XSS rules) for the Gateway backends. Parity with tx01v2/tx02v2; about US$7/month for the policy and its rules (docs/COSTS.md)."
   type        = bool
   default     = true
 }

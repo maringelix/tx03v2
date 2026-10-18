@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Standardize public documentation, contributor/agent guidance and comments in English;
+  rename runbooks to canonical English paths and preserve historical lessons and evidence.
+  Consolidate the README, link the central onboarding guide, and align cost inputs,
+  bootstrap, signed publication/promotion, managed readiness and DR teardown instructions
+  with the implemented workflows. The harness preserves status/honesty checks for the
+  English entrypoint. No cloud execution is claimed.
+
 ### Fixed
 
 - Pre-existing R10 local cost-probe race: port the proven AWS bounded OpenCost polling (seven
@@ -39,10 +48,10 @@ All notable changes to this project are documented here. The format follows
   in the Velero namespace; the non-root server and restricted application context are retained.
   Repository encryption uses a private, persistent-for-the-lab random password.
 
-- R9 de continuidade em construção: perfis opt-in `core|ha|dr` da Cloud SQL; HA regional com
-  CPU dedicada, PITR, retenção e proteção configuráveis; no DR, réplica PostgreSQL cross-region,
-  VPC/GKE/registry/segredos/contrato/Velero secundários. Exercício Docker de backup físico e WAL
-  rejeita corrupção e recupera um ponto conhecido. A execução no Google Cloud segue não homologada.
+- R9 continuity construction: opt-in Cloud SQL core/ha/dr profiles; regional dedicated-CPU
+  HA, configurable PITR/retention/protection; DR cross-region PostgreSQL replica and secondary
+  VPC/GKE/registry/secrets/contract/Velero. Docker physical-backup/WAL exercise rejects
+  corruption and recovers a known point. Google Cloud execution remains unvalidated.
 
 - R8 for the GKE `full` profile (contract version 4, coordinated with dx03v2): optional Cloud DNS zone,
   Google-managed certificate and Certificate Map for an HTTPS Gateway; managed Cloud Service Mesh with
@@ -97,7 +106,7 @@ All notable changes to this project are documented here. The format follows
     `PERMISSION_DENIED`: the roles come from the documentation of each service, not from an apply.
   - The roles are still project-wide, not tied to `tx03v2-lab-*` names (a role cannot be tied to a
     resource that does not exist yet): the project must be the lab's own, as `scripts/preflight.sh`
-    checks. `docs/GUARDRAILS.md` (SEC-20 and "Limites") and `docs/ARQUITETURA.md` (ADR 15) say so.
+    checks. `docs/GUARDRAILS.md` (SEC-20 and "Limites") and `docs/ARCHITECTURE.md` (ADR 15) say so.
     New tests in `terraform/bootstrap/tests/roles.tftest.hcl`; `leftovers.sh` lists the node account
     as a bootstrap resource that stays.
 - The cloud path no longer trusts anyone who registers a deleted account name, it works for the
@@ -143,11 +152,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- Comments, script messages and docs say "the contract" or point to `docs/CONTRATO.md` instead of
+- Comments, script messages and docs say "the contract" or point to `docs/CONTRACT.md` instead of
   "contract v1": the contract has been at version 2 since round 1 (roadmap S.8); the README says that HTTPS on the Gateway is outside contract v2.
 - The family table of both READMEs links the family hub `tx00v2` (roadmap, family guardrails,
   cross-repo checks).
-- `docs/GUARDRAILS.md`, `docs/ARQUITETURA.md` and `docs/CONTRATO.md` no longer say that the
+- `docs/GUARDRAILS.md`, `docs/ARCHITECTURE.md` and `docs/CONTRACT.md` no longer say that the
   end-to-end run of the local lab and the local deploy of dx03v2 are pending: the CI jobs `e2e` (here)
   and `e2e-platform` (dx03v2) run them on every pull request.
 - `scripts/repo-guardrails.sh` also turns issues on (the issue forms) and requires approval for
@@ -160,10 +169,10 @@ All notable changes to this project are documented here. The format follows
 - README status matrix: repository settings as code are applied (read back with `gh api` on
   2026-10-13), no longer `planned`.
 - The CI (`static`, `test`) ran green on GitHub: the README status matrix now says `verified in CI`
-  for the harness rows (AGENTS.md, docs/SUSTENTACAO.md and docs/LICOES_APRENDIDAS.md follow).
+  for the harness rows (AGENTS.md, docs/MAINTENANCE.md and docs/LESSONS_LEARNED.md follow).
 - `dx03v2` exists and is public (CI green there): the README family tables link it, and AGENTS.md,
-  docs/RUNBOOK.md (section 6 points to its `deploy-gcp` workflow and runbook), docs/SUSTENTACAO.md,
-  docs/ARQUITETURA.md and docs/LICOES_APRENDIDAS.md stop calling it `planned`; its deploy stays
+  docs/RUNBOOK.md (section 6 points to its `deploy-gcp` workflow and runbook), docs/MAINTENANCE.md,
+  docs/ARCHITECTURE.md and docs/LESSONS_LEARNED.md stop calling it `planned`; its deploy stays
   `not run in the cloud (v2)`.
 
 ### Added
@@ -221,7 +230,7 @@ All notable changes to this project are documented here. The format follows
 - The devcontainer has Docker-in-Docker, so `make e2e` runs inside it (verified locally with
   `LOCAL_PROFILE=core`), and declares 4 CPUs and 8 GB; the harness checks that devcontainer features
   are pinned by digest.
-- The local lab (docs/LAB_LOCAL.md), ported from tx01v2: the whole v1 platform on Docker, with no
+- The local lab (docs/LOCAL_LAB.md), ported from tx01v2: the whole v1 platform on Docker, with no
   cloud account. `make e2e` verified locally and in CI (26 probes, destroy with no leftovers).
   - `terraform/envs/local` (providers docker 4.6.0, tls 4.4.1, random 3.9.1): network
     `tx03v2-local` (`10.252.0.0/24`), kind 1.36 cluster (the GKE Autopilot twin), emulated Artifact
@@ -251,7 +260,7 @@ All notable changes to this project are documented here. The format follows
     with a hypothesis). `platform/local/uninstall.sh` stops the Argo CD application controller before
     deleting Gateways and Services of type LoadBalancer.
   - `scripts/local-lab.sh` (up, down, check, e2e, kubeconfig, status) and
-    `scripts/leftovers-local.sh`; local contract `lab-system/lab-contract` (docs/CONTRATO.md), with
+    `scripts/leftovers-local.sh`; local contract `lab-system/lab-contract` (docs/CONTRACT.md), with
     the same keys as tx01v2.
   - Harness: checks `local-versions` (the kind node minor equals `GKE_KUBERNETES_MINOR`, the local
     ESO archive SHA256 equals `ESO_CHART_SHA256`), `helm-template-local`, `kubeconform-local`,
@@ -263,7 +272,7 @@ All notable changes to this project are documented here. The format follows
     providers, remote backends, `0.0.0.0` ports and privileged containers in the local root;
     `trivy-config` skips the gator fixtures. Dependabot watches `terraform/envs/local`.
 - First version of the GCP lab (v2 of the Google Cloud infrastructure), built from scratch with the
-  lessons of v1 (docs/LICOES_APRENDIDAS.md; docs/ARQUITETURA.md, "v1 → v2"):
+  lessons of v1 (docs/LESSONS_LEARNED.md; docs/ARCHITECTURE.md, "v1 → v2"):
   - `terraform/bootstrap`: the 15 APIs of the lab (never disabled on destroy), the state bucket
     `tx03v2-tfstate-<suffix>` (uniform access, public access prevention, versioning, noncurrent
     versions deleted after 30 days, deletion refused until `state_protection = false`), the Workload
@@ -299,9 +308,9 @@ All notable changes to this project are documented here. The format follows
   - GitHub workflows: `ci`, `terraform-plan`, `terraform-apply`, `platform`, `terraform-destroy`;
     ruleset and repository settings as code; Dependabot; issue and PR templates.
   - `scripts/leftovers.sh` to find billable or orphaned leftovers after a destroy.
-  - Brazilian Portuguese docs: architecture, contract v1, runbook, costs (list prices read on
+  - Initial Brazilian Portuguese docs (subsequently translated): architecture, contract v1, runbook, costs (list prices read on
     2026-10-11), guardrails, harness, sustainment, publication checklist, and
-    `docs/LICOES_APRENDIDAS.md` (39 sanitized lessons learned from the GCP v1 lab).
+    `docs/LESSONS_LEARNED.md` (39 sanitized lessons learned from the GCP v1 lab).
 
 ### R10 capacity and FinOps
 

@@ -1,7 +1,7 @@
 # open-telemetry/opentelemetry-collector (chart OTEL_COLLECTOR_CHART_VERSION of platform/versions.env),
 # namespace observability: the entry point of the traces of the lab in Google Cloud, the same Collector
 # as the local lab (platform/local/values/otel-collector.yaml, same image digest). The dx03v2 API sends
-# OTLP/HTTP to opentelemetry-collector.observability.svc:4318 (docs/CONTRATO.md); the Collector adds the
+# OTLP/HTTP to opentelemetry-collector.observability.svc:4318 (docs/CONTRACT.md); the Collector adds the
 # Kubernetes attributes of the sender and writes the spans to Cloud Trace. Its Kubernetes ServiceAccount
 # is the IAM principal itself (Workload Identity Federation for GKE, roles/cloudtrace.agent on the
 # project, terraform/envs/lab/roles.tf): no Google service account, no key. platform/install.sh sets

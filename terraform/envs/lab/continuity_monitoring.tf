@@ -21,7 +21,7 @@ resource "google_monitoring_alert_policy" "replica_lag" {
   }
   alert_strategy { auto_close = "1800s" }
   documentation {
-    content   = "Review lag, last durable backup and replication state before fencing/promoting. Missing telemetry never proves RPO zero. docs/CONTINUIDADE.md."
+    content   = "Review lag, last durable backup and replication state before fencing/promoting. Missing telemetry never proves RPO zero. docs/CONTINUITY.md."
     mime_type = "text/markdown"
   }
 }

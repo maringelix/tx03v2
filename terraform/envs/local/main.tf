@@ -1,5 +1,5 @@
 # Local lab: the Google Cloud lab of tx03v2 emulated on the Docker daemon of this machine
-# (docs/ARQUITETURA.md, "Lab local"). Nothing here talks to Google Cloud. Google Cloud service -> local
+# (docs/ARCHITECTURE.md, "Local lab"). Nothing here talks to Google Cloud. Google Cloud service -> local
 # emulation:
 #   GKE Autopilot -> kind cluster (Kubernetes 1.36)        Artifact Registry -> registry (Distribution 3)
 #   Cloud SQL for PostgreSQL 17 (ENCRYPTED_ONLY) -> postgres:17 (TLS only, lab CA)

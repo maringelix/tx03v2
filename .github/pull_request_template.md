@@ -9,7 +9,7 @@
 - [ ] Docs updated in this PR (README status matrix, docs/*, CHANGELOG `[Unreleased]`)
 - [ ] No new scanner ignore, or each new one has `statement` + `expired_at` and is explained below
 - [ ] No IAM role (including the project role list of `modules/project-roles`), network, Kubernetes RBAC or CORS widening, or the reason is stated below
-- [ ] Contract (docs/CONTRATO.md) unchanged, or version bumped with a coordinated dx03v2 PR linked below
+- [ ] Contract (docs/CONTRACT.md) unchanged, or version bumped with a coordinated dx03v2 PR linked below
 - [ ] Every new dependency, action or image is pinned (version + SHA256 / commit SHA / digest)
 - [ ] No secrets or real identifiers (project IDs and numbers, billing account, name suffixes, service account e-mails, IPs, e-mails) in code, docs or examples
 

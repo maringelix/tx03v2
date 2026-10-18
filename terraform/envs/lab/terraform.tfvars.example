@@ -13,7 +13,7 @@ deploy_service_account = "dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccou
 # platform/install.sh, a subject in the dx03v2-deployers RoleBinding.
 app_deployer_members = ["user:you@example.com"]
 
-# Lab-friendly defaults (change only if you know the cost impact, see docs/CUSTOS.md):
+# Lab-friendly defaults (change only if you know the cost impact, see docs/COSTS.md):
 # enable_waf        = true
 # dns_zone_name      = "example.com"       # optional, delegate its name servers at the registrar
 # app_domain_name    = "lab.example.com"   # required with dns_zone_name for HTTPS

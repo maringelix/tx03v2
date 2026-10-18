@@ -71,7 +71,7 @@ jobs:
           [[ "$TF_VAR_app_deployer_members" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. [\"user:you@example.com\"]")
           if ((${#problems[@]} > 0)); then
             printf '::error::Repository variable problem: %s\n' "${problems[@]}"
-            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'GitHub variables and secrets')."
             exit 1
           fi
           # Identifiers never reach the logs of a public repository.

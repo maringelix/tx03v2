@@ -1,5 +1,5 @@
 # Applies terraform/envs/lab. CLOUD-MUTATING and billable (GKE Autopilot pods, Cloud SQL, the
-# Gateway load balancer and Cloud Armor; docs/CUSTOS.md): dispatch manually, after reading the
+# Gateway load balancer and Cloud Armor; docs/COSTS.md): dispatch manually, after reading the
 # latest terraform-plan run. The `lab` environment (required reviewer, main only) gates the
 # Workload Identity Federation subject of tx03v2-gha-apply (the immutable
 # repo:<owner>@<owner id>/tx03v2@<repository id>:environment:lab). The project must be dedicated to
@@ -71,7 +71,7 @@ jobs:
           [[ "$TF_VAR_app_deployer_members" =~ ^\[.*\]$ ]] || problems+=("LAB_APP_DEPLOYER_MEMBERS must be a JSON list, e.g. [\"user:you@example.com\"]")
           if ((${#problems[@]} > 0)); then
             printf '::error::Repository variable problem: %s\n' "${problems[@]}"
-            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'Variáveis do GitHub')."
+            echo "::error::Settings > Secrets and variables > Actions (the list of people is a secret, the rest variables); names and values in docs/RUNBOOK.md (section 'GitHub variables and secrets')."
             exit 1
           fi
           # Identifiers never reach the logs of a public repository.

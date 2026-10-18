@@ -1,134 +1,142 @@
-# Harness do tx03v2
+# tx03v2 harness
 
-O harness é o conjunto de checks que prova o que este repositório afirma, sem conta na nuvem.
-Ele vive em `scripts/harness.sh`; o `Makefile` e o CI só o chamam, e o CI usa `HARNESS_STRICT=1`.
-Duas diferenças conhecidas entre uma pasta sem commits e o CI: o `gitleaks` lê a árvore de trabalho
-(no CI, o histórico inteiro) e o bit executável só é exigido de scripts que já estão no índice do
-git. `scripts/harness.sh list` é a lista atualizada dos checks; ela inclui os renders de cloud `full`,
-o contrato GitOps, a soma de requests e referências do runbook. Os checks que baixam charts reais
-usam os pins de `platform/full/charts.txt`.
+The harness checks this repository's claims without a cloud account. scripts/harness.sh owns
+every check; Makefile/CI call it and CI sets HARNESS_STRICT=1.
+Before initial commits gitleaks scans the working tree; with commits it scans history.
+Indexed scripts require executable bits; not-yet-indexed scripts only warn.
 
-Estado (R8, 2026-10-17): passaram localmente, num Windows e sem o modo estrito, o `terraform test` do root do lab (52 execuções) e do bootstrap (33), `terraform fmt`, shellcheck e actionlint em contêiner e os checks `contract-parameter`, `contract-platform`, `contract-platform-full`, `image-admission-policy`, `full-install-order`, `fork-references`, `platform-sizing`, `helm-template-full`, `destroy-flow`, `leftovers-flow`, `preflight-flow` e `local-preflight`. O CI do PR ainda precisa passar: `kubeconform`, `policy-gator`, `tflint`, `trivy-config` e o `local-lab-e2e` não rodaram localmente. Isso valida templates e configuração, não admissão nem comportamento na GKE: `não executado em nuvem (v2)`. O `local-lab-e2e` segue `verificado no CI` no estado descrito em `docs/LAB_LOCAL.md`.
+Use scripts/harness.sh list for current checks, including full cloud renders, GitOps contract,
+request sums and runbook references. Real chart downloads use platform/full/charts.txt pins.
 
-## Camadas
+Historical R8 local evidence (2026-10-17): non-strict Windows runs passed lab Terraform tests
+(52 runs), bootstrap tests (33), fmt, container shellcheck/actionlint, contract-parameter/platform/
+platform-full, image-admission-policy, full-install-order, fork-references, platform-sizing,
+helm-template-full, destroy/leftovers/preflight/local-preflight flows. kubeconform/gator/tflint/
+Trivy/full local e2e remained for that PR's CI. Subsequent merged CI provides the construction
+evidence; these tests do not prove GKE admission/runtime. Cloud remains
+`not run in the cloud (v2)`; LOCAL_LAB records portable runtime evidence.
 
-| Camada | Check | O que prova | O que NÃO prova | Onde roda |
+## Layers
+
+| Layer | Check | Proves | Does not prove | Runs |
 |---|---|---|---|---|
-| Ferramentas | `make tools` | binários nas versões de `tools/versions.env`, SHA256 conferido (linux_amd64, linux_arm64, darwin_arm64) | — | local, CI |
-| Versões | `tool-versions` | o PATH usa as versões fixadas (no modo estrito, divergência é FAIL) | — | local, CI |
-| Estrutura e honestidade | `repo-structure`, `version-consistency` | arquivos obrigatórios; rótulos de status, sem auto-elogios, emojis ou links para o v1 nos READMEs; README com até 250 linhas; `CLAUDE.md`; LF; bit executável no índice do git (só um aviso para scripts ainda fora do índice); devcontainer por digest; versões coerentes entre arquivos (inclusive a minor do Kubernetes no `docs/CONTRATO.md` e a versão do gcloud nos workflows) | que a documentação está certa | local, CI |
-| Políticas do Terraform | `policy-terraform`, `policy-labels` | erros do v1 não voltam (segredos write-only, sem chaves de conta de serviço, sem IAM autoritativo, sem `roles/owner`, sem `principalSet`, nada público, nada acima do projeto, só Autopilot, cluster e banco privados, endpoint DNS só IAM, sem `0.0.0.0/0` nos roots de nuvem e nos módulos, sem providers `kubernetes`/`helm`/`google-beta`, backend `gcs {}` sem argumentos, APIs nunca desligadas, bucket sem `force_destroy`, sem `timestamp()` com diff perpétuo; no `terraform/envs/local`: nenhum provider de nuvem nem backend remoto, só o backend `local {}`, portas só em 127.0.0.1, nada privilegiado, `random_password` permitido só ali); `default_labels` com exatamente os quatro labels do contrato nos dois roots | intenção de quem escreveu | local, CI |
-| Identificadores | `policy-identifiers` | sem números de projeto, contas de faturamento, IDs de projeto (em caminhos `projects/<id>/`, e-mails de conta de serviço e pools `<id>.svc.id.goog`), e-mails, IPs públicos ou GUIDs reais; só os placeholders, as faixas privadas e de documentação e as duas faixas do load balancer | identificadores fora desses formatos | local, CI |
-| Workflows | `policy-workflows`, `actionlint` | actions por SHA, `permissions`, regras de Workload Identity Federation (`auth` só com `vars.*`, sem chaves), guardas, `-lock=false` só no plan, nada apaga state ou lock (só o destroy solta um lock, por input digitado), a lista de pessoas é secret e mascarada, confirmação digitada, `scripts/destroy.sh` no destroy; YAML, expressões e shellcheck dos blocos `run` | comportamento contra o Google Cloud | local, CI |
-| Scripts | `policy-scripts` | nenhuma variável de ambiente escolhe o alvo (`CLUSTER_NAME`, `LAB_*`, `CONTRACT_PARAMETER`); kubeconfig temporário antes de todo `get-credentials`; `require_lab_cluster` (label `project=tx03v2`) em `platform/install.sh` e `platform/uninstall.sh`; `require_lab_context` nos scripts de `platform/local` | comportamento contra o Google Cloud | local, CI |
-| Fluxos dos scripts, offline | `destroy-flow`, `leftovers-flow`, `preflight-flow`, `local-preflight` | um uninstall que falha ainda leva ao destroy e à checagem de sobras, e as peças do load balancer do lab são apagadas pela API (só as do lab); num projeto com outro trabalho, só o que é do lab é sobra; um projeto com cluster, banco ou segredo de outro trabalho é recusado; o lab local recusa uma máquina com daemons diferentes, rede ou rota sobreposta ou porta ocupada, e nunca age num lab de outro `LOCAL_STATE_DIR` | comportamento contra o Google Cloud ou o Docker de verdade (CLIs simuladas) | local, CI |
-| Exceções | `trivyignore-policy` | cada ignore tem `statement` e `expired_at` em até ~7 meses (hoje não há nenhum) | — | local, CI |
-| Contrato | `contract-platform`, `contract-parameter` | os manifests renderizados são os do contrato (objetos, labels, regras da Role, sujeitos da RoleBinding sem repetição, ClusterSecretStore); o renderizador recusa entradas inválidas; values e pins do ESO; as 18 chaves de `contract.tf` = lista do harness, valores fixos, nome do parâmetro no Terraform e nos scripts, e cada chave tem uma linha na tabela de `docs/CONTRATO.md` | linhas a mais na tabela; o que o dx03v2 faz (o harness dele vai conferir) | local, CI |
-| Contrato full | `contract-platform-full` | AppProject/Application da plataforma, Application do dx03v2, revisão GitOps, Role restrita ao nome da Application e aos Users do contrato, Telemetry e ausência de Secret nos manifests | sincronização real do Argo CD | local, CI |
-| Admissão, malha e ordem de instalação | `image-admission-policy`, `full-install-order` | a política Kyverno é fail-closed, por digest e pela atestação do `deploy-gcp.yml` do fork, e o render amarra o repositório e o dono do contrato; cada `PeerAuthentication` com porta tem seletor, a política padrão é `STRICT`, o trust domain não é `cluster.local` e as únicas origens externas são os dois ranges do load balancer; o instalador instala a segurança do app antes da observabilidade e a admissão antes do Argo CD, e o uninstall remove os releases e os PVCs | admissão e malha no cluster (CEL do CRD no apply real) | local, CI |
-| Regressão da admissão cloud | `image-admission-fixtures`, `policy-gator` | YAML renderizado parseado com Helm e jq exige modo Kubernetes, Fail/Deny, namespace, signer e repositório do fork e os três grupos de imagens; mutantes JSON/Audit/signer/grupo ausente falham; gator avalia o Rego real com Pod pós-injeção e 12 casos negativos; o novo gate precede a remoção somente da constraint cloud antiga | não executa CEL, não verifica assinatura de imagem nem admissão de subrecursos no GKE; não usa Docker | local leve, CI |
-| Convergência da alocação | `cost-allocation` | executa a função real `allocation_positive` e o helper `retry`, com `kubectl` e espera simulados: zero/custo de outro namespace não passa, positivo passa, zero persistente e falha de comando HTTP esgotam sete tentativas; mantém timeout de 15 s e intervalo de 30 s | não faz HTTP, não inicia Docker; a integração com OpenCost real é o gate `e2e` | local leve, CI |
-| Formato e sintaxe | `terraform-fmt`, `terraform-validate:*` (3 roots, 8 módulos) | HCL formatado e válido para o schema do provider fixado | que o Google Cloud aceita os valores | local, CI |
-| Lock de providers | `terraform-lockfiles` | pelo menos 4 hashes `h1:` por provider nos lock files dos roots (gerados para linux_amd64, linux_arm64, darwin_arm64, windows_amd64) | a qual plataforma cada hash pertence | local, CI |
-| Lint | `tflint` | preset recommended + ruleset google 0.40.0 sem issues | regras que dependem de chamadas ao Google Cloud | local, CI |
-| Segurança da IaC | `trivy-config`, `trivy-config-tfvars` | sem HIGH/CRITICAL (não há exceções) | configuração em runtime, IAM efetivo | local, CI |
-| Scripts | `shellcheck` | bash correto (nível style) em `scripts/` e `platform/` | comportamento contra o Google Cloud | local, CI |
-| Manifests | `kubeconform` | manifests renderizados core e full, incluindo GitOps, válidos (estrito) para Kubernetes 1.36 e CRDs | admission e comportamento no cluster | local, CI (rede) |
-| Charts core | `helm-template` | o ESO e o Collector são baixados por pin e SHA256, com imagens por digest, ServiceAccounts, exporter do Cloud Trace e requests | instalação real e comportamento dos controllers | local, CI (rede) |
-| Charts full | `helm-template-full` | cada chart da tabela GCP é baixado e conferido por SHA256; imagem por digest; sem Service LoadBalancer/NodePort ou placeholder; Collector inclui Tempo/spanmetrics; Velero usa bucket, provider e KSA sem Secret; Gatekeeper isenta observability; Trivy sem mirror; Chaos Mesh mantém controller sem DaemonSet privilegiada | admissão ou funcionamento dos controllers em Autopilot | local, CI (rede) |
-| Dimensionamento | `platform-sizing` | renderiza requests da plataforma, incluindo Prometheus e Alertmanager, e compara com o valor documentado em `docs/CUSTOS.md` | cobrança real ou ajuste de requests pelo Autopilot | local, CI (rede) |
-| Segredos | `gitleaks` | nenhum segredo conhecido (histórico completo quando há commits; antes disso, a árvore de trabalho) | segredos fora dos padrões do gitleaks | local, CI |
-| Testes unitários | `terraform-test:bootstrap` (33 casos), `terraform-test:envs/lab` (43 casos) | APIs, bucket do state, pool e provider do Workload Identity Federation, um sujeito por vínculo, papéis do plan e do apply, condição IAM = papéis de projeto do lab, papel do Velero limitado ao bucket derivado, budget, GKE Autopilot, rede e NAT, Cloud SQL (PSC, TLS, edição, backups), segredos write-only, Artifact Registry, Cloud Armor e `none`, chaves e valores do contrato, concessões IAM, validações negativas | que os recursos sobem no Google Cloud (provider mockado) | local, CI |
-| Lab local: Terraform | `terraform-validate:envs/local`, `terraform-test:envs/local` (10 casos, só plan) | rede privada, labels em tudo, só o registry publicado e só em 127.0.0.1, banco só TLS, imagens por digest, validações negativas | que o Docker cria os contêineres (isso é o `e2e`) | local, CI |
-| Políticas | `policy-gator` | os casos Gatekeeper do lab local e do perfil GCP passam com gator 3.23.1 | decisão do webhook em runtime | local, CI |
-| Referências do fork | `fork-references` | scripts, alvos make, workflows e variáveis locais citados em `FORK.md` e `docs/RUNBOOK.md` existem; chamadas ao dx03v2 apontam para o arquivo no repositório irmão | que a rodada real conclui ou que a árvore do dx03v2 está sincronizada | local, CI |
-| Lab local: plataforma | `local-versions`, `helm-template-local`, `kubeconform-local`, `policy-gator` | os 17 charts fixados por SHA256 renderizam só imagens por digest e Services ClusterIP, também com os overlays do tamanho `small` (`platform/local/values/small`), que não podem trocar imagens; manifests válidos; cada política do Gatekeeper aceita e recusa os casos de `platform/local/policies/tests`; kind no mesmo minor da GKE do lab (`GKE_KUBERNETES_MINOR`); gator igual ao Gatekeeper; o arquivo do ESO local tem o mesmo SHA256 do chart OCI da plataforma | comportamento no cluster | local, CI (rede) |
-| Lab local: ponta a ponta | `local-lab-e2e` (`make e2e`) | apply do `terraform/envs/local`, instalação do perfil `full` e as 34 sondas de `platform/local/check.sh` (`docs/LAB_LOCAL.md`); destroy e checagem de sobras sempre | Google Cloud | local (Docker, 8 GB), CI; `verificado no CI`; localmente em 2026-10-13 (`full`, 26 sondas de então) e 2026-10-14 (`observability`) |
-| Nuvem | workflows `terraform-*`, `platform` | — | — | `não executado em nuvem (v2)` |
+| Tools | make tools | pinned versions/SHA256 for linux_amd64, linux_arm64, darwin_arm64 | — | local/CI |
+| Versions | tool-versions | pinned PATH versions, mismatch fails strict mode | — | local/CI |
+| Structure/evidence | repo-structure, version-consistency | required English docs/status labels, no self-ratings/emojis/v1 README links, <=250-line README, CLAUDE, LF, executable index modes, digest-pinned devcontainer, coherent Kubernetes contract minor/gcloud workflow versions | prose correctness | local/CI |
+| Terraform policy | policy-terraform, policy-labels | write-only secrets, no SA keys/authoritative IAM/owner/principalSet/public resources/above-project scope; Autopilot/private DB/cluster/IAM DNS; no cloud-root 0.0.0.0/0 or kubernetes/helm/google-beta providers; empty GCS backend, APIs retained, protected buckets, no perpetual timestamp diff; local root has no cloud provider/remote backend, only local backend, localhost publishing, no privileged containers and only local random_password; four exact default_labels | author intent | local/CI |
+| Identifiers | policy-identifiers | placeholder-only project numbers/billing accounts/project-ID paths/SA emails/WIF pools/emails/public IPs/GUIDs; permits documented private/documentation/LB ranges | other formats | local/CI |
+| Workflows | policy-workflows, actionlint | SHA actions, permissions, vars-only federation/no keys, trusted guards, lock=false only plan, no blanket state/lock removal, reviewed destroy unlock input, masked operator secrets, typed confirmation/destroy.sh, YAML/expressions/run-block shellcheck | actual Google behavior | local/CI |
+| Script safety | policy-scripts | no generic environment target override, temporary kubeconfig before get-credentials, require_lab_cluster project label in install/uninstall, require_lab_context locally | actual Google behavior | local/CI |
+| Offline flows | destroy-flow, leftovers-flow, preflight-flow, local-preflight | failed uninstall still reaches destroy/leftovers; only lab LB components removed/count as leftovers; projects with unrelated cluster/DB/secret refused; local different-daemon/overlap/occupied-port/other-state-dir cases rejected | real cloud/Docker calls; CLIs are stubs | local/CI |
+| Exceptions | trivyignore-policy | statement/expired_at within about seven months, none at baseline | — | local/CI |
+| Contract | contract-platform, contract-parameter | rendered objects/labels/Role/unique RoleBinding subjects/ClusterSecretStore, invalid-input denial, ESO values/pins; exact 18 contract keys, fixed values, parameter name and documented table entries | extra table rows or DX behavior; DX has its own checks | local/CI |
+| Full contract | contract-platform-full | platform AppProject/Application, DX Application/GitOps ref, named-Application/user-scoped Role, Telemetry, no embedded Secret | real Argo sync | local/CI |
+| Admission/mesh/order | image-admission-policy, full-install-order | fail-closed digest/promotion-workflow identity policy for the fork, contract owner/repo, selector on port-specific PeerAuthentication, default STRICT, non-cluster.local trust domain, only two external LB ranges, security before observability/admission before Argo, uninstall releases/PVCs | runtime admission/CEL/mesh | local/CI |
+| Cloud admission regression | image-admission-fixtures, policy-gator | Helm/jq-parsed Kubernetes mode, Fail/Deny, namespace/signer/fork and three image groups; JSON/Audit/wrong-signer/missing-group mutations rejected; real Rego with injected Pod and 12 negative cases; replacement gate precedes old cloud constraint removal | CEL, image crypto or GKE subresource admission; no Docker | light local/CI |
+| Allocation convergence | cost-allocation | actual allocation_positive/retry with stub kubectl/wait: zero/wrong-namespace denied, positive accepted, persistent zero/HTTP failure exhaust seven attempts; retains 15-second HTTP timeout/30-second interval | HTTP/Docker; real OpenCost integration belongs to e2e | light local/CI |
+| HCL/schema | terraform-fmt, terraform-validate:* | formatted HCL valid against pinned schemas in roots/modules | provider acceptance in a real project | local/CI |
+| Provider locks | terraform-lockfiles | at least four h1 hashes/provider for Linux amd64/arm64, Darwin arm64, Windows amd64 | which platform corresponds to each hash | local/CI |
+| Lint | tflint | recommended preset/Google ruleset 0.40.0 with no issues | live-API-dependent rules | local/CI |
+| IaC security | trivy-config, trivy-config-tfvars | no HIGH/CRITICAL, no current exceptions | effective runtime IAM | local/CI |
+| Shell | shellcheck | style-level analysis in scripts/platform | Google behavior | local/CI |
+| Manifests | kubeconform | strict core/full/GitOps Kubernetes 1.36/CRD validation | cluster admission/runtime | local/CI/network |
+| Core charts | helm-template | real pinned/checksummed ESO/Collector archives, digest images, ServiceAccounts, Cloud Trace exporter/requests | actual controller install/runtime | local/CI/network |
+| Full charts | helm-template-full | every GCP chart archive SHA256, image digests, no LB/NodePort/placeholder; Collector Tempo/spanmetrics; Velero bucket/plugin/KSA without Secret; observability exemption; Trivy without mirror; Chaos controller without privileged daemon | Autopilot admission/controller runtime | local/CI/network |
+| Sizing | platform-sizing | rendered platform CPU/memory requests including Prometheus/Alertmanager match COSTS | billing or Autopilot request adjustment | local/CI/network |
+| Secrets | gitleaks | known-pattern history secrets, or initial working-tree scan | unknown formats | local/CI |
+| Terraform tests | terraform-test:bootstrap, terraform-test:envs/lab | APIs/state bucket/WIF exact subjects, plan/apply roles, root IAM role allowlist, derived-bucket Velero scope, budget, Autopilot/network/NAT, SQL PSC/TLS/edition/backups, write-only secrets, registry/WAF/none, contract keys/values/grants, negative validation | actual cloud provisioning; providers mocked | local/CI |
+| Local Terraform | terraform-validate:envs/local, terraform-test:envs/local | private network/labels, only localhost registry publishing, TLS-only DB, image digests and negative cases; original suite had ten plan-only runs | real Docker creation, covered by e2e | local/CI |
+| Gatekeeper | policy-gator | actual local/GCP Rego test cases with gator 3.23.1 | webhook runtime decision | local/CI |
+| Fork references | fork-references | cited scripts/make targets/workflows/variables in FORK/RUNBOOK exist; DX commands name sibling paths | completed real run or synchronized sibling checkout | local/CI |
+| Local platform | local-versions, helm-template-local, kubeconform-local, policy-gator | checksum/digest-pinned charts, ClusterIP, small overlays preserve images, valid manifests, positive/negative policies, kind minor/gator/Gatekeeper consistency, same local/cloud ESO archive | cluster behavior | local/CI/network |
+| Local end to end | local-lab-e2e / make e2e | Docker root apply, full install, real platform probes including later HA/backup/capacity, always destroy/leftovers | Google Cloud | Docker host or CI; heavy runs in Actions for Bruno |
+| Cloud | terraform-* and platform workflows | source/configuration only until an authorized cloud run | managed behavior | not run in the cloud (v2) |
 
-## Jobs do CI
+Historical local probe totals (26 then 34 as R1 expanded) are recorded in LOCAL_LAB; use the
+current harness/probe registry for current counts rather than treating historical counts as coverage.
 
-| Job (`ci.yml`) | Alvo | Estágio do harness |
+## CI jobs
+
+| Stable job ID | Target | Stage |
 |---|---|---|
-| `static` | `make tools && make static` | `static` |
-| `test` | `make tools && make test` | `test` |
-| `e2e` | `make tools && make e2e` | `e2e` (o lab local; diagnósticos e o log completo do e2e como artifact em caso de falha) |
+| static | make tools && make static | static |
+| test | make tools && make test | test |
+| e2e | make tools && make e2e | e2e; full logs/diagnostics uploaded on failure |
 
-Os ids `static`, `test` e `e2e` são estáveis: são os checks exigidos pelo ruleset
-(`.github/rulesets/main.json`; o `e2e`, o lab local, entrou em 2026-10-13); o `policy-workflows` falha se
-um deles sumir. O CI não
-recebe credenciais do Google Cloud (o `policy-workflows` recusa `id-token: write` no `ci.yml`).
+All three are required by .github/rulesets/main.json; e2e became required in October 2026.
+policy-workflows rejects missing jobs and id-token: write in standalone ci.yml. CI receives no
+Google Cloud credentials. HA/FinOps runtime settings are exercised in Actions without cloud access.
 
-## Modo estrito
+## Strict mode and variables
 
-`HARNESS_STRICT=1` (definido no CI e no devcontainer) transforma todo `SKIP` em `FAIL` e exige que as
-versões no PATH sejam as de `tools/versions.env`. Sem ele, um check só pode dar `SKIP` quando falta um
-pré-requisito local (por exemplo, ferramenta não instalada) e sempre imprime o motivo.
+HARNESS_STRICT=1, used in CI/devcontainer, turns every SKIP into FAIL and requires pinned PATH
+versions. Without it, SKIP is allowed only for a missing local prerequisite with a printed reason.
 
-Outras variáveis: `HARNESS_VERBOSE=1` mostra a saída dos checks que passam; `HARNESS_ONLY=<regex>`
-roda só os checks cujo nome casa com a expressão (depuração local, por exemplo
-`HARNESS_ONLY='^tflint$' scripts/harness.sh static`; o CI nunca usa); `HARNESS_WORK_DIR` muda a pasta
-de dados (seção "Dados fora do repositório").
+- HARNESS_VERBOSE=1 prints passing check output.
+- HARNESS_ONLY=<regex> selects local debugging checks, never CI. Example:
+  HARNESS_ONLY='^tflint$' scripts/harness.sh static.
+- HARNESS_WORK_DIR changes scratch storage, described below.
 
-## Como adicionar um check
+## Adding a check
 
-1. Escreva uma função `check_<nome>` em `scripts/harness.sh` que retorna 0 (PASS) ou não-zero (FAIL);
-   use `need <ferramenta>` ou `skip "<motivo>"` só para pré-requisitos ausentes.
-2. Registre-a em `register_checks` no estágio certo (`static` ou `test`).
-3. Rode `scripts/harness.sh list` e `HARNESS_STRICT=1 make verify`. Prove que o check falha: aplique a
-   mudança que ele deve pegar numa cópia do repositório e confira o `FAIL`.
-4. Atualize esta tabela, `docs/GUARDRAILS.md` (se for um guardrail) e o CHANGELOG.
+1. Write check_<name> returning zero for PASS, nonzero for FAIL. need/skip are only for absent
+   local prerequisites.
+2. Register in the correct stage.
+3. Inspect harness list and strict verify. Prove the intended negative case in a disposable
+   repository copy instead of weakening checks.
+4. Update this table, relevant GUARDRAILS rule and CHANGELOG.
 
-Ferramenta nova: adicione-a a `scripts/lib/tools.sh` (URLs oficiais), a `tools/versions.env` e rode
-`scripts/update-tool-checksums.sh <ferramenta> <versão>`.
+New tools need official metadata in scripts/lib/tools.sh, tools/versions.env and checksum updater.
+Current check counts come from harness list; they change as regression coverage grows.
 
-## Windows e macOS
+## Windows and macOS
 
-- Windows: use o devcontainer (`.devcontainer/devcontainer.json`, imagem fixada por digest) ou WSL 2
-  com Ubuntu. Git Bash não é suportado (as ferramentas são binários Linux/macOS).
-- macOS (Apple Silicon): `brew install bash` (o bash 3.2 do sistema não serve; o harness exige
-  bash >= 4.4) ou o devcontainer. Plataformas suportadas pelo `install-tools.sh`: linux_amd64,
-  linux_arm64, darwin_arm64.
-- Container avulso (como a verificação local deste repositório):
-  `docker run --rm -e HARNESS_STRICT=1 -v "$PWD:/work" -w /work ubuntu:24.04 bash -c "apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl unzip git xz-utils make >/dev/null && make tools && make verify"`
-  (adicione `-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=*` se o
-  dono dos arquivos for outro usuário). Numa pasta sincronizada (OneDrive, por exemplo), monte
-  volumes nomeados sobre `/work/.tools` e `/work/.cache` para não criar milhares de arquivos nela.
+- Supported installer platforms: linux_amd64, linux_arm64, darwin_arm64.
+- Windows: devcontainer/pinned image or Ubuntu WSL2. The installer does not provide Windows
+  binaries; native maintainer light checks do not change the supported learner setup.
+- Apple Silicon: Homebrew Bash >=4.4 or devcontainer; system Bash 3.2 is too old.
+- Disposable tool container example:
 
-## Dados fora do repositório
+```bash
+docker run --rm -e HARNESS_STRICT=1 -v "$PWD:/work" -w /work ubuntu:24.04 bash -c "apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl unzip git xz-utils make >/dev/null && make tools && make verify"
+```
 
-O harness grava dados do Terraform (`TF_DATA_DIR`), logs, charts e caches em `HARNESS_WORK_DIR`
-(padrão `$TMPDIR/tx03v2-harness`) e usa o cache de plugins `TF_PLUGIN_CACHE_DIR` (padrão
-`~/.terraform.d/plugin-cache`, também cacheado no CI). No repositório ficam só `.tools/` e os lock
-files dos módulos (ignorados pelo git). `make clean` remove `.tools/`, `.cache/`, os diretórios
-`.terraform`, os lock files dos módulos e o `HARNESS_WORK_DIR` padrão; o cache de plugins e um
-`HARNESS_WORK_DIR` personalizado ficam.
+Add GIT_CONFIG_COUNT=1, GIT_CONFIG_KEY_0=safe.directory and GIT_CONFIG_VALUE_0=* if ownership
+requires it. In OneDrive folders mount named volumes over /work/.tools and /work/.cache.
+Heavy kind/full/Sonar/DR/load validation stays in Actions in Bruno's workspace.
 
-## Problemas comuns
+## Data outside the repository
 
-| Sintoma | Causa provável | O que fazer |
+Terraform TF_DATA_DIR, logs/charts/caches use HARNESS_WORK_DIR (default $TMPDIR/tx03v2-harness).
+TF_PLUGIN_CACHE_DIR defaults ~/.terraform.d/plugin-cache and is also cached in CI.
+Only .tools and ignored module locks live in the source tree.
+make clean removes source .tools/.cache/.terraform, module locks and default harness scratch;
+custom scratch/plugin caches remain. Clean is relative to the Makefile's repository.
+
+## Common problems
+
+| Symptom | Likely cause | Action |
 |---|---|---|
-| `SKIP tool-versions (...) - missing tools: ...` | `make tools` não rodou | `make tools` |
-| `FAIL terraform-validate:envs/lab` com erro de lock | provider mudou sem atualizar o lock | `terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_arm64 -platform=windows_amd64` no root (`docs/SUSTENTACAO.md`, 5.3) |
-| `FAIL policy-labels` | `default_labels` diferente dos quatro labels do contrato, `add_terraform_attribution_label` ausente, ou um módulo com bloco `provider` | corrija o provider do root; módulos herdam o provider |
-| `FAIL terraform-test:envs/lab` (ou erro de `precondition` no plan) com `Project role ... is not in modules/project-roles` | papel de projeto fora de `modules/project-roles` | conceda no recurso ou adicione o papel à lista (amplia a condição do apply: justifique no PR e reaplique o bootstrap) |
-| `FAIL contract-parameter` | chave do contrato só em um dos três lugares, ou valor fixo alterado | mude `contract.tf`, `CONTRACT_KEYS` e `docs/CONTRATO.md` juntos (e o dx03v2) |
-| `FAIL helm-template ... SHA256` ou falha no `helm pull` por digest | o chart no registry mudou | pare: não troque o digest nem o SHA256 sem revisar o release (`docs/SUSTENTACAO.md`, 5.5) |
-| `FAIL version-consistency ... setup-gcloud` | `GCLOUD_VERSION` e o `version:` de algum `setup-gcloud` diferentes | atualize os dois juntos (`docs/SUSTENTACAO.md`, 5.6) |
-| `FAIL trivyignore-policy ... expired` | ignore venceu | revise a exceção: corrija o código ou renove com nova justificativa |
-| `FAIL kubeconform ... could not find schema` | sem rede, ou schema do catálogo que o kubeconform não compila | confira a rede; veja a nota abaixo |
-| `FAIL repo-structure ... not executable in the git index` | arquivo commitado do Windows sem o bit | `git update-index --chmod=+x <arquivo>` |
-| `FAIL gitleaks` | segredo ou falso positivo | remova o segredo e gire a credencial; falso positivo vai para `.gitleaksignore` com justificativa no PR. Antes do primeiro commit o check roda `gitleaks dir .`, que também lê arquivos ignorados pelo git (`terraform.tfvars`, `backend.hcl`, `terraform.tfstate`, `gha-creds-*.json`): mantenha credenciais locais fora da pasta do repositório |
-| `FAIL policy-identifiers` | ID ou número de projeto, conta de faturamento, e-mail ou IP real | use `tx03v2-lab-example`, `000000000000`, `000000-000000-000000`, `you@example.com`, `203.0.113.10` |
+| SKIP tool-versions: missing tools | setup absent | make tools |
+| terraform-validate lock error | provider changed without lock | four-platform providers lock in the root; MAINTENANCE 5.3 |
+| policy-labels | wrong four default labels, missing attribution setting or module provider block | fix root provider; modules inherit it |
+| project role not in modules/project-roles | unlisted grant | grant per resource or justify allowlist expansion/test/bootstrap reapply |
+| contract-parameter | key/value changed in only one location | coordinate contract.tf, CONTRACT_KEYS, CONTRACT and DX |
+| helm-template SHA256/OCI digest failure | upstream artifact differs | stop/review release; never blindly replace pins |
+| setup-gcloud mismatch | tools/workflow versions differ | coordinate both, MAINTENANCE 5.6 |
+| expired Trivy exception | deadline passed | fix or renew with current reason |
+| kubeconform could not find schema | network or incompatible schema | check connectivity and note below |
+| executable index failure | Windows commit mode | git update-index --chmod=+x <file> |
+| gitleaks | real secret or false positive | rotate/remove real secrets; justified false-positive handling requires PR review; initial dir scan includes ignored tfvars/backend/state/gha-creds files, so keep private material outside source |
+| policy-identifiers | real project/billing/email/IP | use tx03v2-lab-example, 000000000000, 000000-000000-000000, you@example.com, 203.0.113.10 |
 
-Nota sobre o kubeconform (verificado em 2026-10-10 no tx01v2, mesmo pin aqui e no tx02v2): a revisão
-de 2026-10-08 de `external-secrets.io/clustersecretstore_v1.json` no datreeio/CRDs-catalog
-(`b7e2015`, gerada do ESO 2.12) contém `"additionalProperties": false` dentro de um mapa
-`properties` (provider `crd`), e o kubeconform não consegue compilá-la ("could not find schema"). O
-harness usa a revisão anterior (commit `f3e4382`, 2026-06-02), que valida o ClusterSecretStore deste
-repositório em modo estrito (um campo com erro de digitação é rejeitado). Reavalie a cada revisão
-trimestral (`docs/SUSTENTACAO.md`, 5.7).
+Schema note (verified 2026-10-10 in reference TX01): catalog b7e2015/2026-10-08 generated from
+ESO 2.12 put additionalProperties=false inside a properties map/provider crd, which kubeconform
+could not compile. Pinned f3e4382/2026-06-02 validates this ClusterSecretStore strictly and rejects
+misspelled fields. Recheck quarterly, MAINTENANCE 5.7.
 
-## R10: capacidade e FinOps
+## R10 capacity and FinOps
 
-Veja [FinOps e escala](FINOPS.md) para kind HA, carga/HPA/PDB, OpenCost, VPA Off, Spot opt-in, preços regionais, orçamento/expiração e limpeza. Construção para fork; nada executado na nuvem (v2).
+[FINOPS.md](FINOPS.md) covers kind HA, load/HPA/PDB, OpenCost, recommendation-only VPA, opt-in
+Spot, regional pricing, budget/expiry and cleanup. These are reproducible construction exercises;
+no Google Cloud v2 run has occurred.

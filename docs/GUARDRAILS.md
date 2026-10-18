@@ -1,177 +1,170 @@
-# Guardrails do tx03v2
+# tx03v2 guardrails
 
-Um guardrail é uma regra mais o mecanismo que a faz valer — automático sempre que possível. Este
-documento lista as regras do repositório, onde cada uma é aplicada e o que elas não garantem.
-Tipos: `bloqueante` (falha o harness/CI ou o plan), `alerta` (notifica), `processo` (disciplina
-humana/agente). Os testes citados ficam em `terraform/*/tests/` e rodam com `make test`.
+A guardrail combines a rule with its enforcement mechanism, automated wherever
+possible. This document lists repository rules, their enforcement and their
+limits. Types: `blocking` (fails harness/CI/plan), `alert` (notifies), `process`
+(human/agent discipline). Cited tests live under `terraform/*/tests/` and run
+through `make test`.
 
-## Regras
+## Rules
 
-| ID | Regra | Por quê | Onde é aplicada | Tipo |
-|---|---|---|---|---|
-| SEC-01 | Nenhum segredo no repositório | repositório público; histórico é para sempre | `gitleaks` (harness, pre-commit) | bloqueante |
-| SEC-02 | Sem identificadores reais: projeto `tx03v2-lab-example` (e dois placeholders de teste), número `000000000000`, conta de faturamento `000000-000000-000000`, e-mails `example.com` ou contas de serviço do projeto placeholder, IPs privados, RFC 5737 ou as duas faixas do load balancer (`35.191.0.0/16`, `130.211.0.0/22`), GUIDs de um dígito repetido | evita expor projetos, contas de faturamento e pessoas | check `policy-identifiers` (todo arquivo visível ao git, também os caminhos `projects/<id>/`) | bloqueante |
-| SEC-03 | Segredos gerados por `ephemeral "random_password"` e gravados só com argumentos write-only (`password_wo`, `secret_data_wo`); nenhum `random_password`/`random_string` como recurso (exceto no lab local, LOC-01), nenhum `password` ou `secret_data` em texto | o valor nunca entra no plan nem no state | `policy-terraform`; testes `secrets_are_regional_and_write_only`, `cloudsql_postgres_17_enterprise_psc_only` | bloqueante |
-| SEC-04 | GitHub → Google Cloud só por Workload Identity Federation: pool `tx03v2-github`, condição do provider = os IDs numéricos do dono e dos dois repositórios (`repository_owner_id`, `repository_id`), um `roles/iam.workloadIdentityUser` por sujeito exato e imutável (`repo:<dono>@<id>/<repo>@<id>:...`, sem `principalSet`), nenhuma chave de conta de serviço | sem segredos; nenhum outro repositório, branch ou environment obtém as contas; um nome de conta apagado e registrado de novo não herda o lab | `identities.tftest.hcl` (`pool_and_provider_follow_the_contract`, `one_grant_per_exact_subject`, `owner_is_configurable`, `the_ids_are_numeric`); `scripts/repo-guardrails.sh` confere o sujeito do repositório; `policy-terraform` (proíbe `google_service_account_key` e `principalSet://`) | bloqueante |
-| SEC-05 | `id-token: write` só em jobs de nuvem com `environment: lab` (o plan, atrás da guarda); nunca no `ci.yml`; sem `credentials_json`, `secrets.GCP*`/`secrets.GOOGLE*` ou arquivos de credencial nos workflows; `google-github-actions/auth` só com `workload_identity_provider` e `service_account` de `vars.*` | limita quem obtém credenciais | `policy-workflows` | bloqueante |
-| SEC-06 | Plano de controle: nós privados, endpoint IP público desligado, redes autorizadas sem CIDR e sem IPs públicos do Google Cloud, endpoint DNS só com IAM (tokens e certificados do Kubernetes pelo DNS desligados); nenhum `0.0.0.0/0` no Terraform da nuvem (bootstrap, envs/lab, módulos; o `pg_hba.conf` do lab local vale só dentro da rede Docker privada) | o cluster não tem porta aberta por IP; quem chega precisa do IAM | `policy-terraform`; teste `autopilot_private_dns_endpoint_gateway` | bloqueante |
-| SEC-07 | Nada acima do projeto (sem recursos de organização ou pasta); `roles/owner` nunca concedido; IAM autoritativo (`*_iam_binding`, `*_iam_policy`) proibido | o lab não alcança o resto da organização nem apaga concessões de outros | `policy-terraform`; `nothing_for_the_deployer_and_no_owner` | bloqueante |
-| SEC-08 | O apply só concede no projeto os 4 papéis de `modules/project-roles` (condição `modifiedGrantsByRole`), e o root do lab concede exatamente esses (preconditions no `roles.tf`) | o apply não consegue se promover | testes `apply_identity_grants_only_the_lab_project_roles`, `project_grants_follow_the_contract`; preconditions de `google_project_iam_member.lab` e `.otel` | bloqueante |
-| SEC-09 | Plan só leitura: Viewer, Security Reviewer e Parameter Viewer no projeto, `storage.objectViewer` no bucket; nenhum papel de escrita, personificação ou acesso a segredo | o plan roda em PRs | `plan_identity_is_read_only` | bloqueante |
-| SEC-10 | Cloud SQL só por Private Service Connect (sem IP público, sem private services access), `allowed_consumer_projects` = o projeto, só conexões criptografadas, CA compartilhada, rotação automática do certificado | o banco não tem porta na Internet e o app consegue verificar o nome | `policy-terraform` (proíbe `ipv4_enabled = true`); `cloudsql_postgres_17_enterprise_psc_only` | bloqueante |
-| SEC-11 | Deployers não recebem nada no Secret Manager; o principal do ESO só tem `secretAccessor` nos dois segredos do lab | menor privilégio sobre segredos | `repository_and_secret_grants`, `project_grants_follow_the_contract` | bloqueante |
-| SEC-12 | Plan só para PRs do próprio repositório (guarda `head.repo.full_name == github.repository`) e só com `GCP_PLAN_SERVICE_ACCOUNT` configurada | forks nunca recebem credenciais | `terraform-plan.yml`; `policy-workflows` | bloqueante |
-| SEC-13 | Nada público: sem `allUsers`/`allAuthenticatedUsers`; bucket do state com acesso uniforme e prevenção de acesso público | nenhum dado do lab fica aberto | `policy-terraform`; `state_bucket_is_private_versioned_and_protected` | bloqueante |
-| SEC-14 | Os nós rodam como `tx03v2-lab-nodes` (`container.defaultNodeServiceAccount` e leitura no repositório), nunca como a conta padrão do Compute Engine | a conta padrão tem Editor | `cluster_follows_the_contract`, `project_grants_follow_the_contract` | bloqueante |
-| SEC-15 | O bootstrap não tem dono padrão: `github_owner` é obrigatório e o placeholder `your-github-user` é recusado; `budget_alert_emails` é obrigatório (ao menos um endereço) e recusa o placeholder `you@example.com`; os IDs numéricos do dono e dos repositórios são obrigatórios e numéricos | um fork que esquecesse de trocar o dono confiaria nos repositórios de outra pessoa, e sem um e-mail lido o alerta de custo não chega (`FORK.md`) | validações das variáveis; `placeholder_owner_is_refused`, `placeholder_alert_email_is_refused`, `an_empty_alert_list_is_refused`, `the_ids_are_numeric` | bloqueante |
-| SEC-16 | Scripts só agem no que o lab criou: o alvo vem do contrato (`tx03v2-lab`) e é conferido pelo label `project=tx03v2` antes de qualquer mudança (nenhuma variável de ambiente, como `CLUSTER_NAME` ou `LAB_NAME`, muda o alvo); kubeconfig em arquivo temporário (o `~/.kube/config` e o contexto atual de quem roda não mudam); os scripts de `platform/local` só falam com o contexto `kind-tx03v2-local` | quem faz fork roda os scripts na própria máquina e no próprio projeto, onde pode haver clusters, contextos e variáveis de outros projetos | check `policy-scripts`; `require_lab_cluster` (`scripts/lib/gcp.sh`) e `require_lab_context` (`scripts/lib/local.sh`) | bloqueante |
-| SEC-17 | `scripts/leftovers.sh` recebe o projeto (`--project`, nenhuma variável do shell nem configuração do gcloud o escolhe) e só conta como sobra o que é do lab: label `project=tx03v2`, nome `tx03v2-lab*`, rede `tx03v2-lab` ou peça do load balancer do Gateway do namespace `dx03v2`; o resto do projeto aparece como `INFO` ("not the lab's") | num projeto onde há outro trabalho, a checagem não pode mandar apagar o que não é do lab (`docs/RUNBOOK.md`, seção 9) | check `leftovers-flow` (`scripts/tests/leftovers-flow.sh`, `gcloud` simulado num projeto com recursos do lab e de outro trabalho); `lab_resource` em `scripts/lib/gcp.sh` | bloqueante |
-| SEC-18 | Antes do apply (e do bootstrap), `scripts/preflight.sh` recusa um projeto com cluster GKE, instância Cloud SQL ou segredo que não é do lab; um projeto que não pôde ser conferido nunca é dado como dedicado | `tx03v2-gha-apply` tem Editor, Secret Manager Admin e Service Account User no projeto inteiro: num projeto compartilhado poderia alterar ou apagar o trabalho dos outros | check `preflight-flow` (`scripts/tests/preflight-flow.sh`); o passo `Pre-flight` de `terraform-apply.yml` | bloqueante |
-| SEC-19 | A lista de pessoas que operam o lab (`LAB_APP_DEPLOYER_MEMBERS`) é um secret e cada workflow de nuvem mascara cada elemento (o item e o e-mail); o resumo do job e o artefato do plan trocam o que foi mascarado | os logs, o resumo e os artefatos de um repositório público são públicos (o e-mail de quem faz fork) | `policy-workflows` | bloqueante |
-| SEC-20 | O apply não tem Editor, Secret Manager Admin nem Service Account User no projeto: tem o papel de admin de cada serviço do lab, um papel personalizado de segredos sem `secretmanager.versions.access`, `iam.serviceAccountUser` só na conta `tx03v2-lab-nodes` (criada pelo bootstrap) e o papel de metadados do Velero limitado aos dois buckets derivados (SEC-21); `apply_extra_project_roles` (vazia) recusa Owner, Project IAM Admin e papéis de conta de serviço | um apply comprometido (um workflow alterado e aprovado no environment) não alcança os outros buckets (nem o do state), o BigQuery nem o valor de segredo algum, e não age como outra conta de serviço | testes `apply_identity_has_the_service_roles_of_the_lab_and_no_editor`, `secrets_can_be_managed_but_not_read`, `apply_acts_as_the_node_account_only`, `apply_manages_velero_bucket_metadata_but_not_backup_objects`, `extra_roles_*`; `policy-terraform` recusa `roles/editor` e `roles/secretmanager.admin` nos `.tf` | bloqueante |
-| SEC-21 | O apply pode gerir metadados somente dos dois buckets Velero derivados (`tx03v2-lab-velero-<project_id>` e `tx03v2-lab-dr-velero-<project_id>`), pelo papel `tx03v2VeleroBucket` (`storage.buckets.create/delete/get/getIamPolicy/setIamPolicy/update`) condicionado ao tipo e aos dois nomes exatos dos buckets; não recebe permissões de objeto. Só o principal WIF do KSA `velero/velero` recebe `roles/storage.objectAdmin`, no bucket do Velero. Sem chave, Secret ou conta de serviço Google; o bucket usa `force_destroy=false` | backups são dados da aplicação e não devem ser acessíveis pelo workflow de Terraform; a condição limita também a criação ao nome pedido e foi conferida na documentação de IAM do Cloud Storage em 2026-10-16; não foi executada em nuvem | `terraform/bootstrap/roles.tf`, `terraform/modules/velero`, `terraform/envs/lab/tests/velero.tftest.hcl`, `terraform/bootstrap/tests/roles.tftest.hcl` | bloqueante |
-| SEC-22 | Kyverno em modo `Kubernetes` verifica os três grupos de imagens de app no namespace `dx03v2`: só digests dos dois repositórios do Artifact Registry que tenham a atestação de promoção assinada, sem chave, pelo workflow `deploy-gcp.yml` da `main` do fork (`failurePolicy: Fail`, `Deny`); Kyverno e Trivy Operator leem só o repositório `dx03v2` (Reader) como principais dos próprios ServiceAccounts, sem chave nem segredo de pull | uma imagem não promovida não inicia; scanner e admissão sem segredo de registry | `image-admission-policy`, `image-admission-fixtures`, `policy-gator`, `helm-template-full`, `scanner_and_admission_read_only_the_repository` | bloqueante |
-| SEC-24 | Gatekeeper cloud aceita somente `api`/`web` do Artifact Registry do contrato por SHA256 de 64 caracteres; a exceção exige nome `istio-proxy`/`istio-validation` e path exato `gcr.io/gke-release/asm/proxyv2` com tag explícita ou digest. Aplica o substituto antes de remover a constraint cloud antiga | a injeção gerenciada não pode bloquear o app nem liberar imagens de outro repositório; o prefixo `proxyv2-malicioso` não é aceito | `policy-gator`, `image-admission-fixtures`; template exclusivo `platform/full/policies/templates` | bloqueante |
-| SEC-23 | A malha do `full` é mTLS `STRICT` por namespace; cada exceção em texto claro é um `PeerAuthentication` de um workload e uma porta (o `portLevelMtls` exige seletor, o CRD recusa sem ele); as origens de fora da malha são os dois ranges do load balancer, o Prometheus em `9464` e a sonda do Collector em `/healthz` e `/readyz`; o domínio de confiança é `<projeto>.svc.id.goog`, não `cluster.local` | uma política inválida só falharia no apply real, e uma exceção larga desfaz o mTLS | `image-admission-policy` (renderiza o `full` e confere seletor, política padrão, trust domain e origens) | bloqueante |
-| SUP-01 | Ferramentas do harness com versão e SHA256 fixados; divergência é erro fatal | cadeia de suprimentos | `scripts/install-tools.sh`, `tools/checksums.txt`; `tool-versions` | bloqueante |
-| SUP-02 | Toda action fixada por SHA de 40 caracteres com comentário `# vX.Y.Z`; um SHA por action | tags podem ser movidas | `policy-workflows`, `version-consistency` | bloqueante |
-| SUP-03 | Providers com `.terraform.lock.hcl` gerado para 4 plataformas (o check exige pelo menos 4 hashes `h1:` por provider); roots iniciam com `-lockfile=readonly` | builds reprodutíveis | `terraform-lockfiles`, `terraform-validate:*` | bloqueante |
-| SUP-04 | Chart do ESO baixado por tag e digest do manifest OCI e conferido por SHA256; as três imagens do ESO e a do devcontainer por digest | nada muda sem um diff | `helm-template`, `contract-platform`, `version-consistency`, `repo-structure`; `platform/install.sh` | bloqueante |
-| SUP-05 | trivy só via `scripts/install-tools.sh` (nunca `trivy-action`/`setup-trivy`, GHSA-69fq-xp46-6x23) | incidente de cadeia de suprimentos de março de 2026 | `policy-workflows` | bloqueante |
-| SUP-06 | Versões coerentes entre arquivos (ruleset do tflint, hook do gitleaks, digests do ESO, `required_version`, restrição do google em todos os `versions.tf`, a mesma versão do google travada nos dois roots, minor do Kubernetes nos schemas e no `docs/CONTRATO.md`, `GCLOUD_VERSION` = `version:` do `setup-gcloud`) | uma atualização não fica pela metade | `version-consistency` | bloqueante |
-| SUP-07 | Dependabot mensal, minor+patch agrupados, majors separados; majors do google e o hook do gitleaks ignorados de propósito (ver os comentários no arquivo) | nada apodrece em silêncio | `.github/dependabot.yml` | alerta |
-| IAC-01 | Terraform não fala com o Kubernetes: sem providers `kubernetes` ou `helm`; só o provider GA `google` (sem `google-beta`) | separação de camadas; atributos beta mudam sem aviso | `policy-terraform` | bloqueante |
-| IAC-02 | Nada de credencial no código: o provider `google` sem `credentials`, `access_token` ou personificação; backend `gcs {}` sem argumentos (bucket e prefixo vêm do `backend.hcl`) | credenciais vêm do ADC ou do `google-github-actions/auth` | `policy-terraform` | bloqueante |
-| IAC-03 | Labels do contrato: o provider de cada root define `default_labels` com exatamente os quatro labels e `add_terraform_attribution_label = false`; módulos não configuram provider; `local.project = "tx03v2"` e `local.environment = "lab"` | todo recurso que aceita labels fica identificado | `policy-labels` | bloqueante |
-| IAC-04 | `timestamp()`/`plantimestamp()` só em recurso com `lifecycle.ignore_changes` do atributo | diff perpétuo | `policy-terraform` | bloqueante |
-| IAC-05 | Todo input não booleano validado: ID do projeto, região, dono do GitHub, e-mail do deploy (no projeto certo), membros (`user:`/`serviceAccount:`, minúsculos, sem repetição, sem `group:`), CIDRs RFC 1918 canônicos e sem sobreposição, tamanhos de prefixo, `db_tier` (sem `db-f1-micro` nem Enterprise Plus), versões inteiras positivas, conta de faturamento, valor do budget, e-mails do budget | erro cedo, antes de qualquer chamada ao Google Cloud | `validations.tftest.hcl` (26 casos) e os `rejects_*` do bootstrap | bloqueante |
-| IAC-06 | `trivy config` sem achados HIGH/CRITICAL (simples e com `--tf-vars` do exemplo) | segurança da IaC | `trivy-config`, `trivy-config-tfvars` | bloqueante |
-| IAC-07 | tflint (preset recommended + ruleset google 0.40.0) sem nenhum issue; ignore inline só com motivo (o motivo é conferido na revisão) | qualidade da IaC | `tflint`; revisão de PR | bloqueante |
-| IAC-08 | HCL formatado e válido em todos os roots e módulos (3 roots com o lab local, 8 módulos) | revisões legíveis | `terraform-fmt`, `terraform-validate:*` | bloqueante |
-| IAC-09 | Só Autopilot: `enable_autopilot = true`, nenhum `google_container_node_pool`, nenhum `min_master_version` (o canal decide), ABAC legado desligado | sem nós para dimensionar; versões pelo canal | `policy-terraform`; `autopilot_private_dns_endpoint_gateway` | bloqueante |
-| IAC-10 | APIs nunca desligadas no destroy; bucket do state sem `force_destroy` e com `deletion_policy = "PREVENT"` até `state_protection = false` | o teardown não quebra o projeto nem apaga o state | `policy-terraform`; `apis_are_enabled_and_never_disabled`, `state_bucket_is_private_versioned_and_protected`, `final_teardown_lifts_the_protection` | bloqueante |
-| IAC-11 | Ampliação de IAM, rede, RBAC ou CORS só com justificativa no PR | revisões conscientes | template de PR | processo |
-| K8S-01 | Manifests da plataforma validados com kubeconform estrito e schemas fixados por commit | manifest inválido não chega ao cluster | `kubeconform` | bloqueante |
-| K8S-02 | Namespace `dx03v2` com Pod Security `restricted` (`enforce` + `enforce-version=latest`), Role com as regras exatas do contrato (inclusive `healthcheckpolicies` e `gcpbackendpolicies` de `networking.gke.io`), RoleBinding com um `User` por e-mail (sem repetição) e ClusterSecretStore `gcpsm` com o `projectID` do contrato, sem bloco `auth`, só para `dx03v2`; o renderizador recusa entradas inválidas | menor privilégio no cluster | `contract-platform` | bloqueante |
-| K8S-03 | Values do ESO: ServiceAccount `external-secrets` sem anotação (o próprio ServiceAccount é o principal), três imagens por digest, requests nos três contêineres (Autopilot) | o principal do IAM depende desses nomes | `contract-platform`, `helm-template` | bloqueante |
-| K8S-04 | Antes do destroy, o `platform/uninstall.sh` apaga o namespace `dx03v2` e espera o finalizer do Gateway e o sumiço dos NEGs do app; falha alto no timeout | o load balancer do Gateway fica fora do state | `scripts/destroy.sh`, chamado por `terraform-destroy.yml`; `policy-workflows` exige o passo; se ele falha, o destroy apaga as peças pela API (CUSTO-03) | bloqueante |
-| K8S-05 | Membros `group:` recusados (o Google Groups for RBAC não está configurado: um grupo nunca casaria com um sujeito `User`) | ninguém recebe IAM sem acesso equivalente no cluster | validação de `app_deployer_members` (`rejects_a_group_member`); `emails_from_members` em `scripts/lib/gcp.sh` | bloqueante |
-| K8S-06 | O control plane do cluster privado alcança os webhooks de admissão: /28 fixo (`control_plane_cidr`, validado sem sobreposição) e uma regra de firewall só desse range, só para a conta de serviço dos nós, só nas portas 8443 (Gatekeeper) e 9443 (Kyverno e Chaos Mesh) | o control plane só inicia TCP em 443 e 10250: sem a regra o Gatekeeper não aplica as políticas e o Kyverno bloquearia todos os pods do app | `autopilot_private_dns_endpoint_gateway`, `rejects_a_control_plane_range_*` | bloqueante |
-| APP-01 | Contrato com o dx03v2 versionado: as 18 chaves de `contract.tf`, a lista `CONTRACT_KEYS` do harness e a tabela de `docs/CONTRATO.md` são iguais; valores fixos (`eso/cluster-secret-store`, `lb-source-ranges`); o parâmetro se chama `tx03v2-lab-contract` no Terraform e nos scripts; mudanças em PRs coordenados | os dois lados evoluem juntos | `contract-parameter`; `contract_keys_in_the_parameter` | bloqueante |
-| APP-02 | `dx03v2-gha-deploy` e cada `app_deployer_members` recebem exatamente `artifactregistry.writer` no repositório `dx03v2`, `container.clusterViewer` e `parametermanager.parameterAccessor` | quem faz deploy tem o mesmo acesso, nada além | `project_grants_follow_the_contract`, `repository_and_secret_grants`, `no_extra_deployer_by_default` | bloqueante |
-| APP-03 | Cloud Armor com as sete categorias CRS pré-configuradas, o limite de 600 requisições por minuto por IP (>= 300 do contrato) e a regra padrão `allow`, inspeção de 64 KB, Adaptive Protection só com alertas; sem WAF, o contrato publica `none` | nenhuma regra derruba o smoke test | `waf_policy_follows_the_contract`, `no_waf_publishes_none`, `root_wiring_of_enable_waf` | bloqueante |
-| CUSTO-01 | Budget mensal do projeto (padrão 5 na moeda da conta de faturamento) com alertas de 50/90/100 % do gasto e 100 % da previsão, para os e-mails que você nomeia (ao menos um, validados) e para os administradores da conta, sem descontar créditos (`EXCLUDE_ALL_CREDITS`) | o perfil full custa mais que o core; o alerta menor chega mais cedo, mas budget não para gastos | `terraform/bootstrap/budget.tf` + `budget.tftest.hcl` | alerta |
-| CUSTO-02 | `core` continua padrão; `full` declara e soma requests por render, mantém Cloud SQL `db-g1-small` zonal com 10 GB, 1 backup e sem PITR, NAT com logs só de erros, Artifact Registry com limpeza e sem varredura, logs GKE `SYSTEM_COMPONENTS` + `WORKLOADS` | custo por hora e recursos do perfil são reproduzíveis em `docs/CUSTOS.md` | `platform-sizing`, `defaults_are_lab_friendly` e testes dos módulos | bloqueante |
-| CUSTO-03 | Destroy falha alto (sem `\|\| true`/`continue-on-error`), segue para o `terraform destroy` mesmo quando o `platform/uninstall.sh` falha (apagando antes, pela API, as peças do load balancer que o controlador deixou, só as do lab) e termina sempre com `scripts/leftovers.sh` | erro do v1: destroy que engolia erros; um uninstall que falha não pode deixar o lab de pé cobrando | `scripts/destroy.sh`, chamado por `terraform-destroy.yml`; check `destroy-flow` (CLIs simuladas); `policy-workflows` | bloqueante |
-| CUSTO-04 | Rodada em nuvem termina com destroy no mesmo dia, `leftovers.sh` local como Owner e relatório `cloud_run_report` | evita custo esquecido | `docs/RUNBOOK.md` | processo |
-| CUSTO-05 | O `platform/uninstall.sh` desinstala os releases do `full` e apaga os PVCs do `monitoring` antes do destroy | os Persistent Disk não estão no state e continuariam cobrando depois do cluster | `full-install-order`; `scripts/leftovers.sh` lista `persistent disk` | bloqueante |
-| CI-01 | O CI é o harness: jobs só chamam `make <alvo>` | o que passa local passa no CI | revisão de PR; `ci.yml` | processo |
-| CI-02 | Sem `continue-on-error: true`, `\|\| true`, `\|\| echo` ou `\|\| :` em workflows; sem `sed` em arquivos Terraform; nenhum workflow apaga state ou lock (`gsutil rm`, `gcloud storage rm`); só o `terraform-destroy` solta um lock, por um input digitado (`force_unlock_id`), nunca por padrão | gates honestos; erro do v1 | `policy-workflows` | bloqueante |
-| CI-03 | `permissions: contents: read` no topo, `timeout-minutes`, `concurrency`, `ubuntu-24.04`, `persist-credentials: false` | menor privilégio e previsibilidade | `policy-workflows` | bloqueante |
-| CI-04 | `HARNESS_STRICT=1` no CI: todo SKIP vira FAIL | nada é pulado em silêncio | `ci.yml`, `scripts/harness.sh` | bloqueante |
-| CI-05 | Workflows de nuvem: só `workflow_dispatch` (o plan também em PR, com guarda), environment `lab`, primeiro passo `Check ...` que valida as variáveis (o check exige o passo; o conteúdo é revisão), login só por Workload Identity Federation, confirmação digitada no destroy | ações caras exigem intenção | `policy-workflows` | bloqueante |
-| CI-06 | Plans com `-lock=false` (a identidade do plan só lê o state); apply e destroy mantêm o lock | o plan não consegue gravar o objeto de lock | `policy-workflows` | bloqueante |
-| CI-07 | O resumo e o artefato do plan e o resumo do apply trocam o ID e o número do projeto e o sufixo por `<PROJECT_ID>`, `<PROJECT_NUMBER>` e `<SUFFIX>`; os workflows e os scripts mascaram esses valores e os e-mails dos deployers (cada elemento da lista, SEC-19), e o plan troca também os membros por `<MEMBER>` e `<EMAIL>` | logs de repositório público | `terraform-plan.yml`, `terraform-apply.yml`, `scripts/lib/gcp.sh` (`mask`) | processo |
-| CI-08 | CI semanal agendado (segunda 06:00 UTC) | detecta charts e URLs que mudaram e achados novos | `ci.yml` | alerta |
-| CI-09 | O job `e2e` (lab local) roda em todo PR e precisa estar verde antes do merge | a plataforma local é provada, não só renderizada | `ci.yml`; check obrigatório do ruleset | bloqueante |
-| LOC-01 | O lab local nunca fala com uma nuvem: sem provider de nuvem nem backend remoto em `terraform/envs/local`; Docker só por socket local; `random_password` e o backend `local` só nesse root (credenciais descartáveis desta máquina, state fora do repositório) | o lab é grátis e seguro de rodar | `policy-terraform`; validação de `docker_host` (`terraform-test:envs/local`) | bloqueante |
-| LOC-02 | Contêineres do lab local com o label `tx03v2.lab=local`; só o registry publica porta, e em 127.0.0.1 (`5003`); nada privilegiado | nada fica exposto nem esquecido | `terraform-test:envs/local`, `policy-terraform`, `scripts/leftovers-local.sh` | bloqueante |
-| LOC-03 | Charts do lab local fixados por versão e SHA256 do `.tgz`; imagens por digest; Services só ClusterIP (exceto os Gateways, criados em runtime) | supply chain e nenhuma UI exposta (erro do v1: Grafana e Argo CD públicos) | `helm-template-local`, `local-versions`, `platform/local/install.sh` (recusa SHA256 diferente) | bloqueante |
-| LOC-04 | Políticas do Gatekeeper em `deny`, webhook `Fail` para o app, cada política com casos aceitos e recusados | no v1 as políticas ficavam em `dryrun` sem audit | `policy-gator`; sonda `policies` do `e2e` | bloqueante |
-| LOC-05 | Toda peça da plataforma local tem uma sonda com tráfego ou chamada real; o `e2e` sempre destrói e confere sobras | só se afirma o que foi provado | `platform/local/check.sh`, `scripts/local-lab.sh e2e` | bloqueante (no job `e2e`) |
-| LOC-06 | O lab local confere a máquina antes de criar algo (daemon do CLI = daemon do provider, rede do lab sem sobrepor rede do Docker nem rota da máquina, porta do registry livre) e nunca age num lab que o seu `LOCAL_STATE_DIR` não criou; `make clean` só mexe sob o diretório do Makefile | quem faz fork roda o lab na própria máquina, com VPN, outros contêineres e outro lab | check `local-preflight` (`scripts/tests/local-preflight.sh`, `docker`, `kind` e `ip` simulados); `scripts/local-lab.sh` (`preflight`, `require_own_lab`) | bloqueante |
-| MUD-01 | `main` protegido por ruleset: PR obrigatório, checks `static` e `test` estritos, sem force-push | toda mudança passa pelo harness | `.github/rulesets/main.json` + `scripts/repo-guardrails.sh`; `policy-workflows` confere os contextos | bloqueante (depois de publicado) |
-| MUD-02 | Ignore de scanner só com `statement` e `expired_at` em até ~7 meses | exceções revisadas | `trivyignore-policy` | bloqueante |
-| MUD-03 | Scripts de entrada com bit executável no índice do git | commits do Windows perdem o bit | `repo-structure` (antes do primeiro commit, só um aviso com o comando `git add --chmod=+x`) | bloqueante (depois do primeiro commit) |
-| MUD-04 | Conventional Commits; um assunto por PR; CHANGELOG `[Unreleased]` atualizado | histórico legível | `CONTRIBUTING.md`; template de PR (CHANGELOG) | processo |
-| DOC-01 | README e docs só afirmam o que é verificado, com os rótulos exatos; sem auto-elogios, emojis ou links para os repositórios v1; README com até 250 linhas; finais de linha LF | honestidade (erro do v1) | `repo-structure`; revisão | bloqueante |
-| DOC-02 | Docs atualizadas na mesma mudança do código | docs não envelhecem | template de PR | processo |
-| AGT-01 | Agentes de IA nunca executam ações que alteram a nuvem sem pedido humano explícito na tarefa | dinheiro e segurança | `AGENTS.md` | processo |
-| AGT-02 | Agentes não enfraquecem gates nem adicionam ignores sem justificativa e validade | o harness só vale se for respeitado | `AGENTS.md`; checks acima | processo |
-| AGT-03 | Agentes param e perguntam nos casos listados em `AGENTS.md` | decisões caras são humanas | `AGENTS.md` | processo |
+| ID | Rule | Reason | Enforcement | Type |
+| --- | --- | --- | --- | --- |
+| SEC-01 | No repository secrets | Public repository; committed history persists | harness/pre-commit gitleaks | blocking |
+| SEC-02 | No real identifiers: project tx03v2-lab-example (plus two test placeholders), number000000000000, billing000000-000000-000000, example.com emails or placeholder-project service accounts; private/RFC5737 IPs or LB35.191.0.0/16, 130.211.0.0/22; repeated-digit GUIDs | Protect projects, billing accounts and people | policy-identifiers scans every Git-visible file, including projects/<id>/ paths | blocking |
+| SEC-03 | Ephemeral random_password plus write-only password_wo/secret_data_wo; no random_password/random_string resources except local LOC-01, no plaintext password/secret_data | Values absent from plan/state | policy-terraform; secrets_are_regional_and_write_only, cloudsql_postgres_17_enterprise_psc_only | blocking |
+| SEC-04 | GitHub WIF only: pool tx03v2-github, provider condition numeric repository_owner_id/repository_id for owner/both repos, exact immutable repo:<owner>@<id>/<repo>@<id>: subject per workloadIdentityUser, no principalSet/service-account key | No other owner/repository/branch/environment identity; reclaimed names cannot inherit | identities tests pool_and_provider_follow_the_contract/one_grant_per_exact_subject/owner_is_configurable/the_ids_are_numeric; repo-guardrails checks subject; policy-terraform rejects keys/principalSet | blocking |
+| SEC-05 | id-token:write only guarded cloud jobs; lab environment for mutations, guarded plan has no environment approval; never ci.yml. No credentials_json, secrets.GCP*/GOOGLE* or credential files in workflows; auth uses vars workload_identity_provider/service_account only | Limit credential acquisition | policy-workflows | blocking |
+| SEC-06 | Private nodes; no public control-plane IP, no authorized CIDRs/Google public IPs; IAM-only DNS endpoint, no Kubernetes tokens/certificates there; no0.0.0.0/0 in cloud Terraform. Local pg_hba applies only inside private Docker network | No exposed cluster IP port; IAM required | policy-terraform; autopilot_private_dns_endpoint_gateway | blocking |
+| SEC-07 | No organization/folder resources, Owner grants or authoritative IAM bindings/policies | Cannot reach organization or erase other grants | policy-terraform; nothing_for_the_deployer_and_no_owner | blocking |
+| SEC-08 | Apply project grants limited by modifiedGrantsByRole to exactly four project-roles roles; lab root grants exactly those | Prevent self-promotion | apply_identity_grants_only_the_lab_project_roles/project_grants_follow_the_contract, lab/otel IAM preconditions | blocking |
+| SEC-09 | Read-only plan: project Viewer/SecurityReviewer/ParameterViewer, state objectViewer, no write/impersonation/secret access | Plan runs in PRs | plan_identity_is_read_only | blocking |
+| SEC-10 | Cloud SQL PSC only, no public IP/private-services-access; only lab consumer project, encrypted connections/sharedCA/automatic certificate rotation | No Internet DB port, verifiable hostname | policy-terraform rejects ipv4_enabled=true; cloudsql_postgres_17_enterprise_psc_only | blocking |
+| SEC-11 | No deployer Secret Manager grant; ESO secretAccessor only on owned lab secrets | Least privilege | repository_and_secret_grants/project_grants_follow_the_contract | blocking |
+| SEC-12 | Plan only same-repository PRs (head.repo.full_name == github.repository), GCP_PLAN_SERVICE_ACCOUNT configured | Forks receive no credentials | terraform-plan.yml, policy-workflows | blocking |
+| SEC-13 | No allUsers/allAuthenticatedUsers; uniform/private state bucket | No public lab data | policy-terraform; state_bucket_is_private_versioned_and_protected | blocking |
+| SEC-14 | Nodes use tx03v2-lab-nodes with defaultNodeServiceAccount/registry-reader, never default Compute Engine account | Default identity may have Editor | cluster_follows_the_contract/project_grants_follow_the_contract | blocking |
+| SEC-15 | No bootstrap defaults for github_owner/IDs; reject your-github-user. budget_alert_emails requires at least one real monitored address, rejects you@example.com; numeric owner/repo IDs required | Fork cannot trust original owner accidentally; cost alert reaches operator | variable validations, placeholder_owner_is_refused/placeholder_alert_email_is_refused/an_empty_alert_list_is_refused/the_ids_are_numeric; FORK | blocking |
+| SEC-16 | Scripts act only on contract tx03v2-lab with project=tx03v2 label; env CLUSTER_NAME/LAB_NAME cannot retarget. Temporary kubeconfig preserves user's context. Local scripts accept only kind-tx03v2-local | Fork operators may have other clusters/contexts/environment variables | policy-scripts; require_lab_cluster in lib/gcp, require_lab_context in lib/local | blocking |
+| SEC-17 | Leftovers requires explicit --project, not shell/gcloud default; lab ownership by project label/name/network or dx03v2 Gateway piece. Other resources INFO/not the lab's | Must not suggest deleting unrelated work, RUNBOOK9 | leftovers-flow simulated mixed project, lab_resource | blocking |
+| SEC-18 | Preflight before bootstrap/apply rejects foreign GKE/Cloud SQL/secrets; unreadable inventory never proves dedicated project | Apply has powerful lab-service project roles despite removed Editor/Secret ManagerAdmin; shared project unsupported | preflight-flow, apply Pre-flight step | blocking |
+| SEC-19 | LAB_APP_DEPLOYER_MEMBERS is a secret; each cloud workflow masks elements/emails and redacts summaries/plan artifacts | Public logs/artifacts must not expose operator emails | policy-workflows | blocking |
+| SEC-20 | Apply has no Editor/Secret ManagerAdmin/project-wide serviceAccountUser; lab service admins, custom secret role without general versions.access, node-only impersonation, two-bucket Velero metadata. Empty apply_extra_project_roles rejects Owner/ProjectIAMAdmin/service-account roles | Compromised approved workflow cannot impersonate arbitrary identities or gain broad unrelated data access. Continuity synchronization separately reads four exact lab secrets | apply_identity_has_the_service_roles_of_the_lab_and_no_editor, secrets_can_be_managed_but_not_read, apply_acts_as_the_node_account_only, apply_manages_velero_bucket_metadata_but_not_backup_objects, extra_roles_*; policy-terraform | blocking |
+| SEC-21 | Apply metadata only on tx03v2-lab-velero-<project_id> and tx03v2-lab-dr-velero-<project_id>; tx03v2VeleroBucket create/delete/get/getIamPolicy/setIamPolicy/update conditioned on exact bucket type/names; no object permissions. KSA velero/velero WIF gets bucket-only objectAdmin; no Google key/account/Secret, force_destroy=false | Backup data inaccessible to Terraform workflow; requested-name creation condition reviewed in Storage IAM docs2026-10-16, cloud unrun | bootstrap roles, velero module, velero/roles tests | blocking |
+| SEC-22 | Kubernetes-mode Kyverno checks regular/init/ephemeral app images in dx03v2: exact api/web repository SHA256 digests, keyless main deploy-gcp.yml promotion attestation, Fail/Deny; Kyverno/Trivy KSA get repository-only Reader, no pull key/Secret | Unpromoted apps cannot start; registry access without secrets | image-admission-policy/image-admission-fixtures/policy-gator/helm-template-full, scanner_and_admission_read_only_the_repository | blocking |
+| SEC-24 | Cloud Gatekeeper accepts only contract api/web SHA25664; managed exception needs container name istio-proxy/istio-validation and exact gcr.io/gke-release/asm/proxyv2 path with explicit tag/digest. Apply replacement before removing old cloud constraint | Managed injection must neither block app nor allow other repositories; proxyv2-malicioso rejected | policy-gator/image-admission-fixtures; cloud-only template | blocking |
+| SEC-23 | Full mesh namespace STRICT; each plaintext PeerAuthentication selects one workload/port (CRD requires selector); external sources only LB ranges, Prometheus9464, Collector healthz/readyz; trust <project>.svc.id.goog, not cluster.local | Invalid CRD fails real apply; broad exemption defeats mTLS | image-admission-policy renders/selectors/default/trust/sources | blocking |
+| SUP-01 | Version/SHA256-pinned tools; mismatch fatal | Supply chain | install-tools/checksums, tool-versions | blocking |
+| SUP-02 | Every action full40SHA with vX.Y.Z comment, one SHA/action | Tags can move | policy-workflows/version-consistency | blocking |
+| SUP-03 | Lockfiles for four platforms, at least four h1 hashes/provider; init -lockfile=readonly | Reproducibility | terraform-lockfiles/terraform-validate | blocking |
+| SUP-04 | ESO OCI tag/manifest digest/archive SHA256; three ESO images/devcontainer pinned by digest | Changes require diff | helm-template/contract-platform/version-consistency/repo-structure, installer | blocking |
+| SUP-05 | Trivy only via install-tools, never trivy-action/setup-trivy, GHSA-69fq-xp46-6x23 | March 2026 supply-chain incident | policy-workflows | blocking |
+| SUP-06 | Consistent tflint ruleset, gitleaks hook, ESO digests, required_version, google constraints/locked version, Kubernetes minor in schemas/CONTRACT, GCLOUD_VERSION/setup-gcloud | No partial upgrade | version-consistency | blocking |
+| SUP-07 | Monthly Dependabot, group minor/patch, separate majors; google majors/gitleaks hook deliberately ignored with comments | Avoid silent decay | dependabot.yml | alert |
+| IAC-01 | No Kubernetes/Helm Terraform; GA google only, no beta | Layer separation/stable attributes | policy-terraform | blocking |
+| IAC-02 | No credentials/access_token/impersonation in google provider; empty gcs backend, bucket/prefix from backend.hcl | ADC or WIF credentials | policy-terraform | blocking |
+| IAC-03 | Exactly four provider default_labels, attribution off; no module provider; project tx03v2/environment lab | Every label-capable resource identified | policy-labels | blocking |
+| IAC-04 | timestamp/plantimestamp only with attribute ignore_changes | No perpetual diff | policy-terraform | blocking |
+| IAC-05 | Validate every nonboolean input: project/region/owner/deploy email/project, lowercase unique user/serviceAccount members, no groups, canonical private nonoverlapping CIDRs/prefixes, DB tier exclusions, positive integer versions, billing/budget/emails | Fail before cloud calls | validations tests/rejects_* | blocking |
+| IAC-06 | No unexcepted HIGH/CRITICAL IaC finding, including rendered example tfvars | IaC security | trivy-config/trivy-config-tfvars | blocking |
+| IAC-07 | Recommended/google0.40.0 tflint, no issues; inline ignore needs reviewed reason | IaC quality | tflint, PR review | blocking |
+| IAC-08 | Formatted valid HCL in every root/module, including local | Readable review | terraform-fmt/terraform-validate | blocking |
+| IAC-09 | Autopilot only, no node_pool/min_master_version, legacy ABAC off | Channel owns version, no node sizing | policy-terraform, autopilot_private_dns_endpoint_gateway | blocking |
+| IAC-10 | Never disable APIs on destroy;state no force_destroy, PREVENT until state_protection=false | Preserve project/state | policy-terraform, apis_are_enabled_and_never_disabled, state_bucket_is_private_versioned_and_protected, final_teardown_lifts_the_protection | blocking |
+| IAC-11 | Explain IAM/network/RBAC/CORS expansion in PR | Deliberate review | PR template | process |
+| K8S-01 | Strict kubeconform, pinned schemas | Invalid manifests do not reach cluster | kubeconform | blocking |
+| K8S-02 | Restricted/latest dx03v2 namespace;exact contract Role incl networking.gke.io policies;unique email Users;gcpsm ClusterSecretStore projectID/no auth/dx03v2-only;renderer rejects invalid inputs | Least privilege | contract-platform | blocking |
+| K8S-03 | ESO external-secrets SA without annotation, digest pins, requests in all three containers | IAM principal depends on names, Autopilot requests | contract-platform, helm-template | blocking |
+| K8S-04 | Uninstall dx03v2/wait Gatewayfinalizer/NEGs before destroy;timeout fails | Controller LB outside state | destroy.sh/workflow, policy-workflows;API fallback CUSTO-03 | blocking |
+| K8S-05 | Reject group members without configured GoogleGroupsRBAC | IAM member must have equivalent Kubernetes access | rejects_a_group_member, emails_from_members | blocking |
+| K8S-06 | Fixed nonoverlapping control-plane /28, firewall only source range/node SA/TCP8443 Gatekeeper, 9443 Kyverno/Chaos | Default control-plane initiation only443/10250;otherwise policy webhook unreachable/full pods blocked | autopilot_private_dns_endpoint_gateway, rejects_a_control_plane_range_* | blocking |
+| APP-01 | Versioned DX contract:18keys match contract.tf, harness list, CONTRACT table;fixed store/LB ranges/name;coordinated changes | Both sides evolve together | contract-parameter, contract_keys_in_the_parameter | blocking |
+| APP-02 | Deployer/members exactly registry writer, clusterViewer, parameterAccessor | Equal deploy access, no extras | project_grants_follow_the_contract, repository_and_secret_grants, no_extra_deployer_by_default | blocking |
+| APP-03 | Cloud Armor seven CRS categories, 600/min/IP>=300, default allow, 64 KBinspection, alert-only Adaptive Protection;none without WAF | Smoke not accidentally blocked | waf_policy_follows_the_contract, no_waf_publishes_none, root_wiring_of_enable_waf | blocking |
+| CUSTO-01 | Monthly project budget5 billing currency, actual50/90/100%, forecast100%, named validated recipients+billing admins, EXCLUDE_ALL_CREDITS | Earlier full alerts, but no spending cap | bootstrap budget/tests | alert |
+| CUSTO-02 | Core default, full rendered requests;core zonal db-g1-small10 GB/1backup/noPITR, NATerrorlogs, registrycleanup/no scan, GKEsystem/workloadlogs | Reproducible profile/hourly cost in COSTS | platform-sizing, defaults_are_lab_friendly, module tests | blocking |
+| CUSTO-03 | Destroy fails loudly, no swallowed errors;continues Terraform after failed uninstall, first deletes only owned controller leftovers via API;always leftovers | Failed uninstall must not leave billable lab | destroy-flow mocked CLIs, destroy.sh/workflow, policy-workflows | blocking |
+| CUSTO-04 | Same-day destroy, Owner leftovers, cloud_run_report | Avoid forgotten cost | RUNBOOK | process |
+| CUSTO-05 | Uninstall full releases/monitoringPVCs before destroy | Disks outside state keep charging | full-install-order, leftovers persistent-disk list | blocking |
+| CI-01 | Harness is CI, jobs call make targets | Same checks | review/ci.yml | process |
+| CI-02 | No continue-on-error or success-swallowing fallbacks, Terraform sed, state/lock deletion;force-unlock only typed destroy input | Honest gates, v1lesson | policy-workflows | blocking |
+| CI-03 | Top-level contents:read, timeouts, concurrency, ubuntu24.04, persist-credentials:false | Least privilege, predictable execution | policy-workflows | blocking |
+| CI-04 | HARNESS_STRICT=1 makes SKIP fail | No silent skipping | ci.yml/harness | blocking |
+| CI-05 | Manual cloud workflows (guarded PR plan also);mutations lab;first Check validates variables, review checks content;WIF-only, typed destroy | Costly actions require intent | policy-workflows | blocking |
+| CI-06 | Plan -lock=false, apply/destroy retain lock | Plan cannot write lock | policy-workflows | blocking |
+| CI-07 | Plan summary/artifact and apply summary replace project/number/suffix with PROJECT_ID/PROJECT_NUMBER/SUFFIX placeholders;mask operators;plan MEMBER/EMAIL redaction | Public logs | plan/apply workflows, lib/gcp mask | process |
+| CI-08 | Weekly Monday 06:00UTC CI | Detect changed charts/URLs/new findings | ci.yml | alert |
+| CI-09 | E2E local lab everyPR, green before merge | Runtime proof beyond rendering | ci.yml, required ruleset check | blocking |
+| LOC-01 | No cloud provider/remote backend in local root;local Docker socket only;local credentials/state outside repo | Free cloud-independent execution | policy-terraform, docker_host validation/local tests | blocking |
+| LOC-02 | Local containers tx03v2.lab=local;only registry port127.0.0.1:5003;no privileged infrastructure containers | No unintended exposure/orphans | local tests, policy-terraform, leftovers-local | blocking |
+| LOC-03 | Local chart versions/archiveSHA256, image digests, ClusterIP except runtime gateways | Supply chain/private UIs | helm-template-local, local-versions, installer | blocking |
+| LOC-04 | Gatekeeper deny/Fail for app, positive/negative fixtures per policy | v1dryrun without audit was insufficient | policy-gator, policies probe | blocking |
+| LOC-05 | Traffic/API probe per component;always destroy/leftovers | Claim only proved behavior | local/check/local-lab e2e | blocking |
+| LOC-06 | Preflight daemon consistency, nonoverlapping Docker/host routes, free registry port;only own LOCAL_STATE_DIR lab;make clean under Makefile directory | Fork machines may have VPN/other containers/labs | local-preflight mocked docker/kind/ip, preflight/require_own_lab | blocking |
+| MUD-01 | Protected main, PR, strict static/test/e2e, no force push | Every change goes through harness | main ruleset/repo-guardrails, policy-workflows | blocking after publication |
+| MUD-02 | Scanner exceptions justified, expiry <=about7months | Review/expire accepted risk | trivyignore-policy | blocking |
+| MUD-03 | Entrypoint executable bits in Git | Windows may lose bits | repo-structure;before first commit warning with git add --chmod=+x | blocking after first commit |
+| MUD-04 | ConventionalCommits, one topic/PR, Unreleased changelog | Readable history | CONTRIBUTING, PRtemplate | process |
+| DOC-01 | Claims need exact status/evidence;no self-ratings/emojis/v1links;README<=250lines, LF | Honest documentation | repo-structure, review | blocking |
+| DOC-02 | Docs change with code | Prevent stale instructions | PR template | process |
+| DOC-03 | Public documentation, examples, comments and contributor guidance in English;single README and central guide | One consistent fork onboarding path | repo-structure/review, GETTING_STARTED link | blocking/process |
+| AGT-01 | No agent cloud mutation without explicit human request for that action | Cost/security | AGENTS | process |
+| AGT-02 | Never weaken gates or add unjustified/nonexpiring ignores | Harness must retain meaning | Agent instructions/checks | process |
+| AGT-03 | Ask in AGENTS-listed cases | Human owns expensive decisions | AGENTS | process |
 
-## Exceções
+## Exceptions
 
-Uma exceção é um ignore de scanner. Para adicionar uma:
+A scanner ignore is an exception. To add one:
 
-1. Confirme que o achado é uma escolha deliberada do lab (não um defeito a corrigir).
-2. Adicione a entrada em `.trivyignore.yaml` com `id`, `paths` (o mais restrito possível),
-   `statement` (por que é aceitável e o que compensa o risco) e `expired_at` em até ~7 meses.
-3. Explique a exceção no PR. O check `trivyignore-policy` rejeita entradas sem justificativa, sem
-   validade, vencidas ou longas demais; o trivy deixa de aplicar uma entrada vencida.
+1. Confirm that the finding is a deliberate lab choice, rather than a defect.
+2. Add `.trivyignore.yaml` entry with `id`, narrow `paths`, `statement` explaining
+   acceptance/compensating controls, and `expired_at` within about seven months.
+3. Explain it in the PR. `trivyignore-policy` rejects missing reasons/dates,
+   expired entries or excessive durations; Trivy stops honoring expired entries.
 
-Exceções atuais: nenhuma (`misconfigurations: []`, verificado em 2026-10-11). Achados MEDIUM/LOW
-conhecidos e aceitos, que não falham o scan (trivy 0.75.0, `--severity LOW,MEDIUM`):
+Current exceptions: none (`misconfigurations: []`, checked 2026-10-11).
+Known accepted MEDIUM/LOW findings, outside the failure severity threshold
+(Trivy0.75.0, `--severity LOW,MEDIUM`):
 
-- `GCP-0014`, `GCP-0016`, `GCP-0020`, `GCP-0022`, `GCP-0025` (MEDIUM): flags de log do PostgreSQL
-  (arquivos temporários, conexões, esperas de lock, desconexões, checkpoints) não definidas; logs do
-  Cloud SQL têm custo e o lab é descartável.
-- `GCP-0029` (LOW) e `GCP-0076` (MEDIUM): flow logs da subnet desligados (cobrados por GB).
-- `GCP-0051` (LOW): labels no cluster. Os labels vêm do `default_labels` do provider no root, que o
-  trivy não enxerga ao ler o módulo.
-- `GCP-0066` (LOW): bucket do state sem chave gerenciada pelo cliente (CMEK); os dados ficam com a
-  criptografia padrão do Google (ADR 23).
+- MEDIUM GCP-0014/0016/0020/0022/0025: unset PostgreSQL temporary-file, connection,
+  lock-wait, disconnection/checkpoint logging flags. Cloud SQL logs cost money;
+  this lab is disposable.
+- LOW GCP-0029/MEDIUM GCP-0076: subnet flow logs disabled (billed perGB).
+- LOW GCP-0051: cluster labels come from root provider default_labels, unseen by
+  Trivy's module scan.
+- LOW GCP-0066: state has Google default encryption rather than CMEK (ADR23).
 
-## Limites (o que NÃO é garantido)
+## Limits (what is not guaranteed)
 
-- Nada do v2 rodou no Google Cloud: os testes usam um provider google mockado e provam a
-  configuração, não que o Google Cloud aceita cada chamada nem que os recursos funcionam juntos.
-- `tx03v2-gha-apply` ainda é poderoso dentro do projeto (SEC-20): o papel de admin de Kubernetes
-  Engine, Cloud SQL, Compute (rede e política de segurança), DNS, Artifact Registry e Parameter
-  Manager, e um papel que cria e concede segredos sem ler valores. Esses papéis continuam no projeto
-  inteiro: as condições por nome não funcionam uniformemente nas chamadas de criação de cada serviço,
-  e o suporte do restante do apply não foi conferido em nuvem. O papel do Velero é a exceção: a
-  documentação do Cloud Storage permite condicionar permissões de bucket pelo tipo e nome do recurso,
-  inclusive `storage.buckets.create`; o teste fixa os dois nomes derivados, mas nada foi aplicado em nuvem.
-  Só o Service Account User é preso à conta dos nós. A condição IAM limita as concessões no nível do projeto; as concessões em recursos (segredos,
-  repositório, parâmetro) dependem desses papéis e da revisão de PR. Por isso: projeto dedicado (o
-  `scripts/preflight.sh`, SEC-18, recusa um projeto com cluster, banco ou segredo de outro trabalho),
-  environment `lab` com revisor obrigatório e deploy só a partir de `main`. Um projeto compartilhado
-  continua não sendo suportado.
-- Os papéis do apply foram escolhidos pela documentação dos serviços (que papel cria o quê), não por
-  um apply real: se um apply falhar com `PERMISSION_DENIED`, a mensagem nomeia a permissão que falta
-  e `apply_extra_project_roles` acrescenta o papel que a tem (`docs/RUNBOOK.md`, seção 12).
-- `tx03v2-gha-plan` lê a configuração do projeto, as políticas IAM e o payload do parâmetro do
-  contrato (nada secreto). Ele roda em PRs do próprio repositório: quem pode criar branches nele pode,
-  em tese, alterar o workflow numa PR e usar essa leitura. Forks não recebem a credencial.
-- O ID e o número do projeto ficam nas variáveis de repositório que os workflows usam. O Google não
-  os trata como segredo; os workflows os mascaram e os resumos os substituem, mas use um projeto
-  dedicado.
-- Variáveis de repositório (`GCP_*`, `LAB_*`, `TF_STATE_BUCKET`) aparecem nos logs. Não coloque nelas
-  nada privado: a lista de pessoas que operam o lab é um secret (SEC-19).
-- O endpoint DNS do plano de controle aceita tráfego da Internet: toda requisição precisa do IAM do
-  Google (`container.clusters.connect`) e depois do RBAC do Kubernetes, mas o nome é alcançável.
-- O Gateway atende só HTTP na porta 80 (HTTPS `planejado`): o tráfego entre o cliente e o load
-  balancer não é criptografado.
-- O Cloud Armor inspeciona só os primeiros 64 KB de cada corpo; corpos maiores passam sem bloqueio
-  por tamanho (a API responde 413).
-- Os plurais de RBAC `healthcheckpolicies` e `gcpbackendpolicies` e os mínimos de recursos do
-  Autopilot são assumidos (não conferidos num cluster); o preflight do deploy do dx03v2
-  (`kubectl auth can-i`, `planejado`) é o que pegaria uma divergência.
-- O `max_connections` padrão do `db-g1-small` (50) é assumido a partir da página de cotas do Cloud
-  SQL.
-- O budget só avisa; ele não para recursos.
-- `scripts/leftovers.sh` cobre os tipos de recurso que o lab usa e só culpa o que é do lab (SEC-17):
-  os formatos `gcloud` das listas (`labels.project`, `network`, `labels.goog-k8s-cluster-name`) e os
-  nomes que o controlador do Gateway dá às peças (`gkegw1-…-dx03v2-…`) são assumidos, não conferidos
-  numa conta. No workflow, a identidade do apply pode não conseguir ler alguma lista (`UNCHECKED`, com
-  aviso, sem mudar o código de saída); a checagem completa é local, como Owner do projeto.
-- Um pool de Workload Identity Federation apagado fica em soft delete por 30 dias e o ID não pode
-  ser reutilizado nesse tempo (`docs/ARQUITETURA.md`, "Nomes que ficam presos").
-- O schema do ClusterSecretStore no kubeconform é de 2026-06-02 (`docs/HARNESS.md`).
-- O lab local prova a plataforma num nó kind, não no Google Cloud nem no Autopilot; o
-  cloud-provider-kind usa o socket do Docker (cria contêineres): rode o lab local só numa máquina
-  descartável ou no CI (`docs/LAB_LOCAL.md`). A rodada completa roda no job `e2e` do CI, obrigatório
-  no ruleset.
-- Os namespaces `istio-system`, `monitoring-agents` e `chaos-mesh` do lab local são `privileged` por
-  necessidade dos componentes (o Autopilot recusaria esses componentes); o webhook do Gatekeeper não
-  avalia os namespaces da plataforma (para que ela suba mesmo com o Gatekeeper fora do ar).
+- No v2 Google Cloud execution. Mocked provider tests prove configuration, not
+  acceptance of every API call or integration of managed services.
+- Apply remains powerful in its dedicated project (SEC-20): service admins for
+  Kubernetes Engine, Cloud SQL, Compute networking/security, DNS, Artifact Registry,
+  Parameter Manager and secret creation/grants. Name conditions are not uniformly
+  available on creation calls; the full apply remains cloud-unverified. Velero
+  metadata uses the exact two derived bucket names, tested as configuration, not
+  live authorization. Node-only serviceAccountUser and project-role grant
+  allowlist narrow scope; resource grants still depend on service roles/review.
+  A dedicated project is mandatory (preflight rejects foreign clusters/DB/secrets),
+  with reviewed lab environment and main-only deployment. Shared projects are
+  unsupported. Protected DR sync reads only the four exact lab secrets.
+- Roles were chosen from service documentation, not real apply. On
+  PERMISSION_DENIED, inspect the missing permission and deliberately review
+  apply_extra_project_roles (RUNBOOK12).
+- Plan reads project configuration/IAM/nonsecret contract payload. Same-repo
+  branch authors could change a PR workflow to use this read access; fork PRs
+  receive no credential.
+- Project ID/number are repository variables, not Google secrets; masking and
+  summary redaction help, but retain a dedicated project.
+- GCP_*/LAB_*/TF_STATE_BUCKET variables appear in logs. Put no private value there;
+  operators belong in the SEC-19 secret.
+- DNS control-plane name is Internet-reachable, though each request needs Google
+  IAM container.clusters.connect then Kubernetes RBAC.
+- Core Gateway is plaintext HTTP80. Full implements managed HTTPS, but managed
+  certificate provisioning and listener behavior remain cloud-unrun.
+- Cloud Armor inspects first64 KB; larger bodies pass size inspection and API413.
+- GKE policy plurals and Autopilot minima remain unverified on a live cluster;
+  implemented deploy can-i preflight catches mismatches before writes.
+- db-g1-small default max_connections50 is assumed from Cloud SQL quota docs.
+- Budget alerts do not stop resources.
+- Leftovers covers lab resource types/ownership only. gcloud labels/network
+  formats and controller gkegw1-…-dx03v2-… names remain unverified in an account.
+  Apply may not read some inventories (UNCHECKED warning, no exit-code change);
+  full check must run locally as project Owner.
+- Deleted WIF pool ID unavailable30 days (ARCHITECTURE, Names retained after deletion).
+- kubeconform ClusterSecretStore schema snapshot2026-06-02 (HARNESS).
+- Local proof is kind, not GCP/Autopilot. cloud-provider-kind uses the Docker
+  socket to create containers; run only on disposable machines/CI (LOCAL_LAB).
+  Complete CI e2e is required by ruleset.
+- Local istio-system, monitoring-agents, chaos-mesh require privileged components
+  (unacceptable upstream on Autopilot). Platform namespaces are outside
+  Gatekeeper webhook so bootstrap can proceed when it is unavailable.
 
-## Como verificar
+## Verification
 
 ```bash
-make tools                 # ferramentas fixadas em .tools/
+make tools                 # pinned tools in .tools/
 HARNESS_STRICT=1 make verify
-scripts/harness.sh list    # todos os checks e estágios
-scripts/leftovers.sh --project <id>   # depois de um destroy (gcloud auth login como Owner)
+scripts/harness.sh list    # all checks and stages
+scripts/leftovers.sh --project <id>   # after destroy, gcloud Owner login
 ```

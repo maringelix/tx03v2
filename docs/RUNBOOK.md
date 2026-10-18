@@ -1,102 +1,103 @@
-# Runbook: uma rodada completa na nuvem
+# Runbook: a complete cloud round
 
-Passo a passo para subir o lab no seu projeto Google Cloud, publicar o app do `dx03v2`, destruir tudo
-e registrar o resultado. Nada disto foi executado em nuvem na v2 (`não executado em nuvem (v2)`):
-você será a primeira evidência. Os tempos abaixo são estimativas, não medições. O deploy do app
-segue o [runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)
-(também `não executado em nuvem (v2)`).
+Create the lab in your Google Cloud project, publish the dx03v2 app, destroy the
+resources and record the result. No v2 cloud run has occurred (`not run in the
+cloud (v2)`); this run supplies the first managed-service evidence. Times below
+are estimates. App details are in the [dx03v2 runbook](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md).
+Start with the [family getting started guide](https://github.com/maringelix/tx00v2/blob/main/docs/GETTING_STARTED.md).
 
-> **Custo**: o perfil `core` fica perto de US$0,12/h com o free tier da GKE ou US$0,22/h sem ele;
-> `full` fica perto de US$0,16/h ou US$0,26/h, respectivamente. Uma rodada de três horas custa
-> aproximadamente US$0,37–0,67 no `core` e US$0,49–0,79 no `full`, mais dados e armazenamento de
-> backup. São estimativas de preço de tabela conferidas em 2026-10-16, não medidas em fatura
-> (`docs/CUSTOS.md`). Destrua no mesmo dia.
+> **Cost:** historical list-price estimates checked 2026-10-16 put core near
+> USD0.12/hour with available GKE credit or USD0.22 without. Full is roughly
+> USD0.21/0.31 including estimated sidecars/disks but excluding unconfirmed managed
+> mesh pricing, data and backup storage. Three hours: core USD0.37–0.67; full
+> USD0.64–0.94. These are not invoices. Review current regional prices and the
+> mandatory estimate gate in FINOPS. Destroy the same day.
 
-## 1. Pré-requisitos
+## 1. Prerequisites
 
-- Projeto **dedicado** ao lab, criado por você e com faturamento vinculado: o budget e os papéis do
-  CI valem para o projeto inteiro (`tx03v2-gha-apply` tem o papel de admin de cada serviço do lab
-  nele, então poderia alterar um cluster, um banco ou um segredo de outro trabalho). O
-  `scripts/preflight.sh --project <id>` recusa um projeto que tenha cluster GKE, instância Cloud SQL ou
-  segredo que não seja do lab, e o `terraform-apply` roda esse check antes do plan. Os exemplos usam
-  `tx03v2-lab-example`.
-- Você precisa ser **Owner** do projeto para o bootstrap (liga APIs, cria contas de serviço e
-  concede papéis) e de um papel na conta de faturamento que crie budgets (por exemplo Billing Account
-  Administrator ou Billing Account Costs Manager; o Owner do projeto não basta).
-- Ferramentas: Google Cloud CLI (`gcloud`) com o componente `gke-gcloud-auth-plugin`, `jq`, `gh`
-  autenticado e as ferramentas do harness com `make tools` (terraform, kubectl, helm). O deploy do
-  dx03v2 a partir de um laptop também precisa de Docker com buildx e Node.js 24 (runbook do dx03v2).
-- Um diretório de configuração do gcloud só para o lab. O `gcloud auth application-default login`
-  **sobrescreve** o ADC da máquina (um arquivo por diretório de configuração), então quem usa o ADC
-  para outro projeto o perderia. Aponte o gcloud para um diretório do lab antes de qualquer login:
-  `export CLOUDSDK_CONFIG="$HOME/.config/gcloud-tx03v2"` (login, configurações e ADC ficam ali; o
-  `gke-gcloud-auth-plugin` usa o mesmo). Sem isso, o ADC e a configuração ativa do gcloud de outro
-  trabalho são os que o Terraform e os scripts usam.
-- Repositórios `tx03v2` e `dx03v2` no GitHub (seus forks ou os originais), públicos e com
-  `scripts/repo-guardrails.sh` aplicado (environment `lab` com revisor obrigatório e só `main`;
-  `docs/PUBLICACAO.md`). Os sujeitos do Workload Identity Federation aceitam o apply e o deploy só no
-  environment `lab`. Num fork, use o seu usuário em `github_owner`; os IDs numéricos do dono e dos
-  dois repositórios entram no bootstrap (seção 2).
-- Cotas e restrições: confira as cotas regionais do projeto (Compute Engine, Cloud SQL) no console
-  antes da rodada; contas com créditos de avaliação podem ter limites próprios (não verificado).
-- Tempo estimado: bootstrap ~5 min; apply ~20–40 min (cluster Autopilot e instância Cloud SQL);
-  plataforma ~10 min; deploy do dx03v2 ~15 min; destroy ~20–40 min. Uma rodada completa: 2–3 horas.
+- A **dedicated**, billing-linked project you created. Budget and powerful apply
+  service roles are project-scoped; they could affect unrelated clusters,
+  databases or secrets. `scripts/preflight.sh --project <id>` rejects foreign
+  GKE/Cloud SQL/Secret Manager resources; apply repeats it before planning.
+  Examples use `tx03v2-lab-example`.
+- Project **Owner** for enabling APIs, creating identities and IAM grants, plus
+  Billing Account Administrator or Billing Account Costs Manager to create the
+  budget. Project Owner alone does not authorize billing-account budgets.
+- Google Cloud CLI with `gke-gcloud-auth-plugin`, `jq`, authenticated `gh`, and
+  `make tools` for pinned Terraform/kubectl/Helm. Laptop app deployment additionally
+  needs Node.js 24, Git, curl, base64, openssl, awk, crane and a verified release
+  bundle; consult the DX script header. Cloud deployment promotes approved images
+  rather than building them on the laptop.
+- Separate gcloud configuration **before** login:
+  `export CLOUDSDK_CONFIG="$HOME/.config/gcloud-tx03v2"`. ADC login **overwrites**
+  Application Default Credentials in that configuration directory. This isolates
+  lab logins, settings and ADC; the auth plugin uses the same directory. Otherwise
+  Terraform/scripts may use another task's active credentials/configuration.
+- Public TX/DX forks with repository guardrails applied: required reviewer on
+  environment `lab`, deployments from `main` only (PUBLISHING). Exact immutable
+  WIF subjects require your owner and numeric owner/repository IDs at bootstrap.
+- Review regional Compute Engine/Cloud SQL quotas and trial-account restrictions
+  in your console before starting; actual eligibility has not been verified here.
+- Estimated time: bootstrap5 min, apply20–40 min, platform10 min, app15 min,
+  destroy20–40 min; allow2–3 hours. Managed certificate delegation may take longer.
 
-## 2. Bootstrap (uma vez, local, como Owner)
+## 2. Bootstrap (once, locally as Owner)
+
+From the TX clone, after selecting the dedicated gcloud directory:
 
 ```bash
+export PATH="$PWD/.tools/bin:$PATH"
 gcloud auth login
 gcloud auth application-default login
-gcloud billing projects describe tx03v2-lab-example --format='value(billingAccountName)'   # billingAccounts/<conta>
-scripts/preflight.sh --project tx03v2-lab-example   # recusa um projeto com cluster, banco ou segredo de outro trabalho
+gcloud billing projects describe tx03v2-lab-example --format='value(billingAccountName)'
+scripts/preflight.sh --project tx03v2-lab-example
 cd terraform/bootstrap
-cp terraform.tfvars.example terraform.tfvars   # project_id, billing_account (sem o prefixo), budget_alert_emails, github_owner e os três IDs
+cp terraform.tfvars.example terraform.tfvars
+# Set project_id, billing_account without prefix, budget_alert_emails,
+# github_owner, github_owner_id, tx03v2_repository_id, dx03v2_repository_id.
+# For two-US-region DR, choose state_location="US" before this first creation.
 terraform init
 terraform apply
 terraform output -raw backend_hcl > ../envs/lab/backend.hcl
-terraform output github_variables_tx03v2       # seção 3
-terraform output github_variables_dx03v2       # seção 3
+terraform output github_variables_tx03v2
+terraform output github_variables_dx03v2
 ```
 
-O bootstrap liga as 15 APIs do lab (nunca desligadas no destroy), cria o bucket do state
-(`tx03v2-tfstate-<suffix>`, com `suffix = substr(sha1(project_id), 0, 8)`; versionado, acesso
-uniforme, prevenção de acesso público), o pool `tx03v2-github` com o provider `github`, as contas
-`tx03v2-gha-plan`, `tx03v2-gha-apply` e `dx03v2-gha-deploy` com um vínculo por sujeito exato e os
-papéis do contrato (o apply sem Editor: o admin de cada serviço do lab e o papel personalizado
-`tx03v2LabSecrets`, que cria e concede segredos sem ler valores), a conta dos nós `tx03v2-lab-nodes`
-(o apply só pode agir como ela: `iam.serviceAccountUser` nela e em mais nenhuma conta) e o budget mensal (padrão 5 na moeda da conta de faturamento, sem descontar
-créditos, alertas de 50, 90 e 100 % do gasto e de 100 % da previsão para os e-mails que você nomeia e
-para os administradores da conta).
+Bootstrap enables18 APIs, never disabled on destroy; creates the versioned uniform
+private state bucket `tx03v2-tfstate-<suffix>` (`substr(sha1(project_id),0,8)`),
+WIF pool/provider, plan/apply/deploy accounts, exact-subject grants and contract
+roles. Apply has service admins without Editor, custom `tx03v2LabSecrets` without
+general secret reads, and `iam.serviceAccountUser` only on bootstrap-created
+`tx03v2-lab-nodes`. It also creates monthly budget5 in billing-account currency,
+excluding credits from spend calculation, with50/90/100% actual and100% forecast
+alerts to your named recipients and billing administrators.
 
-- `github_owner` não tem padrão: use o seu usuário do GitHub, o dono dos repositórios `tx03v2` e
-  `dx03v2` (ou dos seus forks). O placeholder do exemplo (`your-github-user`) e o e-mail
-  `you@example.com` são recusados.
-- A confiança do GitHub é pelos **IDs numéricos**: a condição do provider confere `repository_owner_id`
-  e `repository_id`, e os sujeitos são os **imutáveis** do GitHub,
-  `repo:<dono>@<id do dono>/tx03v2@<id do repositório>:environment:lab`. Todo repositório criado depois
-  de 2026-07-15 (um fork novo também) já emite esse formato; o formato antigo, só com os nomes, não
-  casa e seria herdado por quem registrasse de novo um nome apagado. Os IDs vêm de
-  `gh api users/<dono> --jq .id`, `gh api repos/<dono>/tx03v2 --jq .id` e
-  `gh api repos/<dono>/dx03v2 --jq .id` (`github_owner_id`, `tx03v2_repository_id` e
-  `dx03v2_repository_id` do `terraform.tfvars`); o `scripts/repo-guardrails.sh` também os imprime.
-- Um repositório criado **antes** de 2026-07-15 precisa aderir às claims de sujeito imutáveis
-  (Settings > Actions > General > OpenID Connect) antes do primeiro apply. Confira com
-  `gh api repos/<dono>/tx03v2/actions/oidc/customization/sub`: o `sub_claim_prefix` deve ter os `@<id>`.
-  Um repositório renomeado ou transferido muda o `sub`: aplique o bootstrap de novo.
-- `budget_alert_emails` é obrigatório (ao menos um endereço que você lê): um budget só avisa, e o
-  alerta tem de chegar a alguém que você nomeou. O budget não desconta créditos
-  (`credit_types_treatment = EXCLUDE_ALL_CREDITS`): os créditos de um trial manteriam o gasto contado
-  em zero e o alerta nunca viria.
-- O state do bootstrap fica **local** (`terraform.tfstate`, ignorado pelo git). Faça backup dele.
-- O provider usa as suas credenciais de usuário (ADC) com `user_project_override` e o próprio
-  projeto como projeto de cota (a API de budgets exige um).
-- APIs recém-ligadas podem levar alguns minutos para responder: se um recurso falhar com
-  `SERVICE_DISABLED` logo depois de ligar a API, espere e rode `terraform apply` de novo.
-- Opcional, migrar o state do bootstrap para o bucket: crie `terraform/bootstrap/backend_override.tf`
-  (ignorado pelo git) com o bloco abaixo e rode
+- `github_owner` has no default; placeholders `your-github-user` and
+  `you@example.com` are rejected.
+- Trust uses numeric `repository_owner_id`/`repository_id`, with immutable subject
+  `repo:<owner>@<owner id>/tx03v2@<repository id>:environment:lab`. Repos created
+  after2026-07-15, including new forks, emit this format. Old name-only subjects
+  neither match nor protect against deleted-name reuse. Obtain IDs through
+  `gh api users/<owner> --jq .id`, `gh api repos/<owner>/tx03v2 --jq .id`, and
+  the equivalent DX query; repo-guardrails also prints them.
+- Older repos must opt into immutable subject claims (Settings > Actions >
+  General > OpenID Connect). Inspect
+  `gh api repos/<owner>/tx03v2/actions/oidc/customization/sub`; the prefix needs
+  `@<id>`. Renames/transfers change the subject: reapply bootstrap with current IDs.
+- At least one monitored `budget_alert_emails` address is required. Without
+  `EXCLUDE_ALL_CREDITS`, trial credits could hold counted spend at zero and silence
+  the warning. A budget never stops billing.
+- Bootstrap state remains local and ignored; back it up privately. Provider ADC
+  uses `user_project_override` and the lab quota project (budget API needs one).
+- Newly enabled APIs may report `SERVICE_DISABLED` briefly; wait and repeat apply.
+- For US regional recovery, set state_location US before creation. Existing buckets
+  cannot move; never approve replacement of the state bucket. Follow the private
+  backup/lineage/serial/backend migration checks in CONTINUITY.
+- Optional bootstrap-state migration: create ignored `backend_override.tf` with
+  the empty block below and run
   `terraform init -migrate-state -backend-config="bucket=tx03v2-tfstate-<suffix>" -backend-config="prefix=bootstrap"`.
-  O harness lê todo `.tf` em `terraform/`: o bloco não pode ter argumentos. Antes do teardown
-  (seção 10), volte para local: apague o arquivo e rode `terraform init -migrate-state`.
+  Harness reads all Terraform files; backend arguments belong in CLI config.
+  Before final teardown, remove the override and migrate back to local.
 
   ```hcl
   terraform {
@@ -104,214 +105,197 @@ para os administradores da conta).
   }
   ```
 
-## 3. Variáveis do GitHub
+## 3. GitHub variables and secrets
 
-Settings > Secrets and variables > Actions, como variáveis de repositório (o job de plan não roda
-num environment). As variáveis aparecem nos logs: não coloque nada privado nelas. A lista que nomeia
-as **pessoas** que operam o lab (`LAB_APP_DEPLOYER_MEMBERS`) é um **secret**, na aba Secrets: os
-logs, o resumo e os artefatos de um repositório público são públicos, e um secret é mascarado (os
-workflows ainda mascaram cada elemento da lista). Os workflows conferem o formato no primeiro passo
-(e que as contas e o bucket são os do projeto), mascaram nos logs o ID e o número do projeto, o
-sufixo e os e-mails, e trocam esses valores por `<PROJECT_ID>`, `<PROJECT_NUMBER>`, `<SUFFIX>`,
-`<MEMBER>` e `<EMAIL>` nos resumos.
+Use repository Settings > Secrets and variables > Actions. Plan does not run in
+an environment, so its variables must be repository-scoped. Variables appear in
+logs and contain no private credentials/operator emails. `LAB_APP_DEPLOYER_MEMBERS`
+is a **secret**; workflows additionally mask every member/email. They validate
+formats/account/bucket ownership first and redact project/number/suffix/members
+as `<PROJECT_ID>`, `<PROJECT_NUMBER>`, `<SUFFIX>`, `<MEMBER>`, `<EMAIL>` in summaries.
 
-O `FORK.md` (passo 7) grava os outputs `github_variables_tx03v2` e `github_variables_dx03v2` do
-bootstrap com `gh variable set -f`; as variáveis e o secret `LAB_*` que você escolhe vêm da tabela
-abaixo (`gh secret set LAB_APP_DEPLOYER_MEMBERS -R <você>/tx03v2`).
+FORK step7 shows `terraform output -json github_variables_tx03v2`/DX piped through
+jq to private temporary files, then `gh variable set -f`. Choose remaining LAB
+inputs below. Set secrets with `gh secret set ... -R <you>/tx03v2`.
 
 ### tx03v2
 
-| Variável | Exemplo | Usada por | Vem de |
-|---|---|---|---|
-| `GCP_PROJECT_ID` | `tx03v2-lab-example` | todos os workflows de nuvem | output `github_variables_tx03v2` |
-| `GCP_REGION` | `us-central1` | todos os workflows de nuvem (`TF_VAR_region`, `REGION`) | idem; tem de ser a região do bootstrap |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/000000000000/locations/global/workloadIdentityPools/tx03v2-github/providers/github` | todos os workflows de nuvem | idem (`workload_identity_provider`) |
-| `GCP_PLAN_SERVICE_ACCOUNT` | `tx03v2-gha-plan@tx03v2-lab-example.iam.gserviceaccount.com` | plan (também liga a guarda do workflow) | idem (`plan_service_account`) |
-| `GCP_APPLY_SERVICE_ACCOUNT` | `tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com` | apply, platform, destroy | idem (`apply_service_account`) |
-| `TF_STATE_BUCKET` | `tx03v2-tfstate-00000000` | plan, apply, destroy | idem (`state_bucket_name`) |
-| `LAB_DEPLOY_SERVICE_ACCOUNT` | `dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com` | plan, apply, destroy (`TF_VAR_deploy_service_account`) | idem (`deploy_service_account`) |
-| `LAB_APP_DEPLOYER_MEMBERS` (**secret**) | `["user:you@example.com"]` | `TF_VAR_app_deployer_members` e o workflow `platform` (RoleBinding) | opcional, padrão `[]`; lista JSON de `user:<e-mail>` ou `serviceAccount:<e-mail>` (sem `group:`) de quem faz deploy do dx03v2 de um laptop |
-| `SLACK_WEBHOOK_URL` (**secret**) | — | workflow `platform`, alertas do perfil full | opcional; webhook de entrada do Slack, nunca use variável pública |
-| `LAB_ENABLE_WAF` | `true` | `TF_VAR_enable_waf` | opcional, padrão `true` (`docs/CUSTOS.md`) |
-| `LAB_DB_TIER` | `db-g1-small` | `TF_VAR_db_tier` | opcional, padrão `db-g1-small` (a validação recusa `db-f1-micro`) |
-| `LAB_DB_PROFILE` | `ha` ou `dr` | `TF_VAR_db_profile` | opcional, `core` por padrão; `dr` cria cluster, réplica e serviços pagos na segunda região |
-| `LAB_HA_DB_TIER` | `db-custom-1-3840` | `TF_VAR_ha_db_tier` | tier de CPU dedicada em `ha`/`dr`; shared-core não tem SLA HA |
-| `LAB_DB_BACKUP_COUNT` | `7` | `TF_VAR_db_backup_count` | vazio usa 1 em `core` e 7 em `ha`/`dr`; no mínimo 7 em HA/DR |
-| `LAB_DB_DELETION_PROTECTION` | `true` | `TF_VAR_db_deletion_protection` | `false` por padrão; desative deliberadamente antes do destroy |
-| `LAB_DB_RETAIN_BACKUPS_ON_DELETE` | `true` | `TF_VAR_db_retain_backups_on_delete` | `false` por padrão; backups retidos após destroy continuam cobrados |
-| `LAB_DR_REGION` | `us-east1` | `TF_VAR_dr_region` | diferente da região primária; usado somente em `dr` |
-| `LAB_DR_NODES_SUBNET_CIDR`, `LAB_DR_PODS_CIDR`, `LAB_DR_SERVICES_CIDR`, `LAB_DR_CONTROL_PLANE_CIDR` | `10.40.0.0/20`, `10.42.0.0/16`, `10.43.0.0/20`, `172.31.255.224/28` | `TF_VAR_dr_*` | faixas privadas da VPC/cluster secundários, sem sobreposição interna |
-| `LAB_DNS_ZONE_NAME` | `example.com` | `TF_VAR_dns_zone_name` (plan, apply, destroy) | opcional, vazio por padrão: zona pública do Cloud DNS que **você** controla (delegada no registrador); exigida pelo perfil `full` junto com `LAB_APP_DOMAIN_NAME` |
-| `LAB_APP_DOMAIN_NAME` | `lab.example.com` | `TF_VAR_app_domain_name` | opcional, vazio por padrão: hostname do app, subdomínio da zona acima; o Terraform valida que os dois vêm juntos |
-| `LAB_ENABLE_MANAGED_MESH` | `true` | `TF_VAR_enable_managed_mesh` | opcional, `false` por padrão: registra o cluster na frota e liga o Cloud Service Mesh gerenciado, exigido pelo perfil `full` |
+| Variable | Example | Used by | Source/default |
+| --- | --- | --- | --- |
+| `GCP_PROJECT_ID` | tx03v2-lab-example | all cloud workflows | bootstrap github_variables_tx03v2 |
+| `GCP_REGION` | us-central1 | TF_VAR_region/REGION | bootstrap region |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | projects/000000000000/locations/global/workloadIdentityPools/tx03v2-github/providers/github | WIF | bootstrap |
+| `GCP_PLAN_SERVICE_ACCOUNT` | tx03v2-gha-plan@tx03v2-lab-example.iam.gserviceaccount.com | plan and its guard | bootstrap |
+| `GCP_APPLY_SERVICE_ACCOUNT` | tx03v2-gha-apply@tx03v2-lab-example.iam.gserviceaccount.com | apply/platform/destroy | bootstrap |
+| `TF_STATE_BUCKET` | tx03v2-tfstate-00000000 | plan/apply/destroy | bootstrap |
+| `LAB_DEPLOY_SERVICE_ACCOUNT` | dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com | TF_VAR_deploy_service_account | bootstrap |
+| `LAB_FINOPS_PRICING_JSON` | reviewed regional worksheet | cost gate; optional OpenCost installation | **required before plan/apply**, resource maxima plus nine external categories; FINOPS |
+| `LAB_COST_BUDGET_USD` | chosen decimal USD budget | cost gate | required |
+| `LAB_COST_HOURS` | duration<=24 | cost gate | required |
+| `LAB_COST_EXPIRES_AT` | UTC timestamp in next24h | cost gate | required, within budgeted duration; refresh each round |
+| `LAB_ENABLE_WAF` | true | TF_VAR_enable_waf | true |
+| `LAB_DB_TIER` | db-g1-small | TF_VAR_db_tier | db-g1-small; f1-micro rejected |
+| `LAB_DB_PROFILE` | core/ha/dr | TF_VAR_db_profile | core; dr creates paid second cluster/replica/services |
+| `LAB_HA_DB_TIER` | db-custom-1-3840 | TF_VAR_ha_db_tier | dedicated CPU for HA/DR; shared-core has no HA SLA |
+| `LAB_DB_BACKUP_COUNT` | 7 | TF_VAR_db_backup_count | empty:core1, HA/DR7;HA/DR minimum7 |
+| `LAB_DB_DELETION_PROTECTION` | true | TF_VAR_db_deletion_protection | false; deliberately disable before destroy |
+| `LAB_DB_RETAIN_BACKUPS_ON_DELETE` | true | TF_VAR_db_retain_backups_on_delete | false; retained copies keep billing |
+| `LAB_DR_REGION` | us-east1 | TF_VAR_dr_region | different from primary, DR only |
+| `LAB_DR_NODES_SUBNET_CIDR`, `LAB_DR_PODS_CIDR`, `LAB_DR_SERVICES_CIDR`, `LAB_DR_CONTROL_PLANE_CIDR` | 10.40.0.0/20, 10.42.0.0/16, 10.43.0.0/20, 172.31.255.224/28 | TF_VAR_dr_* | private, internally nonoverlapping secondary ranges |
+| `LAB_DNS_ZONE_NAME` | example.com | TF_VAR_dns_zone_name | empty; own/delegate public zone, required for full with hostname |
+| `LAB_APP_DOMAIN_NAME` | lab.example.com | TF_VAR_app_domain_name | empty; subdomain, both DNS inputs required together |
+| `LAB_ENABLE_MANAGED_MESH` | true | TF_VAR_enable_managed_mesh | false; fleet membership/managed mesh, required for full |
+| `LAB_ACTIVE_REGION` | primary/secondary | TF_VAR_active_region | primary; DR DNS switch only after fencing/promotion/data acceptance |
+| `LAB_CONTINUITY_NOTIFICATION_CHANNELS` | JSON list of existing project channel names | TF_VAR_continuity_notification_channels | []; no tokens, replica-lag notifications |
 
-`TF_VAR_github_owner` vem de `github.repository_owner`. Os demais inputs usam os padrões de
-`terraform/envs/lab/variables.tf`; para mudar um (por exemplo `nodes_subnet_cidr`), adicione o
-`TF_VAR_<nome>` ao bloco `env` dos workflows num PR.
+| Secret | Example/use | Default |
+| --- | --- | --- |
+| `LAB_APP_DEPLOYER_MEMBERS` | JSON `["user:you@example.com"]`, user:/serviceAccount: laptop operators; no group: | []; Terraform IAM and platform RoleBinding must use same list |
+| `SLACK_WEBHOOK_URL` | incoming webhook for full alerts | optional; never a public variable |
 
-Os perfis de continuidade, o restore isolado e a promoção regional estão em
-[CONTINUIDADE.md](CONTINUIDADE.md). Faça a conta de HA/DR antes do apply; o `dr` reserva um segundo
-cluster Autopilot e uma réplica Cloud SQL mesmo sem tráfego de produção.
+`TF_VAR_github_owner` comes from `github.repository_owner`. Other inputs use
+`terraform/envs/lab/variables.tf` defaults; changing an unexposed input (such as
+nodes_subnet_cidr) requires a reviewed workflow TF_VAR addition. Continuity
+profiles/isolated restore/promotion are in CONTINUITY. Price HA/DR before apply;
+standby cluster/replica incur charges even with no app traffic.
 
 ### dx03v2
 
-| Variável | Exemplo | Vem de |
-|---|---|---|
-| `GCP_PROJECT_ID` | `tx03v2-lab-example` | output `github_variables_dx03v2` |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/000000000000/locations/global/workloadIdentityPools/tx03v2-github/providers/github` | idem |
-| `GCP_DEPLOY_SERVICE_ACCOUNT` | `dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com` | idem |
+| Variable | Example | Source |
+| --- | --- | --- |
+| `GCP_PROJECT_ID` | tx03v2-lab-example | bootstrap github_variables_dx03v2 |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | projects/000000000000/locations/global/workloadIdentityPools/tx03v2-github/providers/github | same output |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | dx03v2-gha-deploy@tx03v2-lab-example.iam.gserviceaccount.com | same output |
 
-O workflow `deploy-gcp` do dx03v2 roda no environment `lab` daquele repositório (sujeito
-`repo:<owner>@<id do dono>/dx03v2@<id do repositório>:environment:lab`) e lê o resto do contrato no
-Parameter Manager.
+DX deploy uses its own protected lab environment and immutable DX subject, then
+reads remaining values from Parameter Manager. No service-account key secret.
 
 ## 4. Apply
 
-1. Dispare `terraform-plan` a partir de `main` (ou abra um PR que mexa em `terraform/**`) e leia o
-   plano no resumo do job (identificadores substituídos; o texto também fica 7 dias como artefato).
-2. Dispare `terraform-apply` e aprove o environment `lab`. O job planeja e aplica no mesmo run (o
-   plano salvo do próprio job) e escreve os outputs no resumo.
+1. Run terraform-plan from main, or a same-repo Terraform PR. Review the redacted
+   plan summary/artifact (retained7 days) and cost-gate result. Plan has no lab
+   environment approval and cannot write state locks.
+2. Run terraform-apply and approve lab. The job saves, estimates and applies its
+   own plan in the same run, then summarizes outputs. DR also synchronizes current
+   primary secret values to regional containers; it does not generate a new
+   unrelated password for the existing database.
 
-Alternativa local, com as suas credenciais de Owner (ADC):
-
-```bash
-cd terraform/envs/lab
-cp terraform.tfvars.example terraform.tfvars   # seus valores reais (arquivo ignorado pelo git)
-terraform init -backend-config=backend.hcl
-terraform plan -out tfplan && terraform apply tfplan
-terraform output
-```
-
-O apply cria a VPC, a subnet dos nós com as faixas secundárias, o Cloud Router e o Cloud NAT, o
-endereço global `tx03v2-lab-gateway`, o cluster Autopilot `tx03v2-lab` e a conta dos nós, a instância
-Cloud SQL `tx03v2-lab-<4 hex>` com o endpoint PSC `tx03v2-lab-db` e a zona privada
-`<region>.sql.goog.`, os dois segredos, o repositório `dx03v2`, a política `tx03v2-lab-waf` (ou nada,
-com `enable_waf = false`), o parâmetro `tx03v2-lab-contract` e todas as concessões IAM do lab.
-
-## 5. Plataforma
-
-Dispare `platform` com `action=install` e aprove o environment `lab`. Ele roda como
-`tx03v2-gha-apply` (`roles/container.admin`) pelo endpoint DNS do cluster, então os runners não
-precisam de lista de IPs. O `platform/install.sh`:
-
-1. lê o contrato com `gcloud parametermanager parameters versions render latest` e confere o
-   projeto, a região, o nome do ClusterSecretStore e o e-mail da conta de deploy; acrescenta os
-   e-mails de `APP_DEPLOYER_MEMBERS` (recusa `group:`) e renderiza `platform/manifests` antes de
-   instalar qualquer coisa;
-2. gera um kubeconfig temporário (`gcloud container clusters get-credentials --dns-endpoint`) e
-   confere o `/readyz` do API server;
-3. baixa o chart do External Secrets Operator 2.12.0 por tag e digest, recusa o arquivo se o SHA256
-   diferir de `platform/versions.env` e instala-o em `external-secrets` (`--wait=watcher
-   --rollback-on-failure`, 15 min);
-4. aplica os namespaces `dx03v2` e `observability`, Role, RoleBinding e ClusterSecretStore (até 5
-   tentativas enquanto o webhook do ESO sobe);
-5. baixa o chart do OpenTelemetry Collector 0.176.0, recusa o arquivo se o SHA256 diferir de
-   `platform/versions.env` e instala-o em `observability` com o projeto do lab (contrato v2: traces no
-   Cloud Trace com o principal do próprio ServiceAccount `opentelemetry-collector`);
-6. espera o `gcp-secret-manager` ficar `Ready` (o ESO alcançou o Secret Manager com a identidade do
-   próprio ServiceAccount).
-
-### Perfil full (opcional)
-
-O input `profile` do workflow `platform` vem como `core` por padrão. Escolha `full` para instalar
-observabilidade persistente no cluster, cert-manager, Argo CD, Gatekeeper, Kyverno, Trivy Operator,
-Velero e o controller do Chaos Mesh, com o app na malha gerenciada. O GKE Autopilot deste fork não
-instala Istio ambient, node-exporter, Trivy node collector nem o daemon privilegiado do Chaos Mesh. O
-Chaos Mesh fica limitado a `PodChaos pod-kill` (latência e falhas HTTP vêm da injeção de falha da
-malha, ADR 51). O perfil full usa a revisão pública `gitops/gcp` do dx03v2; o primeiro deploy escreve
-a imagem nela e a Application do Argo CD sincroniza o app. O acesso à UI do Argo CD é por `kubectl
-port-forward`.
-
-**Pré-requisitos do `full` (o instalador recusa sem eles, antes de instalar qualquer coisa):**
-
-1. `enable_managed_mesh = true` aplicado e a malha `ACTIVE` (`gcloud container fleet mesh describe
-   --project <id>`: o estado do plano de controle do membro `tx03v2-lab` tem de ser `ACTIVE`);
-2. `dns_zone_name` e `app_domain_name` aplicados, a zona delegada no registrador (os servidores de
-   nomes estão na saída `dns_name_servers`) e o certificado `tx03v2-lab-app` em `ACTIVE`
-   (`gcloud certificate-manager certificates describe tx03v2-lab-app --location=global
-   --project <id> --format='value(managed.state)'`);
-3. o dx03v2 assina a atestação de promoção do digest que publicou (workflow `deploy-gcp.yml` da `main`
-   do seu fork): sem ela o Kyverno recusa os pods do app, por desenho.
-
-O Trivy Operator e o Kyverno leem o repositório `dx03v2` do Artifact Registry como principais dos
-seus ServiceAccounts (Reader só nesse repositório, sem chave): um relatório de vulnerabilidade ausente
-significa que a varredura não rodou, nunca que a imagem está limpa.
-
-O workflow de deploy configura na Application viva o overlay, as imagens e os parâmetros do projeto.
-A branch pública `gitops/gcp` recebe a revisão e parâmetros de exemplo; endereços, CIDRs e nomes reais
-permanecem no cluster.
-
-### Domínio, HTTPS e malha (R8, `não executado em nuvem (v2)`)
+Local Owner/ADC alternative, from the clone root:
 
 ```bash
-# variáveis do GitHub do tx03v2 (seção 3) e um apply novo do root do lab
-gh variable set LAB_DNS_ZONE_NAME     -b example.com     -R <você>/tx03v2
-gh variable set LAB_APP_DOMAIN_NAME   -b lab.example.com -R <você>/tx03v2
-gh variable set LAB_ENABLE_MANAGED_MESH -b true           -R <você>/tx03v2
-# depois do apply: delegue no registrador os servidores de nomes da saída dns_name_servers
+cp terraform/envs/lab/terraform.tfvars.example terraform/envs/lab/terraform.tfvars
+terraform -chdir=terraform/envs/lab init -backend-config=backend.hcl
+terraform -chdir=terraform/envs/lab plan -out=tfplan
+# Export FINOPS_PRICING_JSON, COST_BUDGET_USD, COST_HOURS, COST_EXPIRES_AT
+# using the same reviewed values as the repository LAB_* cost variables.
+bash scripts/cost-workflow.sh gcp us-central1
+terraform -chdir=terraform/envs/lab apply tfplan
+terraform -chdir=terraform/envs/lab output
 ```
 
-A emissão do certificado só começa depois que a delegação resolve; leva de minutos a algumas horas e
-só acontece com um domínio seu (`não executado em nuvem (v2)`: a v2 nunca emitiu um certificado
-público). O Gateway do dx03v2 no `full` usa o Certificate Map `tx03v2-lab-app` (HTTPS 443) e o
-listener HTTP só redireciona. O `destroy` apaga a zona, os registros, o certificado e a malha; o
-domínio e o registrador continuam seus.
+Use the actual selected region for the gate. Plan JSON is private, never an
+artifact. For manual DR apply, also run `scripts/sync-dr-secrets.sh` with the
+actual dr_db_hostname as explained in CONTINUITY; repeat after primary rotation.
+Apply creates VPC/node subnet/secondary ranges, Router/NAT, reserved Gateway
+address, Autopilot, node grants, random-suffix Cloud SQL/PSC/private SQL DNS, two
+primary secrets, registry, optional WAF, 18-key contract and IAM. HA/DR/full inputs
+add their documented resources. Node identity itself is created by bootstrap.
 
-O R8 também pede ao cluster uma regra de firewall para os webhooks (Gatekeeper 8443, Kyverno e Chaos
-Mesh 9443) e um /28 fixo para o control plane (`control_plane_cidr`, padrão `172.31.255.240/28`); se
-esse range colidir com algo da sua VPC, mude a variável antes do primeiro apply (o cluster é recriado
-se ela mudar depois).
+## 5. Platform
 
-Para alertas no Slack, grave o webhook como secret opcional `SLACK_WEBHOOK_URL` no repositório
-tx03v2. O perfil full usa o bucket Velero criado pelo Terraform (multirregião US no DR).
-Velero protege objetos e volumes Kubernetes por snapshots CSI de Persistent Disk; Cloud SQL
-usa seu backup nativo. O Schedule retém backups por 35 dias; veja CONTINUIDADE.md para
-cópia/restore e GC seguro. Não há
-transição suportada de `full` para `core`: destrua o lab e aplique-o de novo com `core`.
+Run platform with action=install, target=primary | secondary, profile=core | full and
+optional finops; approve lab. Identity is apply/container.admin via DNS endpoint,
+without runner IP allowlists. Installer:
 
-Ao atualizar um lab criado antes do R8 (contrato v4): o bootstrap ganhou as APIs `certificatemanager` e
-`mesh` e os papéis `certificatemanager.editor` e `gkehub.admin` do apply; aplique o bootstrap antes do
-root do lab. O cluster passa a ter o range do control plane fixo (recriação do cluster num lab que
-já existia).
+1. Renders validated contract project/region/store/deployer plus operator emails
+   before installing; group members rejected.
+2. Creates temporary kubeconfig with --dns-endpoint and checks API /readyz.
+3. Fetches ESO2.12.0 by pinned OCI tag/manifest digest/archiveSHA256; installs in
+   external-secrets with watcher wait/rollback-on-failure, 15minute timeout.
+4. Applies app/observability namespaces, Role/RoleBinding/store with up to five
+   attempts while ESO webhook starts.
+5. Verifies Collector chart0.176.0 archive and installs in observability with
+   project/direct ServiceAccount identity to Cloud Trace.
+6. Waits for gcp-secret-manager Ready, proving ESO reached Secret Manager.
 
-Ao atualizar um lab criado antes do contrato v2: `roles/cloudtrace.agent` entrou na condição IAM de
-`tx03v2-gha-apply` e a API `cloudtrace.googleapis.com` na lista do bootstrap, então aplique o
-bootstrap de novo (seção 2) antes do apply.
+### Full profile (optional)
 
-Na primeira atualização do bootstrap para esta rodada R4, aplique-o antes do root `terraform/envs/lab`
-para criar o papel `tx03v2VeleroBucket` e sua concessão condicionada aos dois nomes derivados,
-`tx03v2-lab-velero-<project_id>` e `tx03v2-lab-dr-velero-<project_id>`. Antes do primeiro apply DR,
-reaplique o bootstrap: a condição antiga admitia somente o bucket primário. O root do lab
-usa essa identidade para criar e gerir somente os metadados dos buckets do Velero (SEC-21); esse papel
-não lê nem altera os objetos de backup.
+Core is default. Full adds persistent observability, cert-manager, ArgoCD, Gatekeeper,
+Kyverno, TrivyOperator, Velero and Chaos controller, with app managed mesh. Autopilot
+omits upstream ambient, node-exporter, Trivy nodecollector and privileged Chaosdaemon.
+Cloud Chaos uses API PodChaos pod-kill; mesh fault injection supplies HTTP faults/
+latency (ADR51). Full uses gitops/gcp or secondary gitops/gcp-dr; deployment writes
+the image revision and Argo syncs. UI access uses kubectl port-forward.
 
-Ao reinstalar `full`, o instalador aplica a constraint `LabGcpAllowedImages/allowed-repos` antes de
-remover somente a antiga `LabAllowedRepos/allowed-repos`. Ela verifica o Pod depois da injeção:
-API, web, migração e outros containers precisam dos digests do app; a exceção do mesh permite apenas
-`istio-proxy` e `istio-validation` com `gcr.io/gke-release/asm/proxyv2:<tag>` ou `@sha256:<digest>`.
-Um path ou nome novo do proxy deve ser revisado, nunca liberar todo `gcr.io`. A versão do proxy é
-gerenciada pelo Google; o teste de fixture não fixa a versão no cluster. A política Kyverno fica em
-`mode: Kubernetes` e verifica os três grupos de imagens do app, sem exigir a atestação GitHub do
-fork para a imagem gerenciada pelo Google. A homologação dessa admissão no Autopilot segue pendente.
+**Installer refuses full before installation unless:**
 
-Ao atualizar um lab criado antes da R3.16 (o apply perdeu Editor, Secret Manager Admin e Service
-Account User no projeto): a conta `tx03v2-lab-nodes` passou do root do lab para o bootstrap. Tire-a do
-state do lab e importe-a no bootstrap antes de aplicar os dois:
+1. enable_managed_mesh=true applied and fleet member control-plane ACTIVE:
+   `gcloud container fleet mesh describe --project <id>`.
+2. DNS zone/hostname applied, output dns_name_servers delegated at registrar,
+   and certificate ACTIVE:
+   `gcloud certificate-manager certificates describe tx03v2-lab-app --location=global --project <id> --format='value(managed.state)'`.
+3. App promotion is signed by the fork main deploy-gcp.yml identity; Kyverno
+   deliberately refuses unsigned/wrong-identity images.
+
+Trivy/Kyverno direct ServiceAccounts get registry-only Reader without keys.
+A missing report means scan did not run. Live Application stores real overlay,
+images/parameters; public GitOps branch contains only revision/example parameters.
+
+### Domain, HTTPS and mesh (R8, not run in the cloud (v2))
 
 ```bash
-terraform -chdir=terraform/envs/lab state rm google_service_account.nodes
-terraform -chdir=terraform/bootstrap import google_service_account.nodes \
-  projects/<id do projeto>/serviceAccounts/tx03v2-lab-nodes@<id do projeto>.iam.gserviceaccount.com
-terraform -chdir=terraform/bootstrap apply
+gh variable set LAB_DNS_ZONE_NAME -b example.com -R <you>/tx03v2
+gh variable set LAB_APP_DOMAIN_NAME -b lab.example.com -R <you>/tx03v2
+gh variable set LAB_ENABLE_MANAGED_MESH -b true -R <you>/tx03v2
+# Apply, then delegate output dns_name_servers at your registrar.
 ```
 
-O controlador de Gateway da GKE é gerenciado pelo Google: nada a instalar. Localmente (como Owner):
+Issuance starts after delegation resolves and may take minutes/hours; it requires
+your domain and remains unrun in v2. Full Gateway443 uses CertificateMap
+tx03v2-lab-app;HTTP redirects. Destroy deletes zone/records/cert/mesh, not your domain
+registration. Fixed control-plane /28 defaults172.31.255.240/28;change before first
+apply if it overlaps existing networks. Later changes recreate the cluster.
+
+Slack is optional secret SLACK_WEBHOOK_URL. Full's Terraform Velero bucket is
+US multiregion in DR; CSI snapshots protect PD volumes, Cloud SQL native backup
+is separate. Schedule retains35 days; see CONTINUITY for restore/GC. No full→core
+in-place transition:destroy/recreate.
+
+Upgrade notes:
+
+- Pre-R8:reapply bootstrap for certificatemanager/mesh APIs and
+  certificatemanager.editor/gkehub.admin;fixed control-plane range may recreate
+  an existing cluster.
+- Pre-v2 contract:reapply bootstrap for cloudtrace API and cloudtrace.agent in
+  grant condition before lab apply.
+- R4/DR:reapply bootstrap for tx03v2VeleroBucket metadata role and both exact names
+  tx03v2-lab-velero-<project_id>/tx03v2-lab-dr-velero-<project_id>;old primary-only
+  condition cannot manage DR bucket. No object read/write grant.
+- Reinstall full:new LabGcpAllowedImages/allowed-repos is applied before removing
+  old LabAllowedRepos/allowed-repos. Post-injection app/migration/other containers
+  require app digests;only istio-proxy/istio-validation with exact
+  gcr.io/gke-release/asm/proxyv2 explicit tag/digest is exempt. Review new managed
+  paths/names;never allow all gcr.io. Google chooses proxy version;fixture does
+  not pin live cluster. Kubernetes-mode Kyverno verifies regular/init/ephemeral
+  app groups without requiring fork attestation for Google proxy. Runtime
+  Autopilot admission remains to validate.
+- Pre-R3.16 node identity moved from lab to bootstrap. Deliberately remove/import
+  state ownership before applying either:
+
+  ```bash
+  terraform -chdir=terraform/envs/lab state rm google_service_account.nodes
+  terraform -chdir=terraform/bootstrap import google_service_account.nodes \
+    projects/<project_id>/serviceAccounts/tx03v2-lab-nodes@<project_id>.iam.gserviceaccount.com
+  terraform -chdir=terraform/bootstrap apply
+  ```
+
+Google manages Gateway controller. Local Owner platform commands:
 
 ```bash
 make tools
 gcloud auth login
 export GCP_PROJECT_ID=tx03v2-lab-example
-APP_DEPLOYER_MEMBERS='[]' platform/install.sh   # a mesma lista de LAB_APP_DEPLOYER_MEMBERS
+APP_DEPLOYER_MEMBERS='[]' platform/install.sh
 export KUBECONFIG=/tmp/tx03v2-lab.kubeconfig
 gcloud container clusters get-credentials tx03v2-lab --location us-central1 --project "$GCP_PROJECT_ID" --dns-endpoint
 kubectl get gatewayclass gke-l7-global-external-managed
@@ -319,53 +303,57 @@ kubectl get clustersecretstore gcp-secret-manager
 kubectl -n dx03v2 get role,rolebinding
 ```
 
-`APP_DEPLOYER_MEMBERS` tem de ser a mesma lista da variável Terraform `app_deployer_members`: o
-Terraform dá os papéis IAM, a plataforma dá a RoleBinding.
+Operator list must match Terraform app_deployer_members:IAM from Terraform,
+RoleBinding from platform.
 
-## 6. Deploy do app (dx03v2, `não executado em nuvem (v2)`)
+## 6. App deployment (dx03v2, not run in the cloud (v2))
 
-Dispare o workflow `deploy-gcp` do [dx03v2](https://github.com/maringelix/dx03v2) e aprove o
-environment `lab` de lá (ou rode
-[`scripts/deploy-gcp.sh`](https://github.com/maringelix/dx03v2/blob/main/scripts/deploy-gcp.sh) de um laptop; passo a passo no
-[runbook do dx03v2](https://github.com/maringelix/dx03v2/blob/main/docs/RUNBOOK.md)). O script lê as
-15 chaves de `tx03v2-lab-contract`, publica `dx03v2/api` e `dx03v2/web` no Artifact Registry (tag =
-SHA do commit, nunca sobrescrita) e cria o ConfigMap `cloudsql-ca` com o bundle da região (só com a
-raiz do contrato). Com o perfil `full`, `mode=gitops` (padrão) configura na Application viva o overlay
-`gcp-waf` (ou `gcp`, quando `waf/security-policy` é `none`), as imagens e os parâmetros reais; a branch
-pública recebe apenas exemplos. O workflow espera o Argo CD sincronizar, os ExternalSecrets, os
-rollouts e o Gateway `Programmed` com o endereço `gateway/address`, e roda o smoke test pelo load
-balancer. Com o perfil `core` ou sem Argo CD, escolha `mode=push` para aplicar diretamente o overlay.
+Complete DX CI on current main, then manual publish-images with ci_run_id. Deploy
+uses the successful publication release_run_id, target, platform_profile and
+deploy_mode=auto | gitops | push. It verifies source CI, digests, SPDX hashes/attestations
+before lab approval/WIF; promotes exact digest with crane, never rebuilds; reads
+18 contract keys and validates Cloud SQL root before creating cloudsql-ca.
 
-Para fazer o deploy de um laptop, coloque `user:<seu e-mail>` em `LAB_APP_DEPLOYER_MEMBERS`, rode o
-apply (papéis IAM de `dx03v2-gha-deploy` para você) e o `platform` de novo (RoleBinding).
+Auto chooses Argo when Application exists, otherwise direct apply;authorization/
+connection errors fail closed. GitOps configures full overlays gcp-waf-full or
+gcp-full (core variants without full), images/real parameters on liveApplication,
+publishes public example-only gitops/gcp or gitops/gcp-dr, then waits sync, ESO,
+rollouts and programmed Gateway at contract address. Push applies directly.
+Both finish smoke. Secondary deployment neither fences nor promotes DB nor
+switches DNS;follow CONTINUITY first.
+
+Laptop deployment requires a verified signed release bundle as described by
+DX RUNBOOK/script;it is not a build-and-push shortcut. Add your user to secret
+LAB_APP_DEPLOYER_MEMBERS, apply IAM, then rerun platform RoleBinding before use.
 
 ## 7. Smoke test
 
-Esperado, não verificado:
+Expected, not cloud-verified (core examples):
 
 ```bash
 terraform -chdir=terraform/envs/lab output -raw gateway_address
-kubectl -n dx03v2 get gateway dx03v2                        # PROGRAMMED True, ADDRESS = gateway_address
-curl -fsS "http://<GATEWAY_ADDRESS>/healthz"                 # web
-curl -fsS "http://<GATEWAY_ADDRESS>/api/info"                # api
-kubectl -n dx03v2 get externalsecrets                        # SecretSynced
+kubectl -n dx03v2 get gateway dx03v2
+curl -fsS "http://<GATEWAY_ADDRESS>/healthz"
+curl -fsS "http://<GATEWAY_ADDRESS>/api/info"
+kubectl -n dx03v2 get externalsecrets
 kubectl -n dx03v2 get healthcheckpolicies,gcpbackendpolicies
 ```
 
-Com o WAF, uma requisição com padrão de SQL injection deve receber 403 do Cloud Armor
-(`curl -s -o /dev/null -w '%{http_code}\n' "http://<GATEWAY_ADDRESS>/api/info?id=1%27%20OR%20%271%27=%271"`).
-O load balancer pode levar vários minutos para responder depois do `Programmed`. Registre o
-resultado no `cloud_run_report`.
+Gateway should be Programmed at the output address;ESO should show SecretSynced.
+Full uses the verified HTTPS hostname and HTTP301. With WAF, a SQL-injection probe
+should return403, for example:
+`curl -s -o /dev/null -w '%{http_code}\n' "http://<GATEWAY_ADDRESS>/api/info?id=1%27%20OR%20%271%27=%271"`.
+LB may need minutes after Programmed. Record actual results.
 
-Traces (contrato v2), esperado e não verificado: depois de algumas requisições, o Trace Explorer do
-projeto mostra o serviço `dx03v2-api` (span da rota e da consulta ao PostgreSQL). Nada em alguns
-minutos: `kubectl -n observability logs deployment/opentelemetry-collector` (um `PermissionDenied` do
-exporter `googlecloud` aponta para a concessão `roles/cloudtrace.agent` do principal do Collector).
+After requests, Cloud Trace Explorer should show dx03v2-api route/PostgreSQL spans.
+If absent after minutes, inspect Collector logs;googlecloud PermissionDenied points
+to its direct-principal cloudtrace.agent grant. This also remains cloud-unrun.
 
-### Ensaio de restore do Velero (somente no perfil full)
+### Velero restore exercise (full only)
 
-Faça o ensaio em um namespace descartável, sem dados do app. Ele comprova backup e restore de
-objetos Kubernetes na conta do fork; não testa Cloud SQL nem snapshots de volumes.
+Use a disposable namespace with no app data. This simple exercise proves objects,
+not Cloud SQL or volume bytes;follow the additional CSI checksum restore in
+CONTINUITY to validate actual volume recovery.
 
 ```bash
 kubectl create namespace velero-restore-drill
@@ -379,146 +367,141 @@ kubectl delete namespace velero-restore-drill
 velero backup delete tx03v2-restore-drill --confirm
 ```
 
-O resultado esperado é `tx03v2`. Se uma etapa falhar, leia `velero backup describe` e
-`velero restore describe`, confira o `BackupStorageLocation` e a permissão WIF do ServiceAccount
-`velero`, corrija e repita com um nome de backup novo.
+Expect tx03v2. On failure inspect backup/restore describe, BackupStorageLocation,
+Velero SA WIF grants;correct and repeat with a fresh backup name.
 
 ## 8. Destroy
 
-Dispare `terraform-destroy` com a confirmação `destroy tx03v2-lab` e aprove o environment `lab`. O
-job roda `scripts/destroy.sh --project <id>`:
-
-1. `platform/uninstall.sh`, se o cluster existir: apaga o namespace `dx03v2`, espera o finalizer do
-   Gateway e o sumiço dos NEGs do app (até 900 s cada) e desinstala o ESO. Ele só age no cluster
-   `tx03v2-lab` com o label `project=tx03v2`; nenhuma variável de ambiente (`CLUSTER_NAME`, por
-   exemplo) muda o alvo, e o kubeconfig dele é temporário.
-2. Se o passo 1 falhar (endpoint do cluster fora do ar, controlador parado, tempo esgotado), ou se
-   sobrar alguma peça do load balancer que o controlador do Gateway criou fora do state, o script
-   apaga essas peças pela API do Google Cloud, na ordem em que dá para apagar: forwarding rule,
-   proxy, URL map, backend service, health check, NEG e regra de firewall do load balancer. São só as
-   do lab, pelo nome (`gkegw1-…-dx03v2-…`, `k8s1-…-dx03v2-…`) e pela rede `tx03v2-lab`; nada mais do
-   projeto é alvo. Um aviso `warning: platform/uninstall.sh did not finish` marca esse caminho.
-3. Se o perfil `full` criou o bucket do Velero, revise os backups e esvazie-o como Owner antes do
-   destroy. `force_destroy=false` impede o Terraform de apagar dados silenciosamente:
-
-   ```bash
-   VELERO_BUCKET="$(terraform -chdir=terraform/envs/lab output -raw velero_bucket_name)"
-   gcloud storage rm --recursive "gs://${VELERO_BUCKET}/**"
-   gcloud storage ls "gs://${VELERO_BUCKET}/"
-   ```
-
-4. `terraform destroy`, também depois de um passo 1 que falhou.
-5. `scripts/leftovers.sh --project <id> --retry-for 900`, o que quer que tenha acontecido antes (depois
-   de um destroy que falhou, ele diz o que ainda custa).
-
-Qualquer erro aparece no log e falha o job: leia, corrija e rode de novo. O fluxo é testado sem
-Google Cloud (check `destroy-flow` do harness, com `gcloud`, `terraform`, `kubectl` e `helm`
-simulados). Localmente:
+Before starting, review DB deletion protection/retained backups and both Velero
+destinations when DR is enabled. Explicit Owner cleanup of approved backup data
+is required because force_destroy=false. For each owned bucket, review its exact
+name, retention and recovery requirements before emptying:
 
 ```bash
-export TF_STATE_BUCKET=tx03v2-tfstate-<suffix> REGION=us-central1   # mais as TF_VAR_* do lab
+VELERO_BUCKET="$(terraform -chdir=terraform/envs/lab output -raw velero_bucket_name)"
+gcloud storage rm --recursive "gs://${VELERO_BUCKET}/**"
+gcloud storage ls "gs://${VELERO_BUCKET}/"
+```
+
+Repeat only for the exact secondary bucket when present. Retained PD snapshots
+need separate reviewed cleanup. No backup data is silently deleted by Terraform.
+
+Run terraform-destroy, typed confirmation **destroy tx03v2-lab**, approve lab.
+scripts/destroy.sh:
+
+1. Inventories/uninstalls owned primary and optional secondary runtimes. Uninstall
+   removes app namespace, waits Gatewayfinalizer/region-owned NEGs (up to900s each),
+   full releases/PVCs and ESO. Requires contract target/project label, temporary
+   kubeconfig;CLUSTER_NAME cannot retarget it.
+2. On unavailable endpoint/controller/timeout or surviving controller pieces,
+   deletes only lab-named/network-owned forwarding rules, proxies, URLmaps, backends,
+   healthchecks, NEGs/firewall in dependency order via Google APIs. Warning records
+   incomplete platform uninstall. Other project resources are never targeted.
+3. Runs Terraform destroy even after uninstall failure.
+4. Always runs leftovers --project <id> --retry-for900, including after destroy failure.
+
+Any error is logged/fails the job. Diagnose/correct/repeat. destroy-flow tests
+this offline with simulatedCLIs. Local command:
+
+```bash
+export TF_STATE_BUCKET=tx03v2-tfstate-<suffix> REGION=us-central1
+# Also provide the same TF_VAR_* inputs used to create the lab.
 scripts/destroy.sh --project tx03v2-lab-example
 ```
 
-**Rodada interrompida** (um apply ou destroy cancelado, ou que estourou o tempo) deixa o objeto de
-lock do state no bucket (`envs/lab/default.tflock`): o próximo `terraform` falha com `Error acquiring
-the state lock` e um `ID`, um número (a geração do objeto). Rode `terraform-destroy` com o input
-`force_unlock_id` preenchido com esse ID (localmente, `scripts/destroy.sh --project <id>
---force-unlock <ID>`), e só com a certeza de que nenhum outro `terraform` roda: um lock solto sem
-motivo deixa dois applies gravarem o state. Se o apply parou no meio e criou algo que não entrou no
-state, o próximo apply falha com `already exists` (409): importe o recurso (`terraform import
-<endereço> <id>`) ou apague-o, e rode de novo.
+Interrupted apply/destroy may leave envs/lab/default.tflock. The next command
+reports Error acquiring the state lock and generation ID. Only after proving no
+other Terraform executor exists, use destroy workflow force_unlock_id or local
+destroy.sh --project <id> --force-unlock <ID>. Unjustified unlock permits competing
+state writes. A partially created resource absent from state may cause409already
+exists;deliberately import it or remove it after ownership review, then repeat.
 
-O bootstrap continua (APIs, bucket, pool, contas de serviço, budget). Os backups da instância somem
-com ela (`retain_backups_on_delete = false`); o nome da instância fica reservado por até uma semana,
-e a próxima rodada usa outro sufixo aleatório.
+Bootstrap remains:APIs/state/pool/identities/budget. Default SQL backups disappear
+with instance, unless explicit retention was selected;instance name remains
+reserved up to a week, next creation uses a random suffix.
 
-## 9. Sobras
+## 9. Leftovers
 
-O `scripts/leftovers.sh` recebe sempre o projeto (`--project <id>`): toda chamada `gcloud` o nomeia, e
-nem uma variável do seu shell (`GCP_PROJECT_ID`, `CLOUDSDK_CORE_PROJECT`) nem a configuração do
-gcloud decide o que é varrido. Só conta como sobra o que é do lab: recurso com o label
-`project=tx03v2`, com nome `tx03v2-lab*`, na rede `tx03v2-lab` ou peça do load balancer que o
-controlador do Gateway criou para ele (`gkegw1-…-dx03v2-…`, `k8s1-…-dx03v2-…`). O mesmo tipo de
-recurso de outro trabalho no projeto aparece como `INFO` ("not the lab's"), **nunca** como algo a
-apagar. No workflow, o script roda com a identidade do apply; uma lista que ela não consiga ler
-aparece como `UNCHECKED`, com um aviso, sem mudar o código de saída. Para uma checagem completa, rode
-localmente como Owner do projeto:
+Every gcloud inventory names explicit --project;neither shell variables nor active
+configuration chooses the project. Lab ownership:project=tx03v2, label/name
+tx03v2-lab*, labnetwork, or dx03v2 Gateway gkegw1/k8s1 controller piece. Unrelated
+resources show INFO/not the lab's, never deletion candidates. Workflow identity
+may lack some reads:UNCHECKED warns without changing exit status. Complete the
+inventory locally as Owner:
 
 ```bash
 gcloud auth login
 scripts/leftovers.sh --project tx03v2-lab-example --retry-for 900
 ```
 
-Níveis: `BILLABLE` (ainda custa; sai com 1), `ORPHANED` (grátis, mas atrapalha a próxima rodada),
-`INFO` (recursos do bootstrap, APIs desligadas, itens de outro trabalho), `UNCHECKED`; saída 2 =
-problema de login, `--project` ausente ou erro da API. Remoção manual dos casos mais comuns, **só
-para itens `BILLABLE` ou `ORPHANED`** (confira o label `project=tx03v2` ou o prefixo `tx03v2-lab`
-antes); peças do load balancer na ordem: forwarding rule, proxy, URL map, backend service, health
-check, NEG:
+BILLABLE means ongoing cost/exit1;ORPHANED is free but obstructs later rounds;
+INFO covers bootstrap/disabled APIs/unrelated work;UNCHECKED means no proof.
+Exit2 means auth/missingproject/APIerror, never a clean bill of health.
+
+Manual cleanup examples below are only for confirmed BILLABLE/ORPHANED lab
+resources. Recheck label/prefix/network. Delete LB dependency order:
 
 ```bash
 p=tx03v2-lab-example
-gcloud compute forwarding-rules delete <NOME> --global --project "$p"
-gcloud compute target-http-proxies delete <NOME> --global --project "$p"
-gcloud compute url-maps delete <NOME> --global --project "$p"
-gcloud compute backend-services delete <NOME> --global --project "$p"
-gcloud compute health-checks delete <NOME> --global --project "$p"
-gcloud compute network-endpoint-groups delete <NOME> --zone <ZONA> --project "$p"
+gcloud compute forwarding-rules delete <NAME> --global --project "$p"
+gcloud compute target-http-proxies delete <NAME> --global --project "$p"
+gcloud compute url-maps delete <NAME> --global --project "$p"
+gcloud compute backend-services delete <NAME> --global --project "$p"
+gcloud compute health-checks delete <NAME> --global --project "$p"
+gcloud compute network-endpoint-groups delete <NAME> --zone <ZONE> --project "$p"
 gcloud compute addresses delete tx03v2-lab-gateway --global --project "$p"
-gcloud compute disks delete <NOME> --zone <ZONA> --project "$p"
-gcloud compute firewall-rules delete <NOME> --project "$p"
-gcloud sql instances delete <NOME> --project "$p"
+gcloud compute disks delete <NAME> --zone <ZONE> --project "$p"
+gcloud compute firewall-rules delete <NAME> --project "$p"
+gcloud sql instances delete <NAME> --project "$p"
 ```
 
-Rode o script de novo até não sobrar nada `BILLABLE`.
+For full HTTPS, inventory also covers HTTPS proxies/certificates/maps;follow actual
+reported dependencies rather than guessing. Repeat until no BILLABLE item remains.
 
-## 10. Teardown do bootstrap (fim da série de rodadas)
+## 10. Bootstrap teardown (after the final round)
 
-1. Lab destruído e `scripts/leftovers.sh` limpo, rodado localmente como Owner.
-2. State do bootstrap de volta para local, se tiver sido migrado (seção 2).
-3. Em `terraform/bootstrap`: `state_protection = false` no `terraform.tfvars` e `terraform apply` (só
-   troca o `deletion_policy` do bucket).
-4. Esvazie o bucket, com as versões antigas (o `force_destroy` continua `false`):
+1. Lab destroyed, Owner-run leftovers clean.
+2. Migrate bootstrap state back to local if necessary (section2).
+3. In bootstrap, change state_protection=false and apply, only lifting bucket
+   deletion_policy protection.
+4. Review/back up then empty all state generations:
    `gcloud storage rm --all-versions "gs://tx03v2-tfstate-<suffix>/**"`.
-5. `terraform destroy`: apaga o bucket, o pool e o provider, as três contas de serviço, os papéis,
-   os canais de notificação e o budget. As APIs continuam ligadas (não custam nada). O pool fica em
-   soft delete por 30 dias e o ID `tx03v2-github` não pode ser reutilizado nesse tempo
-   (`docs/ARQUITETURA.md`, "Nomes que ficam presos").
-6. Para encerrar de vez, apague o projeto dedicado (`gcloud projects delete tx03v2-lab-example`): ele
-   fica desligado e pendente de exclusão por 30 dias.
-7. Confira os relatórios do Cloud Billing no dia seguinte.
+5. Bootstrap destroy removes bucket, pool/provider, three CI identities plus node
+   identity, custom roles, notification channels, budget. APIs remain enabled/free.
+   Pool ID stays soft-deleted30 days (ARCHITECTURE, Names retained after deletion).
+6. Final dedicated-project deletion:
+   `gcloud projects delete tx03v2-lab-example`;disabled/pending deletion30 days.
+7. Recheck Cloud Billing the following day.
 
-## 11. Registro
+## 11. Recording evidence
 
-Abra uma issue com o template **Cloud run report**: data, região, conta de faturamento (créditos ou
-paga), commits do tx03v2/dx03v2, versões (Terraform, GKE, `enable_waf`, `db_tier`), passos, duração,
-custo observado nos relatórios do Cloud Billing (agrupe por SKU e diga se o free tier da GKE cobriu
-a taxa do cluster; `docs/CUSTOS.md`), problemas e a saída (redigida) do `scripts/leftovers.sh`. A
-matriz de status do README só muda com essa evidência.
+Open Cloud run report:date, region, billing type/trial, TX/DX commits, Terraform/GKE
+versions, WAF/DBprofile/tier, steps, duration, actual Cloud Billing costs bySKU and GKE
+fee/credit treatment, issues and redacted leftovers. README status changes only
+with this evidence. Never publish billing IDs, secrets, planJSON or state.
 
-## 12. Problemas comuns
+## 12. Troubleshooting
 
-Causas prováveis, não verificadas em nuvem na v2:
+These are likely causes, not v2 cloud-verified outcomes.
 
-| Sintoma | Causa provável | O que fazer |
-|---|---|---|
-| `SERVICE_DISABLED` ou `API has not been used in project` | bootstrap não aplicado neste projeto, ou API recém-ligada | aplique o bootstrap (seção 2); espere alguns minutos e repita |
-| Erro de quota project com credenciais de usuário | ADC sem projeto de cota | `gcloud auth application-default set-quota-project tx03v2-lab-example` |
-| 403 ao criar o budget | sem papel na conta de faturamento | Billing Account Administrator ou Costs Manager (seção 1) |
-| `google-github-actions/auth` falha com `Permission 'iam.serviceAccounts.getAccessToken' denied` | o sujeito não casa: job fora do environment `lab`, outro dono ou fork, variável errada | confira o environment, `github_owner` do bootstrap e as variáveis (seção 3) |
-| `terraform init` do lab com 403 no bucket | conta errada em `GCP_*_SERVICE_ACCOUNT` ou `TF_STATE_BUCKET` de outro projeto | confira com os outputs do bootstrap |
-| `the DNS endpoint of tx03v2-lab does not answer, or this identity has no Kubernetes access` | identidade sem `container.clusters.connect` (`clusterViewer`) ou sem RBAC | confira os papéis do deployer e a RoleBinding (`platform` de novo) |
-| `cannot render tx03v2-lab-contract` | apply não rodou, ou a identidade não tem `parameterAccessor` | rode o apply; confira os papéis |
-| `kubectl wait ... clustersecretstore/gcp-secret-manager` expira | o ESO não alcança o Secret Manager | `kubectl describe clustersecretstore gcp-secret-manager`; confira as concessões dos segredos e o pool `<PROJECT_ID>.svc.id.goog` |
-| `platform/uninstall.sh` expira esperando NEGs | o controlador do Gateway ainda apaga o load balancer | rode de novo; confira `gcloud compute network-endpoint-groups list` |
-| `Requested entity already exists` no pool `tx03v2-github` | pool de um bootstrap anterior em soft delete (30 dias) | `gcloud iam workload-identity-pools undelete tx03v2-github --location=global` e importe no state, ou use outro projeto |
-| O apply falha com `PERMISSION_DENIED` e a mensagem nomeia uma permissão (`compute.*`, `cloudsql.*`, `container.*`, ...) | os papéis do apply foram escolhidos pela documentação dos serviços, não por um apply real, e a permissão não está em nenhum deles | ache o papel predefinido que tem a permissão (`gcloud iam roles list --filter="includedPermissions:<permissão>"`, ou a página de papéis do serviço), ponha-o em `apply_extra_project_roles` no `terraform.tfvars` do bootstrap, aplique o bootstrap e rode o apply de novo; **abra um `cloud_run_report`**, para o papel entrar na lista do repositório. Owner, Project IAM Admin e papéis de conta de serviço são recusados |
-| `leftovers.sh` sai com 2 | `gcloud` sem login, `--project` ausente ou erro da API | faça login e rode de novo; nunca leia isso como "nada sobrou" |
-| `preflight.sh` recusa o projeto (exit 1) | o projeto tem cluster, banco ou segredo que não é do lab | use um projeto dedicado (seção 1); o script nomeia o que encontrou |
-| `Error acquiring the state lock` | um apply ou destroy foi interrompido | `terraform-destroy` com `force_unlock_id` (seção 8), só com a certeza de que nenhum outro `terraform` roda |
-| `google-github-actions/auth` falha depois de renomear ou transferir o repositório | o `sub` imutável carrega o nome e o ID: mudou | aplique o bootstrap de novo com o dono e os IDs atuais (seção 2) |
-| O instalador do `full` diz que a malha gerenciada não está `ACTIVE` | `enable_managed_mesh` não aplicado, ou a frota ainda provisiona (pode levar vários minutos), ou a API `mesh.googleapis.com` não está ligada | `gcloud container fleet mesh describe --project <id>`; aplique o bootstrap (APIs) e o root do lab; espere e rode de novo |
-| O instalador do `full` diz que o certificado não está `ACTIVE` | a zona não foi delegada, o registro CNAME da autorização DNS ainda não resolve ou o domínio é de outra pessoa | delegue os servidores de nomes de `dns_name_servers`; `dig CNAME _acme-challenge...` conforme `gcloud certificate-manager dns-authorizations describe`; espere (`PROVISIONING` é normal no início) |
-| `FailedCreate` com `admission webhook ... denied` ou `context deadline exceeded` ao criar pods do app | o Kyverno recusou a imagem (sem digest, sem atestação do `deploy-gcp.yml` do fork) ou o control plane não alcança o webhook (regra de firewall ausente, Kyverno fora do ar) | `kubectl -n dx03v2 describe replicaset`; `kubectl -n kyverno get pods`; confira `gcloud compute firewall-rules describe tx03v2-lab-control-plane-webhooks`; refaça o deploy do dx03v2 para assinar e promover o digest |
-| `platform/uninstall.sh` falha com `monitoring PVCs remain` | um pod ainda monta o volume | `kubectl -n monitoring get pods,pvc`; rode de novo depois que os releases saírem; `leftovers.sh` lista discos que sobraram (`persistent disk`) |
+| Symptom | Likely cause | Action |
+| --- | --- | --- |
+| SERVICE_DISABLED/API never used | bootstrap absent or API propagating | apply bootstrap, wait/retry |
+| ADC quota-project error | missing quota project | gcloud auth application-default set-quota-project tx03v2-lab-example |
+| Budget403 | no billing-account role | billing admin/costs manager, section1 |
+| auth getAccessToken denied | subject mismatch, wrong environment/owner/ID/variable | compare immutable subject, bootstrap IDs, lab and outputs |
+| Backend init403 | wrong service account/bucket project | bootstrap outputs |
+| DNS endpoint does not answer/access denied | missing clusterViewer/connect or RBAC | deploy grants, rerun platform RoleBinding |
+| Cannot render contract | apply absent/parameterAccessor missing | apply/check roles |
+| Store Ready timeout | ESO cannot read Secret Manager | describe store, secret grants, GKE WIF pool |
+| Uninstall NEG timeout | controller still deleting LB | retry, inspect NEG inventory |
+| WIF pool already exists | prior bootstrap soft-deleted30 days | deliberately undelete/import or another project |
+| Apply PERMISSION_DENIED | documented role set missing an actual permission | find official predefined role or gcloud iam roles list filter;review apply_extra_project_roles, bootstrap again, report. Owner/ProjectIAMAdmin/service-account roles rejected |
+| leftovers exit2 | no login/missing project/APIerror | correct/retry;never treat as empty |
+| preflight exit1 | foreign cluster/DB/secret | dedicated project;error names resource |
+| State lock | interrupted executor | section8, prove no executor before typed force unlock |
+| auth fails after rename/transfer | immutable subject includes changed name/ID | bootstrap current owner/IDs |
+| Full mesh notACTIVE | disabled/provisioning/API absent | fleet mesh describe, bootstrap APIs/apply, wait |
+| Certificate notACTIVE | delegation/CNAME not resolved/not your domain | delegate nameservers, inspect DNSauthorization/dig CNAME, wait PROVISIONING |
+| Pod FailedCreate/admission denied/timeout | wrong digest/attestation or unreachable webhook | describe ReplicaSet, Kyverno pods, webhook firewall;redeploy signed promotion |
+| monitoring PVCs remain | pod still mounts volume | inspect pods/PVCs, wait releases/retry, inspect leftover disks |

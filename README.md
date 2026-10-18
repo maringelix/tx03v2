@@ -4,7 +4,7 @@ Google Cloud infrastructure half of a DevOps lab: Terraform, GKE Autopilot, Clou
 
 [![ci](https://github.com/maringelix/tx03v2/actions/workflows/ci.yml/badge.svg)](https://github.com/maringelix/tx03v2/actions/workflows/ci.yml)
 
-[Português](README.pt-BR.md)
+**Start here:** [complete family getting started guide](https://github.com/maringelix/tx00v2/blob/main/docs/GETTING_STARTED.md).
 
 **Fork this lab:** [FORK.md](FORK.md) takes you from a fork to a running lab, on your machine first, then in your own cloud account.
 
@@ -25,7 +25,7 @@ The lab family (v2):
 | [`tx02v2`](https://github.com/maringelix/tx02v2) | Azure | infrastructure (Terraform, AKS, PostgreSQL, platform layer) | see its status matrix |
 | [`dx02v2`](https://github.com/maringelix/dx02v2) | Azure | application | see its status matrix |
 | `tx03v2` (this repo) | GCP | infrastructure (Terraform, platform layer) | see status matrix |
-| [`dx03v2`](https://github.com/maringelix/dx03v2) | GCP | application (sibling of this repo, built against `docs/CONTRATO.md`) | see its status matrix |
+| [`dx03v2`](https://github.com/maringelix/dx03v2) | GCP | application (sibling of this repo, built against `docs/CONTRACT.md`) | see its status matrix |
 
 Every application repository runs the same app (the dx01v2 message board); only the deploy target
 changes, so the comparison between clouds stays fair.
@@ -38,17 +38,17 @@ changes, so the comparison between clouds stays fair.
 | Lint and IaC security scan (tflint + google ruleset, trivy HIGH/CRITICAL, plain and with the example inputs, no ignores) | `verified in CI` | `make static` (`tflint`, `trivy-config`, `trivy-config-tfvars`, `trivyignore-policy`) |
 | Workflows, scripts, platform manifests and Helm values (actionlint, shellcheck, kubeconform, helm template of the External Secrets chart pinned by digest and SHA256) | `verified in CI` | `make static` (`actionlint`, `shellcheck`, `kubeconform`, `helm-template`) |
 | Secret scan and repository policies (placeholder identifiers only, pinned actions, the four contract labels, scripts that act only on the lab, Terraform rules against the v1 regressions) | `verified in CI` | `make static` (`gitleaks`, `policy-*`, `repo-structure`, `version-consistency`) |
-| Contract v2 with dx03v2 (15 keys of the Parameter Manager parameter, namespaces `dx03v2` and `observability`, deployer RBAC, ClusterSecretStore, OTLP endpoint of the Collector) | `verified in CI` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRATO.md](docs/CONTRATO.md) |
+| Contract v5 with dx03v2 (18 Parameter Manager keys, independent secondary contract, namespaces, deployer RBAC, ClusterSecretStore, Collector OTLP endpoint) | `verified in CI` | `make static` (`contract-parameter`, `contract-platform`); [docs/CONTRACT.md](docs/CONTRACT.md) |
 | Terraform unit tests with a mocked google provider (Workload Identity Federation subjects, state bucket, plan/apply role boundaries, primary/DR Velero bucket IAM condition, budget, GKE Autopilot, network, Cloud SQL, secrets, Artifact Registry, Cloud Armor, contract parameter, IAM grants and negative validations) | `verified in CI` | `make test` |
-| R9 continuity profiles: Cloud SQL regional HA/PITR, optional cross-region replica and secondary GKE/registry/secrets/contract | `verified locally with Terraform mocks; not run in the cloud (v2)` | `terraform/envs/lab/tests/continuity.tftest.hcl`; [continuity runbook](docs/CONTINUIDADE.md) |
-| Local physical PostgreSQL backup, corrupt-backup rejection and WAL/PITR recovery | `awaiting CI e2e` | `scripts/local/pitr-drill.sh`, `platform/local/check.sh` |
+| R9 continuity profiles: Cloud SQL regional HA/PITR, optional cross-region replica and secondary GKE/registry/secrets/contract | `verified locally with Terraform mocks; not run in the cloud (v2)` | `terraform/envs/lab/tests/continuity.tftest.hcl`; [continuity runbook](docs/CONTINUITY.md) |
+| Local physical PostgreSQL backup, corrupt-backup rejection and WAL/PITR recovery | `verified in CI` | `scripts/local/pitr-drill.sh`, `platform/local/check.sh`, required `e2e` |
 | Bootstrap (APIs, state bucket, Workload Identity Federation pool and provider, CI service accounts, budget) | `not run in the cloud (v2)` | `terraform/bootstrap`, `docs/RUNBOOK.md` |
 | Lab apply (VPC + Cloud NAT, GKE Autopilot on the REGULAR channel, Cloud SQL PostgreSQL 17 through Private Service Connect, Secret Manager, Artifact Registry, Cloud Armor, Parameter Manager contract) | `not run in the cloud (v2)` | `.github/workflows/terraform-apply.yml` |
 | Plan on pull requests | `not run in the cloud (v2)` | `.github/workflows/terraform-plan.yml` |
-| Cloud platform profiles: `core` (ESO + OpenTelemetry Collector 0.176.0) and optional `full` (persistent in-cluster observability with SLO alerts, Argo CD, Gatekeeper, Kyverno image admission, Trivy, Velero and the Chaos Mesh controller, with the app in the managed Cloud Service Mesh) | `implemented as code; not run in the cloud (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; Autopilot exclusions are documented in `docs/ARQUITETURA.md` |
+| Cloud platform profiles: `core` (ESO + OpenTelemetry Collector 0.176.0) and optional `full` (persistent in-cluster observability with SLO alerts, Argo CD, Gatekeeper, Kyverno image admission, Trivy, Velero and the Chaos Mesh controller, with the app in the managed Cloud Service Mesh) | `implemented as code; not run in the cloud (v2)` | `.github/workflows/platform.yml`, `platform/install.sh`, `helm-template-full`; Autopilot exclusions are documented in `docs/ARCHITECTURE.md` |
 | Destroy + leftover check | `not run in the cloud (v2)` | `.github/workflows/terraform-destroy.yml`, `scripts/leftovers.sh` |
-| HTTPS on the Gateway (optional, `full`): public Cloud DNS zone, Google-managed certificate in a Certificate Map, HTTP → HTTPS redirect; Cloud Armor with seven CRS categories and a per-IP limit | `implemented as code; not run in the cloud (v2)` | `terraform/envs/lab/edge.tf`, `edge_mesh.tftest.hcl`, `waf.tftest.hcl`, `docs/CONTRATO.md`; public issuance needs a domain you own and delegate |
-| Repository settings as code (ruleset, environment `lab`) | `verified locally` | `scripts/repo-guardrails.sh` applied; read back with `gh api` on 2026-10-14 (`docs/PUBLICACAO.md`) |
+| HTTPS on the Gateway (optional, `full`): public Cloud DNS zone, Google-managed certificate in a Certificate Map, HTTP → HTTPS redirect; Cloud Armor with seven CRS categories and a per-IP limit | `implemented as code; not run in the cloud (v2)` | `terraform/envs/lab/edge.tf`, `edge_mesh.tftest.hcl`, `waf.tftest.hcl`, `docs/CONTRACT.md`; public issuance needs a domain you own and delegate |
+| Repository settings as code (ruleset, environment `lab`) | `verified locally` | `scripts/repo-guardrails.sh` applied; read back with `gh api` on 2026-10-14 (`docs/PUBLISHING.md`) |
 | **Local lab, static checks**: `terraform/envs/local` plan tests (private network, labels, loopback-only registry, TLS-only database, digests, negative validations; 10 runs), 17 local charts by SHA256 rendering digests and ClusterIP only, Gatekeeper policies against their gator cases | `verified locally` | `terraform-test:envs/local`, `helm-template-local`, `kubeconform-local`, `policy-gator`, `local-versions` |
 | **Local lab** (Terraform on Docker): kind cluster + emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (S3 API emulator), load balancer, git server; destroy + leftover check | `verified in CI` | `make e2e` (`terraform/envs/local`, `scripts/local-lab.sh`) |
 | Service mesh: Istio 1.31 ambient, mTLS `STRICT`, identity-based `AuthorizationPolicy` | `verified in CI` | `make e2e` (`platform/local/check.sh`: allowed, other identity and plaintext probes) |
@@ -66,13 +66,13 @@ changes, so the comparison between clouds stays fair.
 `verified in CI` rows (`HARNESS_STRICT=1 make verify`) run in the CI (`ci.yml`, jobs `static` and
 `test`, on every pull request, every push to `main` and weekly) and pass locally in a Linux
 container. A cloud row changes only with a `cloud_run_report` issue (date, region, commits, cost,
-leftovers). The local lab rows will also run in the CI job `e2e`.
+leftovers). Local lab rows run in CI job `e2e`.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  internet((Internet)) --> lb["Global external Application Load Balancer<br/>(GKE Gateway, HTTP) + Cloud Armor"]
+  internet((Internet)) --> lb["Global external Application Load Balancer<br/>(GKE Gateway, core HTTP / full HTTPS) + Cloud Armor"]
   subgraph vpc["VPC tx03v2-lab"]
     gke["GKE Autopilot tx03v2-lab (REGULAR channel, Kubernetes 1.36):<br/>private nodes, Dataplane V2"]
     psc["Private Service Connect endpoint"]
@@ -85,7 +85,7 @@ flowchart LR
   dx["dx03v2 deploy (deploy-gcp)"] -->|Parameter Manager contract, image push, RoleBinding| gke
 ```
 
-- `terraform/bootstrap`: the 15 APIs of the lab, the state bucket (versioned, uniform access,
+- `terraform/bootstrap`: the 18 APIs of the lab, the state bucket (versioned, uniform access,
   public access prevention, deletion refused until `state_protection = false`), the Workload
   Identity Federation pool and provider for GitHub, the three CI service accounts with their roles
   (the apply identity can grant at project level only the roles of `modules/project-roles`, through
@@ -96,7 +96,7 @@ flowchart LR
 - `platform/`: core and full cloud profiles, pinned charts, rendered manifests and GitOps, installed
   after the apply and never by Terraform.
 - Design decisions, the AWS / Azure / Google Cloud table and the v1 → v2 table:
-  [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start (free, local)
 
@@ -136,12 +136,12 @@ make local-down     # destroy + leftover check
 | HTTPS listener certificate (Google-managed, Certificate Map; `full` only) | cert-manager, ClusterIssuer `lab-ca` |
 | Secret Manager + ESO (Workload Identity Federation for GKE) | Secrets of `lab-secrets` + ESO |
 | Cloud Storage (backups) | Versity S3 Gateway (S3 API) |
-| Parameter Manager contract | ConfigMap `lab-system/lab-contract` (`docs/CONTRATO.md`) |
+| Parameter Manager contract | ConfigMap `lab-system/lab-contract` (`docs/CONTRACT.md`) |
 | GitHub (GitOps source) | Soft Serve git server |
 
-Details, probes and limits: [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) and
-[docs/ARQUITETURA.md](docs/ARQUITETURA.md). Deploying dx03v2 on top of it (through the local contract)
-is `planned` in dx03v2.
+Details, probes and limits: [docs/LOCAL_LAB.md](docs/LOCAL_LAB.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Deploying dx03v2 on top of it (through the local contract)
+is `verified in CI` by dx03v2 `e2e-platform` and `e2e-platform-small`.
 
 ## Cloud path (costs money)
 
@@ -151,11 +151,12 @@ not be confirmed and is not included). Three hours are about US$0.37–0.67 for 
 US$0.64–0.94 for `full`, plus data and backup storage; a forgotten full lab costs roughly
 US$155–228/month. These are estimates from list prices
 checked on 2026-10-16, not a bill, and your billing account may use another currency:
-see [docs/CUSTOS.md](docs/CUSTOS.md). The bootstrap budget defaults to 5 units in that currency and
+see [docs/COSTS.md](docs/COSTS.md). The bootstrap budget defaults to 5 units in that currency and
 only warns. Use a dedicated project and destroy on the same day.
 
 Follow [docs/RUNBOOK.md](docs/RUNBOOK.md): bootstrap → GitHub variables of tx03v2 (and of dx03v2) →
-apply → choose the `core` or `full` platform input → deploy dx03v2 through its GitOps workflow →
+reviewed cost gate → apply → choose platform `target`, `core|full` and optional `finops` →
+DX CI → `publish-images(ci_run_id)` → `deploy-gcp(release_run_id)` →
 smoke test → empty the Velero bucket after reviewing backups (full only) → destroy → leftover check
 (locally, as the project Owner) → `cloud_run_report` issue.
 
@@ -179,21 +180,23 @@ Details: [docs/HARNESS.md](docs/HARNESS.md).
 
 ## Docs
 
-All docs are in Brazilian Portuguese.
+All public documentation is written in English.
 
 | Doc | Content |
 |---|---|
 | [FORK.md](FORK.md) | fork the lab: what GitHub does not copy, the local lab, your own cloud account |
-| [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | diagram, ADRs, AWS / Azure / Google Cloud, v1 → v2 |
-| [docs/CONTRATO.md](docs/CONTRATO.md) | tx03v2 ⇄ dx03v2 contract v2 (source of truth) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | diagram, ADRs, AWS / Azure / Google Cloud, v1 → v2 |
+| [docs/CONTRACT.md](docs/CONTRACT.md) | tx03v2 ⇄ dx03v2 contract v5 (source of truth) |
+| [docs/CONTINUITY.md](docs/CONTINUITY.md) | core/HA/DR, physical/WAL and PVC recovery, fencing and failback |
+| [docs/FINOPS.md](docs/FINOPS.md) | capacity/SLO, OpenCost/VPA/Spot, mandatory cost and expiry gate |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | full cloud round |
-| [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) | the local lab: what is emulated, how to run it, probes, limits |
-| [docs/CUSTOS.md](docs/CUSTOS.md) | cost estimate per component, with and without the GKE free tier |
+| [docs/LOCAL_LAB.md](docs/LOCAL_LAB.md) | the local lab: what is emulated, how to run it, probes, limits |
+| [docs/COSTS.md](docs/COSTS.md) | cost estimate per component, with and without the GKE free tier |
 | [docs/GUARDRAILS.md](docs/GUARDRAILS.md) | rules, enforcement, exceptions, limits |
 | [docs/HARNESS.md](docs/HARNESS.md) | checks, strict mode, troubleshooting |
-| [docs/SUSTENTACAO.md](docs/SUSTENTACAO.md) | routines, end-of-support calendar, update procedures |
-| [docs/PUBLICACAO.md](docs/PUBLICACAO.md) | checklist to make the repository public |
-| [docs/LICOES_APRENDIDAS.md](docs/LICOES_APRENDIDAS.md) | lessons learned from the GCP v1 lab |
+| [docs/MAINTENANCE.md](docs/MAINTENANCE.md) | routines, end-of-support calendar, update procedures |
+| [docs/PUBLISHING.md](docs/PUBLISHING.md) | checklist to make the repository public |
+| [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) | lessons learned from the GCP v1 lab |
 
 ## Contributing
 
@@ -204,6 +207,7 @@ issues: [SECURITY.md](SECURITY.md).
 
 [MIT](LICENSE) — Copyright (c) 2025-2026 Bruno Maringeli.
 
-## R10: capacidade e FinOps
+## R10: capacity and FinOps
 
-Veja [FinOps e escala](docs/FINOPS.md) para kind HA, carga/HPA/PDB, OpenCost, VPA Off, Spot opt-in, preços regionais, orçamento/expiração e limpeza. Construção para fork; nada executado na nuvem (v2).
+See [FinOps and scaling](docs/FINOPS.md) for kind HA, load/HPA/PDB, OpenCost, VPA Off,
+opt-in Spot, regional prices, budget/expiry and cleanup. Built for forks; not run in the cloud (v2).

@@ -1,6 +1,6 @@
 # Lab root: composes the modules for tx03v2-lab inside the project prepared by terraform/bootstrap
 # (APIs, state bucket, CI service accounts). Names, labels and published values follow
-# docs/CONTRATO.md (contract v2 with dx03v2). Nothing here talks to the Kubernetes API: ESO, the
+# docs/CONTRACT.md (contract v2 with dx03v2). Nothing here talks to the Kubernetes API: ESO, the
 # OpenTelemetry Collector and the manifests are installed by platform/install.sh. Every IAM grant of the lab lives in roles.tf.
 data "google_project" "this" {
   project_id = var.project_id
