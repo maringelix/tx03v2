@@ -30,7 +30,14 @@ mesh, backup, PITR, observabilidade, políticas e Chaos continuam obrigatórias.
 
 O VPA precisa produzir uma recomendação, mantendo updateMode Off e os requests
 originais. OpenCost precisa retornar custo positivo medido para o namespace da
-fixture pela API /allocation. As tarifas locais são uma simulação determinística,
+fixture pela API /allocation. A sonda consulta novamente por até cinco minutos
+(sete tentativas com intervalo de 30 s e timeout HTTP de 15 s), porque os scrapes
+e o modelo de alocação convergem de forma assíncrona. A primeira resposta sem
+custo positivo continua sendo rejeitada; esgotar as tentativas falha com diagnóstico
+somente dos metadados sintéticos de custo. A correção porta o comportamento já
+usado no par AWS, após uma falha preexistente do gate R10 no GCP. O pin local do
+dx03v2 deve acompanhar esse commit após o merge (guardrail `family-ref`).
+As tarifas locais são uma simulação determinística,
 explicitamente identificada em platform/finops/pricing/local.json.
 
 ## GKE Autopilot e Spot

@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Pre-existing R10 local cost-probe race: port the proven AWS bounded OpenCost polling (seven
+  attempts, thirty-second interval, fifteen-second request timeout). The required positive namespace
+  CPU/RAM allocation stays unchanged; exhausted attempts emit synthetic cost metadata for diagnosis.
+  Offline fixtures exercise zero-to-positive, persistent zero and propagated HTTP-command failure.
+  This local-script update requires a coordinated dx03v2 reference pin after this infrastructure PR.
 - Cloud readiness audit: allow Terraform to manage metadata on both exact Velero bucket names,
   retaining the six bucket-only permissions and no backup-object access. Re-apply bootstrap before DR.
 - The GCP full Gatekeeper policy accepts only API/web SHA256 digests of the contract repository and
