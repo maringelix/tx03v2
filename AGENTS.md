@@ -1,7 +1,9 @@
 # AGENTS.md
 
 Instructions for AI coding agents and humans working in `tx03v2`. `CLAUDE.md` points here; this file
-is the source of truth. The full rule list (pt-BR) is [docs/GUARDRAILS.md](docs/GUARDRAILS.md).
+is the source of truth. The full rule list is [docs/GUARDRAILS.md](docs/GUARDRAILS.md).
+All public documentation is written in English. This includes examples, comments and contributor guidance.
+Fork onboarding starts at the [family guide](https://github.com/maringelix/tx00v2/blob/main/docs/GETTING_STARTED.md).
 
 ## 1. Mission and context
 
@@ -9,18 +11,18 @@ is the source of truth. The full rule list (pt-BR) is [docs/GUARDRAILS.md](docs/
   `tx01v2` + `dx01v2` on AWS, `tx02v2` + `dx02v2` on Azure, `tx03v2` + `dx03v2` on Google Cloud).
 - It must stay healthy without any cloud account: every claim is backed by the local harness or
   carries a status label (`verified in CI`, `verified locally`, `not run in the cloud (v2)`, `planned`).
-- Baseline before the R4 cloud-profile changes: the harness passed in CI (jobs `static`, `test`)
-  and locally with the local lab. The R4 chart, contract and sizing checks are being added in this
-  PR; consult `docs/HARNESS.md` for their latest evidence. **Nothing of v2 has run in Google Cloud**
+- The harness, local lab and full chart/contract/sizing checks passed required CI
+  (`static`, `test`, `e2e`); consult `docs/HARNESS.md` for evidence and limits.
+  **Nothing of v2 has run in Google Cloud**
   (bootstrap, apply, plan, platform and destroy are `not run in the cloud (v2)`).
-- The local lab ([docs/LAB_LOCAL.md](docs/LAB_LOCAL.md)) rebuilds the whole v1 platform on Docker:
+- The local lab ([docs/LOCAL_LAB.md](docs/LOCAL_LAB.md)) rebuilds the whole v1 platform on Docker:
   `terraform/envs/local` (kind + emulated Artifact Registry, Cloud SQL, Cloud Storage through an S3
   API emulator, load balancer, git server) and `platform/local` (Istio ambient, cert-manager, ESO,
   Prometheus/Alertmanager/Grafana, Loki/Alloy, Tempo and the OpenTelemetry Collector, Argo CD,
-  Gatekeeper, Trivy Operator, Velero, Chaos Mesh). `make e2e` proves it with 34 probes (CI job
+  Gatekeeper, Trivy Operator, Velero, Chaos Mesh). `make e2e` proves it with runtime probes (CI job
   `e2e`). It is not cloud-mutating: agents may run it, one heavy run at a time (8 GB of Docker
   memory for `full`, 7 GB with `LOCAL_SIZE=small`).
-- The interface with `dx03v2` is [docs/CONTRATO.md](docs/CONTRATO.md) (contract v3, owned here; the
+- The interface with `dx03v2` is [docs/CONTRACT.md](docs/CONTRACT.md) (contract v5, 18 keys, owned here; the
   local lab has its own local contract, `lab-system/lab-contract`).
 
 ## 2. Non-negotiable rules
@@ -52,7 +54,7 @@ is the source of truth. The full rule list (pt-BR) is [docs/GUARDRAILS.md](docs/
 .github/workflows/      ci.yml (harness), terraform-plan/apply/destroy.yml, platform.yml (cloud: dispatch; plan also on PRs)
 .github/rulesets/       main.json: branch ruleset applied by scripts/repo-guardrails.sh
 .devcontainer/          Linux environment + Docker-in-Docker, pinned by digest (runs make tools; make e2e works inside)
-docs/                   pt-BR docs: architecture, contract, runbook, costs, guardrails, harness, sustainment, lessons
+docs/                   English architecture, contract, runbook, costs, guardrails, harness, maintenance, lessons
 FORK.md                 how to fork the lab: what GitHub does not copy, the local lab, your own cloud account
 platform/               install.sh / uninstall.sh / render-manifests.sh, versions.env, Helm values, manifests
 platform/local/         local platform: install.sh, check.sh (probes), uninstall.sh, versions.env, values/,
@@ -95,7 +97,7 @@ tools/                  versions.env and checksums.txt of the harness tools
 |---|---|---|
 | `make tools` | `scripts/install-tools.sh` (all pinned tools) | first time, after a tool bump |
 | `make static` | `scripts/harness.sh static`: policies (Terraform, labels, identifiers, workflows), contract (parameter, platform), fmt, validate, lock files, tflint, trivy (x2), actionlint, shellcheck, kubeconform, helm template, gitleaks | every change |
-| `make test` | `scripts/harness.sh test`: `terraform test` for bootstrap and envs/lab (mocked google provider, 63 runs) and envs/local (mocked docker, tls, random; 10 runs) | every Terraform change |
+| `make test` | `scripts/harness.sh test`: `terraform test` for bootstrap and envs/lab (mocked google provider) and envs/local (mocked docker, tls, random) | every Terraform change |
 | `HARNESS_STRICT=1 make verify` | static + test with SKIP = FAIL (CI jobs `static` and `test`) | before every PR |
 | `make e2e` | `scripts/harness.sh e2e`: the local lab end to end, always destroyed (CI job `e2e`) | `platform/local`, `terraform/envs/local` or tool changes |
 | `make local-up` / `local-check` / `local-down` | keep the local lab running between steps (`LOCAL_PROFILE`) | debugging the platform |
@@ -112,10 +114,10 @@ tools/                  versions.env and checksums.txt of the harness tools
 
 ## 7. Playbooks
 
-**Maintainer / sustentação.** Follow [docs/SUSTENTACAO.md](docs/SUSTENTACAO.md): react to a red
+**Maintainer / maintenance.** Follow [docs/MAINTENANCE.md](docs/MAINTENANCE.md): react to a red
 scheduled CI, merge monthly Dependabot PRs, run the quarterly review (tools, gcloud, the External
 Secrets chart digest, archive SHA256 and image digest, the GKE/PostgreSQL calendar, kubeconform
-schema commits, prices in `docs/CUSTOS.md`, Autopilot pricing and the GKE free tier, Cloud SQL
+schema commits, prices in `docs/COSTS.md`, Autopilot pricing and the GKE free tier, Cloud SQL
 editions and tiers, the Cloud SQL CA root of the contract, ignores close to `expired_at`).
 
 **Reviewer.** Check the PR template boxes; confirm the harness is green; look for widened IAM (a new
@@ -128,7 +130,7 @@ changes without a version bump.
 **Dependency updater.** One Dependabot group per PR. Read the release notes. Terraform providers:
 keep the same constraint in every `versions.tf` (modules included), regenerate both lock files for
 the four platforms and re-check what the provider refresh reads with the plan identity
-(docs/SUSTENTACAO.md 5.3 and 5.10). Actions: confirm the new SHA matches the tag comment. Harness
+(docs/MAINTENANCE.md 5.3 and 5.10). Actions: confirm the new SHA matches the tag comment. Harness
 tools are bumped only with `scripts/update-tool-checksums.sh`; gcloud through `GCLOUD_VERSION` and
 every `setup-gcloud` step together. External Secrets bumps follow `tx01v2`/`tx02v2` (same release and
 digests).
@@ -153,11 +155,11 @@ always finish with destroy + `scripts/leftovers.sh` run locally as the project O
   which widens the IAM condition of `tx03v2-gha-apply`: re-apply the bootstrap. The tests prove that
   the condition list equals the project roles the lab root grants.
 - Add a contract key: `terraform/envs/lab/contract.tf`, `CONTRACT_KEYS` in `scripts/harness.sh` and
-  the table of `docs/CONTRATO.md`, plus a coordinated `dx03v2` PR and a version bump.
+  the table of `docs/CONTRACT.md`, plus a coordinated `dx03v2` PR and a version bump.
 - Bump a harness tool: `scripts/update-tool-checksums.sh <tool> <version>`, then `make tools verify`.
-- Bump gcloud or External Secrets: docs/SUSTENTACAO.md 5.6 / 5.5 (version, chart digest, archive
+- Bump gcloud or External Secrets: docs/MAINTENANCE.md 5.6 / 5.5 (version, chart digest, archive
   SHA256, image digest).
-- Add a check: docs/HARNESS.md ("Como adicionar um check").
+- Add a check: docs/HARNESS.md ("Adding a check").
 
 ## 9. When to stop and ask a human
 

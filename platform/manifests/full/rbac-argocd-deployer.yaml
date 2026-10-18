@@ -1,4 +1,4 @@
-# What the deploy role of dx03v2 may do in Argo CD (docs/CONTRATO.md): read the Application dx03v2 and
+# What the deploy role of dx03v2 may do in Argo CD (docs/CONTRACT.md): read the Application dx03v2 and
 # ask it to refresh (an annotation), nothing else and nothing in any other Application. GKE does not
 # map an arbitrary Kubernetes group without Google Groups for RBAC configuration, so bind the same
 # explicit Google identities used by the dx03v2 namespace RoleBinding.

@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report privately through GitHub: **Security > Report a vulnerability** on this repository (private
-vulnerability reporting is enabled when the repository is public, see `docs/PUBLICACAO.md`). Do not
+vulnerability reporting is enabled when the repository is public, see `docs/PUBLISHING.md`). Do not
 open a public issue. Never include credentials, project IDs or numbers, billing accounts, service
 account e-mails or IP addresses; use placeholders.
 
@@ -30,7 +30,7 @@ The rules, where each one is enforced and the known limits are in
   refuses `google_service_account_key` and `credentials_json`). The list of people who deploy from a
   laptop is a repository secret, masked element by element in the logs.
 - The CI service accounts have roles only in the dedicated lab project. The apply identity may grant
-  project roles only from a fixed list of three (an IAM condition on `modifiedGrantsByRole`);
+  project roles only from a fixed list of four (an IAM condition on `modifiedGrantsByRole`);
   `roles/owner` is never granted and nothing is granted above the project.
 - GKE Autopilot with private nodes and no public IP endpoint; people and CI reach the control plane
   through the DNS-based endpoint, where every request is authorized by Google IAM (Kubernetes tokens
@@ -61,5 +61,7 @@ only pull requests of this repository and `main`, and fork pull requests never g
 **dedicated project** (`scripts/preflight.sh` refuses one that holds a cluster, a database or a
 secret of other work) and keep the `lab` environment protected. The project ID and number live in
 repository variables; the workflows mask them, but treat the logs as public. The DNS endpoint of the
-cluster is reachable from the internet (IAM and RBAC still apply), and the Gateway serves plain HTTP
-until HTTPS is added (`planned`). See the "Limites" section of docs/GUARDRAILS.md.
+cluster is reachable from the internet (IAM and RBAC still apply). Core Gateway serves plain HTTP;
+full implements Google-managed HTTPS, whose actual issuance remains unrun in the cloud.
+Protected DR synchronization has value access only to four exact lab secrets; plan/deploy have none.
+See the "Limits" section of docs/GUARDRAILS.md.

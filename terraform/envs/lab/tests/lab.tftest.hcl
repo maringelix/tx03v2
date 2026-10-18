@@ -26,7 +26,7 @@ run "defaults_are_lab_friendly" {
 
   assert {
     condition     = var.nodes_subnet_cidr == "10.30.0.0/20" && var.pods_cidr == "10.32.0.0/16" && var.services_cidr == "10.33.0.0/20"
-    error_message = "Network defaults changed: update docs/CONTRATO.md and dx03v2 together."
+    error_message = "Network defaults changed: update docs/CONTRACT.md and dx03v2 together."
   }
 
   assert {
@@ -93,7 +93,7 @@ run "contract_keys_in_the_parameter" {
       "dns/certificate-map"          = "disabled"
       "mesh/management"              = "disabled"
     }
-    error_message = "Contract values must come from the modules and match docs/CONTRATO.md."
+    error_message = "Contract values must come from the modules and match docs/CONTRACT.md."
   }
 
   assert {

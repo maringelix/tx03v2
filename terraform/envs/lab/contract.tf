@@ -1,4 +1,4 @@
-# Cross-repo contract (docs/CONTRATO.md): the values dx03v2 and platform/install.sh read from the
+# Cross-repo contract (docs/CONTRACT.md): the values dx03v2 and platform/install.sh read from the
 # Parameter Manager parameter tx03v2-lab-contract (JSON, alias latest). None of them is a secret.
 locals {
   contract_keys = {

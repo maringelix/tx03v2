@@ -1,4 +1,4 @@
-# GitHub identities of the contract (docs/CONTRATO.md): the workload identity pool and its GitHub
+# GitHub identities of the contract (docs/CONTRACT.md): the workload identity pool and its GitHub
 # OIDC provider (issuer, attribute mapping, condition), the three CI service accounts and one
 # roles/iam.workloadIdentityUser grant per exact subject.
 

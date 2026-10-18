@@ -26,10 +26,10 @@ HARNESS_WORK_DIR="${HARNESS_WORK_DIR:-${TMPDIR:-/tmp}/tx03v2-harness}"
 HARNESS_ONLY="${HARNESS_ONLY:-}"
 
 # Kubernetes minor of the lab: default of the GKE REGULAR release channel (1.36.4-gke.1391002,
-# GKE release notes 2026-10-08). The cluster follows the channel; docs/CONTRATO.md states the minor.
+# GKE release notes 2026-10-08). The cluster follows the channel; docs/CONTRACT.md states the minor.
 GKE_KUBERNETES_MINOR="1.36"
 # Pinned schema sources of kubeconform (same pins as tx01v2/tx02v2; update procedure:
-# docs/SUSTENTACAO.md).
+# docs/MAINTENANCE.md).
 K8S_SCHEMA_KUBERNETES_VERSION="1.36.0"
 K8S_SCHEMA_REF="5f1fa4f7908afc9b6641c62d282a4a22437626e1" # yannh/kubernetes-json-schema
 # datreeio/CRDs-catalog at 2026-06-02: its next revision of external-secrets.io/clustersecretstore_v1.json
@@ -45,7 +45,7 @@ RENDER_REPOSITORY="us-central1-docker.pkg.dev/tx03v2-lab-example/dx03v2"
 # The only project IDs and project number that may appear in the repository (placeholders).
 PLACEHOLDER_PROJECTS_RE='^(tx03v2-lab-example|other-lab-project|example-tenant-project)$'
 
-# Contract v5 (docs/CONTRATO.md): the keys shared by the primary and optional DR parameters
+# Contract v5 (docs/CONTRACT.md): the keys shared by the primary and optional DR parameters
 # that dx03v2 and platform/install.sh read.
 CONTRACT_KEYS=(
   project-id region cluster-name network-name nodes-subnet-cidr db/endpoint-ip lb-source-ranges
@@ -75,15 +75,15 @@ CONTRACT_ROLE_RULES=(
 )
 
 REQUIRED_FILES=(
-  README.md README.pt-BR.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md CHANGELOG.md LICENSE FORK.md
+  README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md CHANGELOG.md LICENSE FORK.md
   .editorconfig .gitattributes .gitignore .pre-commit-config.yaml Makefile .tflint.hcl .trivyignore.yaml
   .devcontainer/devcontainer.json
   .github/CODEOWNERS .github/dependabot.yml .github/pull_request_template.md
   .github/ISSUE_TEMPLATE/config.yml .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/cloud_run_report.yml
   .github/workflows/ci.yml .github/workflows/terraform-plan.yml .github/workflows/terraform-apply.yml
   .github/workflows/platform.yml .github/workflows/terraform-destroy.yml .github/rulesets/main.json
-  docs/SUSTENTACAO.md docs/GUARDRAILS.md docs/HARNESS.md docs/CONTRATO.md docs/RUNBOOK.md
-  docs/ARQUITETURA.md docs/PUBLICACAO.md docs/CUSTOS.md docs/LICOES_APRENDIDAS.md
+  docs/MAINTENANCE.md docs/GUARDRAILS.md docs/HARNESS.md docs/CONTRACT.md docs/RUNBOOK.md
+  docs/ARCHITECTURE.md docs/PUBLISHING.md docs/COSTS.md docs/LESSONS_LEARNED.md
   tools/versions.env tools/checksums.txt
   scripts/install-tools.sh scripts/update-tool-checksums.sh scripts/harness.sh scripts/repo-guardrails.sh scripts/leftovers.sh
   scripts/destroy.sh scripts/preflight.sh scripts/tests/destroy-flow.sh scripts/tests/leftovers-flow.sh scripts/tests/preflight-flow.sh scripts/tests/local-preflight.sh
@@ -115,7 +115,7 @@ REQUIRED_FILES=(
   terraform/bootstrap/terraform.tfvars.example terraform/envs/lab/terraform.tfvars.example
   terraform/envs/lab/backend.hcl.example terraform/tests/mocks/google.tfmock.hcl
   terraform/modules/project-roles/main.tf
-  docs/LAB_LOCAL.md
+  docs/LOCAL_LAB.md
   terraform/envs/local/.terraform.lock.hcl terraform/envs/local/kind-config.yaml
   scripts/local-lab.sh scripts/leftovers-local.sh scripts/local/kind-cluster.sh scripts/lib/local.sh
   platform/local/install.sh platform/local/uninstall.sh platform/local/check.sh platform/local/versions.env
@@ -332,8 +332,8 @@ check_repo_structure() {
     echo "README.md: more than 250 lines"
     rc=1
   fi
-  for f in README.md README.pt-BR.md; do
-    [[ -f "$f" ]] || continue
+  if [[ -f README.md ]]; then
+    f=README.md
     forbid 'production-grade|production-ready|enterprise|best-in-class|world-class' "self-ratings in $f" '*' "$f" || rc=1
     # v1 repositories are private or archived: never link them (tx01v2-style names end in v2).
     forbid 'github\.com/maringelix/(tx|dx)0[0-9]([^0-9v]|$)' "links to v1 repositories in $f" '*' "$f" || rc=1
@@ -343,15 +343,25 @@ check_repo_structure() {
       printf '%s: emojis are not allowed:\n%s\n' "$f" "$out"
       rc=1
     }
-  done
+  fi
   if [[ -f README.md ]] && ! grep -qF 'not run in the cloud (v2)' README.md; then
     echo "README.md: the status matrix must use the label 'not run in the cloud (v2)'"
     rc=1
   fi
-  if [[ -f README.pt-BR.md ]] && ! grep -qF 'não executado em nuvem (v2)' README.pt-BR.md; then
-    echo "README.pt-BR.md: the status matrix must use the label 'não executado em nuvem (v2)'"
+  if [[ -f README.pt-BR.md ]]; then
+    echo "README.pt-BR.md: use the single English README.md"
     rc=1
   fi
+  for f in README.md AGENTS.md; do
+    if ! grep -qF 'All public documentation is written in English.' "$f"; then
+      echo "$f: declare the English documentation policy"
+      rc=1
+    fi
+    if ! grep -qF 'https://github.com/maringelix/tx00v2/blob/main/docs/GETTING_STARTED.md' "$f"; then
+      echo "$f: link the central getting started guide"
+      rc=1
+    fi
+  done
   for d in terraform/modules/*/; do
     grep -q 'required_providers' "${d}versions.tf" 2>/dev/null || {
       echo "${d}versions.tf: missing required_providers"
@@ -460,10 +470,10 @@ check_version_consistency() {
     echo "the lab runs Kubernetes $GKE_KUBERNETES_MINOR (REGULAR channel) but kubeconform validates against $K8S_SCHEMA_KUBERNETES_VERSION"
     rc=1
   }
-  if [[ -f docs/CONTRATO.md ]]; then
-    k8s_doc="$(grep -oE 'Kubernetes [0-9]+\.[0-9]+' docs/CONTRATO.md | sort -u)"
+  if [[ -f docs/CONTRACT.md ]]; then
+    k8s_doc="$(grep -oE 'Kubernetes [0-9]+\.[0-9]+' docs/CONTRACT.md | sort -u)"
     [[ "$k8s_doc" == "Kubernetes $GKE_KUBERNETES_MINOR" ]] || {
-      echo "docs/CONTRATO.md must state Kubernetes $GKE_KUBERNETES_MINOR (and no other minor); found: ${k8s_doc:-none}"
+      echo "docs/CONTRACT.md must state Kubernetes $GKE_KUBERNETES_MINOR (and no other minor); found: ${k8s_doc:-none}"
       rc=1
     }
   fi
@@ -1000,7 +1010,7 @@ check_contract_platform() {
   want="$(printf '%s\n' "external-secrets.io/v1 ClusterSecretStore/gcp-secret-manager" "rbac.authorization.k8s.io/v1 Role/dx03v2-deployer ns=dx03v2" \
     "rbac.authorization.k8s.io/v1 RoleBinding/dx03v2-deployers ns=dx03v2" "v1 Namespace/dx03v2" "v1 Namespace/observability" | sort)"
   [[ "$got" == "$want" ]] || {
-    printf 'platform/manifests must render exactly these objects (docs/CONTRATO.md):\n%s\ngot:\n%s\n' "$want" "$got"
+    printf 'platform/manifests must render exactly these objects (docs/CONTRACT.md):\n%s\ngot:\n%s\n' "$want" "$got"
     rc=1
   }
   for key in dx03v2 observability; do
@@ -1123,15 +1133,15 @@ check_contract_parameter() {
     echo "scripts/lib/gcp.sh must read the parameter tx03v2-lab-contract"
     rc=1
   fi
-  if [[ -f docs/CONTRATO.md ]]; then
+  if [[ -f docs/CONTRACT.md ]]; then
     for key in "${CONTRACT_KEYS[@]}"; do
-      grep -qE "^\| \`$key\` \|" docs/CONTRATO.md || {
-        echo "docs/CONTRATO.md: contract key \`$key\` is not in the parameter table"
+      grep -qE "^\| \`$key\` \|" docs/CONTRACT.md || {
+        echo "docs/CONTRACT.md: contract key \`$key\` is not in the parameter table"
         rc=1
       }
     done
   else
-    echo "docs/CONTRATO.md is missing (repo-structure fails): checked contract.tf only"
+    echo "docs/CONTRACT.md is missing (repo-structure fails): checked contract.tf only"
   fi
   return "$rc"
 }
@@ -1625,8 +1635,8 @@ check_platform_sizing() {
     echo "platform-sizing must output cpu_millicores and memory_mib"
     return 1
   }
-  grep -qF "| full | ${cpu}m CPU / ${memory}MiB RAM |" docs/CUSTOS.md || {
-    echo "docs/CUSTOS.md must record the reproducible full-profile requests: ${cpu}m CPU / ${memory}MiB RAM"
+  grep -qF "| full | ${cpu}m CPU / ${memory}MiB RAM |" docs/COSTS.md || {
+    echo "docs/COSTS.md must record the reproducible full-profile requests: ${cpu}m CPU / ${memory}MiB RAM"
     return 1
   }
   echo "full profile including core ESO, ${nodes} sizing node(s): ${cpu}m CPU / ${memory}MiB RAM"

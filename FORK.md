@@ -9,8 +9,9 @@ what is specific to the app.
 What is proven, and how, is in the [status matrix](README.md#status-matrix). In short: the harness
 and the local lab are `verified in CI`; the cloud path of v2 is `not run in the cloud (v2)`. If you
 run it in Google Cloud you are one of its first tests: follow [docs/RUNBOOK.md](docs/RUNBOOK.md) step
-by step and report what happened (step 8). Most documents under `docs/` are in Brazilian Portuguese;
-this page, the README, AGENTS.md and CONTRIBUTING.md are in English.
+by step and report what happened (step 8). All public documentation is in English.
+Start with the family-wide [getting started guide](https://github.com/maringelix/tx00v2/blob/main/docs/GETTING_STARTED.md)
+for account preparation, variables versus secrets, release pipelines and cloud validation order.
 
 ## What a fork does not bring along
 
@@ -22,7 +23,7 @@ GitHub copies the code and its history, nothing else:
 | Running workflows: a fork keeps its workflows disabled until you enable them, and scheduled workflows stay off in a fork | step 2 |
 | Issues: they start disabled in a fork | step 3 turns them on (the bug report and cloud run report forms) |
 | Dependabot: security updates start disabled; version updates do not run in a fork by default | step 3 turns security updates on; version bumps arrive when you sync (step 9) |
-| Repository variables and secrets | the lab never needs a secret; the cloud path needs variables and, if people deploy from a laptop, one secret (step 7) |
+| Repository variables and secrets | local credentials are generated at runtime; cloud uses variables, optional operator/Slack secrets, and short-lived WIF credentials (step 7) |
 
 A fork of a public repository is public, and so are its workflow logs.
 
@@ -70,18 +71,18 @@ of the ruleset. On Windows, run it from WSL or Git Bash.
 ```bash
 make tools                     # the pinned tools into .tools/, each one SHA256-verified
 HARNESS_STRICT=1 make verify   # static checks and terraform test: what the CI jobs static and test run
-make e2e                       # the whole local lab: apply, platform, 34 probes, destroy
+make e2e                       # the whole local lab: apply, platform, probes, destroy
 ```
 
-`make e2e` builds the platform of [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md) on Docker: a kind cluster
+`make e2e` builds the platform of [docs/LOCAL_LAB.md](docs/LOCAL_LAB.md) on Docker: a kind cluster
 with an emulated Artifact Registry, Cloud SQL (PostgreSQL, TLS only), Cloud Storage (an S3 API
 emulator), load balancer and git server, then Istio ambient, cert-manager, External Secrets,
 Prometheus/Alertmanager/Grafana, Loki/Alloy, Argo CD, Gatekeeper, Trivy Operator, Velero and Chaos
 Mesh. It proves each piece with real traffic and always destroys the lab, also after a failure. It
 needs about 8 GB of memory for Docker and takes 20-40 minutes on a laptop (about 10 in CI): run one
-lab at a time. kind is not Autopilot: the limits of the local lab are in docs/LAB_LOCAL.md. With 7
+lab at a time. kind is not Autopilot: the limits of the local lab are in docs/LOCAL_LAB.md. With 7
 GB, `LOCAL_SIZE=small` installs the same platform with smaller limits and short retention (proved
-with the app of dx03v2, [docs/LAB_LOCAL.md](docs/LAB_LOCAL.md)). To keep the lab up while you study
+with the app of dx03v2, [docs/LOCAL_LAB.md](docs/LOCAL_LAB.md)). To keep the lab up while you study
 it:
 
 ```bash
@@ -113,7 +114,7 @@ of your `dx03v2` fork clone your `tx03v2` (its FORK.md, step 5).
 
 Before the first apply:
 
-- Read the [cost section of the README](README.md#cloud-path-costs-money) and [docs/CUSTOS.md](docs/CUSTOS.md) (reference
+- Read the [cost section of the README](README.md#cloud-path-costs-money) and [docs/COSTS.md](docs/COSTS.md) (reference
   prices: check the current ones). The default `core` profile is estimated at US$0.12/hour with the
   GKE free tier or US$0.22/hour without it; optional `full` is about US$0.21/hour or US$0.31/hour (without the managed mesh, whose price could not be confirmed).
   Cloud SQL and the load balancer bill by the hour while the lab is up, and trial credits come with
@@ -131,7 +132,7 @@ Then, from the root of your `tx03v2` clone:
 
 1. **Bootstrap** (once, from your machine, as Owner): `gcloud auth login` and
    `gcloud auth application-default login`; copy `terraform/bootstrap/terraform.tfvars.example` to
-   `terraform.tfvars` (git-ignored) and set `project_id`, `billing_account`, `github_owner` (your
+   `terraform/bootstrap/terraform.tfvars` (git-ignored) and set `project_id`, `billing_account`, `github_owner` (your
    GitHub user) and `budget_alert_emails` (at least one address you read; the billing account
    administrators get the alerts as well, and trial credits are not subtracted, so the alert does not
    stay silent while credits last). `github_owner` has no default and the placeholders are refused,
@@ -151,6 +152,9 @@ Then, from the root of your `tx03v2` clone:
    terraform output -raw backend_hcl >../envs/lab/backend.hcl
    ```
 
+   For two-US-region DR, choose `state_location="US"` before this first bootstrap.
+   Never replace an existing state bucket to change its location; follow the deliberate backend
+   migration procedure in [CONTINUITY.md](docs/CONTINUITY.md).
    The bootstrap state stays local (git-ignored): keep a backup of it. APIs that were just enabled
    can answer `SERVICE_DISABLED` for a few minutes: wait and apply again.
 2. **Repository variables**: the bootstrap prints the ones it knows, ready for `gh`:
@@ -162,6 +166,10 @@ Then, from the root of your `tx03v2` clone:
    gh variable set -f /tmp/dx03v2.env -R <you>/dx03v2
    ```
 
+   Before plan/apply, also configure mandatory public cost inputs `LAB_FINOPS_PRICING_JSON`,
+   `LAB_COST_BUDGET_USD`, `LAB_COST_HOURS` (at most 24) and `LAB_COST_EXPIRES_AT`
+   (UTC in the next 24 hours and within the budgeted duration). Review regional rates and the
+   complete resource/external-category worksheet in [FINOPS.md](docs/FINOPS.md).
    The optional ones (`LAB_ENABLE_WAF`, `LAB_DB_TIER`, and for `full` `LAB_DNS_ZONE_NAME`,
    `LAB_APP_DOMAIN_NAME` and `LAB_ENABLE_MANAGED_MESH`) are in [docs/RUNBOOK.md](docs/RUNBOOK.md),
    section 3. The list of people who deploy from a laptop is a **secret**, not a variable (the logs of
@@ -169,10 +177,17 @@ Then, from the root of your `tx03v2` clone:
    `gh secret set LAB_APP_DEPLOYER_MEMBERS -R <you>/tx03v2` with a JSON list such as
    `["user:you@example.com"]`. Variables are not secret: never put a credential or an address of
    yours in one.
-3. **Run**: from the Actions tab, `terraform-plan`, `terraform-apply` and `platform` (each one waits
-   for your approval of the `lab` environment). Choose `core` or `full` in the platform workflow;
-   `core` is the default. The final deploy flow commits the image revision to `gitops/gcp`, waits
-   for Argo CD to sync and become healthy, and runs the smoke test. Then run `terraform-destroy` and
+3. **Run**: from Actions, review `terraform-plan` (guarded read-only identity, no environment
+   approval), then run `terraform-apply` and `platform` with protected `lab` approval.
+   Platform inputs are `action`, `target=primary|secondary`, `profile=core|full` and optional
+   `finops`; `core`/primary are defaults. Full requires the readiness below before installation.
+   In DX, let CI succeed on current `main`, run `publish-images` with its `ci_run_id`, then
+   `deploy-gcp` with the successful publication's `release_run_id`, installed `platform_profile`,
+   `target` and `deploy_mode=auto|gitops|push`. Signed release verification precedes environment
+   approval and cloud credentials. Promotion copies the exact digest without rebuilding;
+   `auto` chooses Argo CD when its Application exists and direct apply otherwise. GitOps writes
+   `gitops/gcp` (`gitops/gcp-dr` for secondary), waits for sync/health, then runs smoke.
+   A secondary deploy does not authorize database promotion. Then run `terraform-destroy` and
    the leftover check: [docs/RUNBOOK.md](docs/RUNBOOK.md), sections 4 to 9. The workflows take
    `github_owner` from the owner of the repository.
 
@@ -186,13 +201,14 @@ refuses any other image in the app namespace). `core` needs none of this and ser
 privileged Chaos Mesh daemon; the mesh is the managed sidecar-based one, and Chaos Mesh is limited to
 `PodChaos pod-kill` (latency and HTTP faults come from the mesh). The optional Slack
 incoming webhook is the repository secret `SLACK_WEBHOOK_URL`. Follow the Velero restore drill in
-the runbook using a disposable namespace. Velero backs up Kubernetes objects only, not Cloud SQL or
-persistent volume data. Trivy Operator and Kyverno read the `dx03v2` Artifact Registry repository as
+the runbook using a disposable namespace. Velero backs up Kubernetes objects and PD volumes through
+CSI; Cloud SQL uses native backups/PITR. Validate restored bytes and checksums, rather than only
+a restored PVC object. Trivy Operator and Kyverno read the `dx03v2` Artifact Registry repository as
 workload identities (no key); a missing vulnerability report means the scan did not run, never that
 the image is clean. The observability disks are deleted by `platform/uninstall.sh` before the
 destroy. A transition from `full` back to `core` is unsupported: destroy the lab and
 apply it again with `core`. Before destroying a `full` lab, review and explicitly empty the Velero
-bucket as Owner; Terraform sets `force_destroy=false`.
+bucket (both owned buckets with DR) as Owner after reviewing retention; Terraform sets `force_destroy=false`.
 
 Your fork is public, and so are its workflow logs. The workflows mask the project ID and number
 ([docs/GUARDRAILS.md](docs/GUARDRAILS.md), CI-07); never paste credentials or those values into an
@@ -231,6 +247,7 @@ request. Run `scripts/repo-guardrails.sh` again when `.github/rulesets/main.json
 Pull requests to the original repository are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Their
 workflow runs wait for the maintainer's approval, and the same harness decides.
 
-## R10: capacidade e FinOps
+## R10: capacity and FinOps
 
-Veja [FinOps e escala](docs/FINOPS.md) para kind HA, carga/HPA/PDB, OpenCost, VPA Off, Spot opt-in, preços regionais, orçamento/expiração e limpeza. Construção para fork; nada executado na nuvem (v2).
+See [FinOps and scaling](docs/FINOPS.md) for kind HA, load/HPA/PDB, OpenCost, VPA Off,
+opt-in Spot, regional rates, budget/expiry and cleanup. Built for forks; not run in the cloud (v2).

@@ -6,6 +6,6 @@ variable "name" {
 }
 
 variable "values" {
-  description = "Contract key => string value (docs/CONTRATO.md). None of them is a secret."
+  description = "Contract key => string value (docs/CONTRACT.md). None of them is a secret."
   type        = map(string)
 }

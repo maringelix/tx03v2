@@ -1,5 +1,5 @@
 # Applies terraform/envs/lab. CLOUD-MUTATING and billable (GKE Autopilot pods, Cloud SQL, the
-# Gateway load balancer and Cloud Armor; docs/CUSTOS.md): dispatch manually, after reading the
+# Gateway load balancer and Cloud Armor; docs/COSTS.md): dispatch manually, after reading the
 # latest terraform-plan run. The `lab` environment (required reviewer, main only) gates the
 # Workload Identity Federation subject of tx03v2-gha-apply (the immutable
 # repo:<owner>@<owner id>/tx03v2@<repository id>:environment:lab). The project must be dedicated to

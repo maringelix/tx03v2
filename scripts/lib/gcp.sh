@@ -3,7 +3,7 @@
 # Every function fails (non-zero) when the gcloud call fails: callers must never treat an API error
 # as "nothing found". Requires gcloud logged in (gcloud auth login locally, or
 # google-github-actions/auth + setup-gcloud in CI) and GCP_PROJECT_ID.
-# The lab names are fixed by the contract (docs/CONTRATO.md) and never read from the environment: a
+# The lab names are fixed by the contract (docs/CONTRACT.md) and never read from the environment: a
 # shell that already exports CLUSTER_NAME, LAB_NAME or similar for other work must not retarget a
 # script of the lab.
 LAB_PROJECT=tx03v2
@@ -81,7 +81,7 @@ lab_suffix() {
 }
 
 # load_contract PROJECT -> fills CONTRACT[<key>] from the latest version of the Parameter Manager
-# parameter tx03v2-lab-contract (a flat JSON object of strings, docs/CONTRATO.md). Needs jq.
+# parameter tx03v2-lab-contract (a flat JSON object of strings, docs/CONTRACT.md). Needs jq.
 load_contract() {
   local project=$1 payload json key value
   payload="$(gcloud parametermanager parameters versions render latest \
@@ -90,7 +90,7 @@ load_contract() {
     die "cannot render $CONTRACT_PARAMETER (did terraform apply of terraform/envs/lab run? does this identity have roles/parametermanager.parameterAccessor?)"
   json="$(printf '%s' "$payload" | base64 -d)" || die "the payload of $CONTRACT_PARAMETER is not base64"
   jq -e 'type == "object" and ([.[] | type] | all(. == "string"))' >/dev/null <<<"$json" ||
-    die "$CONTRACT_PARAMETER must be a JSON object of strings (docs/CONTRATO.md)"
+    die "$CONTRACT_PARAMETER must be a JSON object of strings (docs/CONTRACT.md)"
   CONTRACT=()
   while IFS=$'\t' read -r key value; do
     [[ -n "$key" ]] || continue
@@ -101,7 +101,7 @@ load_contract() {
 
 # contract KEY -> value of the contract key (load_contract first).
 contract() {
-  [[ -n "${CONTRACT[$1]:-}" ]] || die "contract key $1 is missing or empty in $CONTRACT_PARAMETER (docs/CONTRATO.md)"
+  [[ -n "${CONTRACT[$1]:-}" ]] || die "contract key $1 is missing or empty in $CONTRACT_PARAMETER (docs/CONTRACT.md)"
   printf '%s' "${CONTRACT[$1]}"
 }
 
