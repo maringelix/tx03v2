@@ -1,0 +1,52 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: labgcpallowedimages
+  annotations:
+    description: App images need exact Artifact Registry digests; only the named official managed mesh proxy is exempt.
+spec:
+  crd:
+    spec:
+      names:
+        kind: LabGcpAllowedImages
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            repository:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package labgcpallowedimages
+
+        containers[c] {
+          c := input.review.object.spec.containers[_]
+        }
+        containers[c] {
+          c := input.review.object.spec.initContainers[_]
+        }
+        containers[c] {
+          c := input.review.object.spec.ephemeralContainers[_]
+        }
+
+        violation[{"msg": msg}] {
+          c := containers[_]
+          not allowed(c)
+          msg := sprintf("container <%v> uses image <%v>, outside the allowed repositories or managed proxy", [c.name, c.image])
+        }
+
+        allowed(c) {
+          component := ["api", "web"][_]
+          prefix := concat("", [input.parameters.repository, "/", component, "@sha256:"])
+          startswith(c.image, prefix)
+          regex.match("^[a-f0-9]{64}$", trim_prefix(c.image, prefix))
+        }
+
+        # The Google-managed injector chooses/upgrades this image. Restrict both the container name
+        # and the exact official image path; a lookalike image or another container is not exempt.
+        allowed(c) {
+          c.name == ["istio-proxy", "istio-validation"][_]
+          not endswith(c.image, ":latest")
+          regex.match("^gcr[.]io/gke-release/asm/proxyv2(:[a-zA-Z0-9_][a-zA-Z0-9_.-]*(@sha256:[a-f0-9]{64})?|@sha256:[a-f0-9]{64})$", c.image)
+        }

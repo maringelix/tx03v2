@@ -212,6 +212,9 @@ install_policies() {
   local repository=$1 repos="$WORK_DIR/allowed-repos.yaml" f kind
   install_chart gatekeeper
   retry 10 6 kubectl apply -f "$HERE/local/policies/templates/" >/dev/null || die "could not apply Gatekeeper ConstraintTemplates"
+  retry 10 6 kubectl apply -f "$HERE/full/policies/templates/" >/dev/null || die "could not apply GCP Gatekeeper ConstraintTemplates"
+  retry 30 2 kubectl get crd labgcpallowedimages.constraints.gatekeeper.sh >/dev/null 2>&1 || die 'Gatekeeper did not create the GCP image constraint CRD'
+  kubectl wait --for=condition=Established crd/labgcpallowedimages.constraints.gatekeeper.sh --timeout=60s >/dev/null
   while read -r kind; do
     retry 30 2 kubectl get crd "${kind,,}.constraints.gatekeeper.sh" >/dev/null 2>&1 || die "Gatekeeper did not create the CRD of $kind"
     kubectl wait --for=condition=Established "crd/${kind,,}.constraints.gatekeeper.sh" --timeout=60s >/dev/null
@@ -220,8 +223,11 @@ install_policies() {
     [[ "$(basename "$f")" != allowed-repos.yaml ]] || continue
     retry 10 6 kubectl apply -f "$f" >/dev/null || die "could not apply Gatekeeper constraint $(basename "$f")"
   done
-  sed "s|__ARTIFACT_REGISTRY_REPOSITORY__|$repository/|" "$HERE/full/policies/constraints/allowed-repos.yaml" >"$repos"
+  sed "s|__ARTIFACT_REGISTRY_REPOSITORY__|$repository|" "$HERE/full/policies/constraints/allowed-repos.yaml" >"$repos"
   retry 10 6 kubectl apply -f "$repos" >/dev/null || die "could not apply Gatekeeper constraint allowed-repos"
+  # Upgrade an earlier full install without leaving its broader, proxy-incompatible constraint.
+  # The replacement is already enforced before the old constraint is removed; local is untouched.
+  kubectl delete laballowedrepos.constraints.gatekeeper.sh allowed-repos --ignore-not-found >/dev/null
 }
 
 # Kyverno and its fail-closed image policy: only digests of the two dx03v2 repositories that carry the

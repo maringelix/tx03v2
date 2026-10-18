@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Cloud readiness audit: allow Terraform to manage metadata on both exact Velero bucket names,
+  retaining the six bucket-only permissions and no backup-object access. Re-apply bootstrap before DR.
+- The GCP full Gatekeeper policy accepts only API/web SHA256 digests of the contract repository and
+  the named Google-managed mesh proxy/validation containers from the exact official image path.
+  It rejects lookalikes, foreign images, mutable app tags and forbidden init/ephemeral containers.
+  The installer enforces the replacement before removing the old cloud constraint on upgrades.
+- Kyverno admission uses explicit Kubernetes evaluation and checks all three extracted image groups.
+  Structural render tests reject JSON mode, audit-only, foreign signer and missing image groups;
+  the post-injection Pod and negative fixtures run through the real Gatekeeper Rego in CI.
+  No Google Cloud execution or runtime signature verification is claimed by these offline tests.
+
 - R9: replicate current primary credentials to DR after protected apply, with exact-secret
   access only for apply; monitor daily backup freshness/failed restores and native replica lag.
 

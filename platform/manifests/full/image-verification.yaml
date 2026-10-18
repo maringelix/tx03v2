@@ -11,7 +11,7 @@ metadata:
   name: dx03v2-release-signatures
 spec:
   evaluation:
-    mode: JSON
+    mode: Kubernetes
     background:
       enabled: false
   webhookConfiguration:
@@ -56,9 +56,13 @@ spec:
     - name: promotion
       intoto:
         type: https://github.com/maringelix/tx00v2/attestations/promoted-image/v1
+  # Kyverno v1.18.2 filters each extracted image group through matchImageReferences before CEL.
+  # Google-managed proxy/validation containers are outside these two app image references; the
+  # cloud Gatekeeper template separately constrains their exact names and official image path.
   validations:
     - message: "the Artifact Registry image must have a promotion attestation from this fork's deploy-gcp workflow"
       expression: >-
-        images.containers.map(image,
+        (images.containers + images.initContainers + images.ephemeralContainers)
+        .map(image,
           verifyAttestationSignatures(image, attestations.promotion, [attestors.github]) > 0
         ).all(verified, verified)

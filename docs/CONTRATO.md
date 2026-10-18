@@ -274,6 +274,19 @@ pode bloquear o smoke test.
   precisa assinar a mesma imagem que publicou e promoveu. O ServiceAccount
   `kyverno/kyverno-admission-controller` lê o repositório `dx03v2` como principal do Workload Identity
   Federation (`roles/artifactregistry.reader`, sem chave nem segredo de pull).
+  A avaliação é `Kubernetes`: os grupos `images.containers`, `images.initContainers` e
+  `images.ephemeralContainers` são verificados. O Kyverno filtra cada grupo pelos dois
+  `matchImageReferences` antes de avaliar CEL ([implementação v1.18.2](https://github.com/kyverno/kyverno/blob/v1.18.2/pkg/image/verification/evaluator/policy.go)).
+  A imagem Google do proxy fica fora das atestações do fork. O Gatekeeper cloud usa o template
+  exclusivo `LabGcpAllowedImages`: somente `api`/`web` do repositório do contrato por digest SHA256
+  e, como exceção, containers `istio-proxy`/`istio-validation` com o path oficial exato
+  `gcr.io/gke-release/asm/proxyv2` e tag explícita ou digest. Nome, registry ou path semelhante não
+  recebe a exceção. A imagem do proxy é escolhida pelo
+  [injector gerenciado](https://docs.cloud.google.com/service-mesh/v1.25/docs/onboarding/provision-control-plane),
+  e o [registro público oficial](https://gcr.io/v2/gke-release/asm/proxyv2/tags/list) fornece a fixture
+  com digest, sem trocar a versão gerenciada do cluster. Os casos gator incluem o Pod pós-injeção
+  e imagens proibidas em containers, init containers e containers efêmeros. A verificação de
+  assinatura real e a admissão dos subrecursos no GKE continuam exigindo homologação em nuvem.
 - Perfil `full` (R8), varredura: o Trivy Operator roda os jobs em `trivy-system` como o ServiceAccount
   `trivy-operator`, principal com `roles/artifactregistry.reader` só no repositório `dx03v2` (token
   federado de curta duração do servidor de metadados do GKE). Relatório ausente não significa imagem limpa.

@@ -1,0 +1,57 @@
+# Representative post-injection Pod: Cloud SQL migration, application, managed sidecar and CNI
+# validation init container. Google public registry digest verified 2026-10-17; this fixture is not run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: managed-mesh
+  namespace: dx03v2
+  labels:
+    app.kubernetes.io/name: api
+  annotations:
+    sidecar.istio.io/status: '{"initContainers":["istio-validation"],"containers":["istio-proxy"]}'
+spec:
+  serviceAccountName: api
+  initContainers:
+    - name: istio-validation
+      image: gcr.io/gke-release/asm/proxyv2:1.31.1-asm.19-distroless@sha256:79203f710b6568d832907e2184aaa345b1aecc9d9b21afcc8f477302c7dbbee9
+      args: [istio-iptables, --run-validation, --skip-rule-apply]
+      resources:
+        requests:
+          cpu: 50m
+          memory: 96Mi
+        limits:
+          memory: 192Mi
+    - name: migrate
+      image: __ARTIFACT_REGISTRY_REPOSITORY__/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      args: [dist/migrate.js]
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+  containers:
+    - name: api
+      image: __ARTIFACT_REGISTRY_REPOSITORY__/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      readinessProbe:
+        httpGet:
+          path: /readyz
+          port: 3000
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+    - name: istio-proxy
+      image: gcr.io/gke-release/asm/proxyv2:1.31.1-asm.19-distroless@sha256:79203f710b6568d832907e2184aaa345b1aecc9d9b21afcc8f477302c7dbbee9
+      readinessProbe:
+        httpGet:
+          path: /healthz/ready
+          port: 15021
+      resources:
+        requests:
+          cpu: 50m
+          memory: 96Mi
+        limits:
+          memory: 192Mi

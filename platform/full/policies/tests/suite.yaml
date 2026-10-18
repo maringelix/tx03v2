@@ -1,14 +1,13 @@
-# gator verify suite of the one policy that differs in the cloud (harness check policy-gator): the
-# allowed repositories are the Artifact Registry repository of the lab. The other five policies are those of
-# platform/local/policies, verified by their own suite. The template and the shared objects are the
-# ones of the local lab.
+# Cloud-only image gate plus the four shared Pod constraints on a post-injection managed mesh Pod.
+# gator evaluates the actual Rego, including forbidden images in all container groups. The cloud
+# image template does not change the local lab, whose ambient mesh has no injected sidecars.
 kind: Suite
 apiVersion: test.gatekeeper.sh/v1alpha1
 metadata:
   name: lab-policies-cloud
 tests:
   - name: allowed-repos-artifact-registry
-    template: ../../../local/policies/templates/laballowedrepos.yaml
+    template: ../templates/labgcpallowedimages.yaml
     constraint: ../constraints/allowed-repos.yaml
     cases:
       - name: artifact-registry-of-the-lab
@@ -36,3 +35,127 @@ tests:
           - namespace-dx03v2.yaml
         assertions:
           - violations: 2
+      - name: rejects-foreign-app
+        object: pod-forbidden-foreign-app.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-app-tag
+        object: pod-forbidden-app-tag.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-app-component
+        object: pod-forbidden-app-component.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-app-short-digest
+        object: pod-forbidden-app-short-digest.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-renamed-proxy
+        object: pod-forbidden-renamed-proxy.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-proxy-lookalike
+        object: pod-forbidden-proxy-lookalike.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-proxy-foreign-registry
+        object: pod-forbidden-proxy-foreign-registry.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-proxy-latest
+        object: pod-forbidden-proxy-latest.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-foreign-init
+        object: pod-forbidden-foreign-init.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-validation-foreign-image
+        object: pod-forbidden-validation-foreign-image.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-renamed-validation
+        object: pod-forbidden-renamed-validation.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: rejects-foreign-ephemeral
+        object: pod-forbidden-foreign-ephemeral.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: 1
+      - name: post-injection-pod-with-validation-and-migration
+        object: pod-managed-mesh.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: no
+      - name: post-injection-official-tag-without-digest
+        object: pod-managed-mesh-tag.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: no
+  - name: managed-mesh-image-pinned
+    template: ../../../local/policies/templates/labimagepinned.yaml
+    constraint: ../../../local/policies/constraints/image-pinned.yaml
+    cases:
+      - name: post-injection-pod
+        object: pod-managed-mesh.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: no
+  - name: managed-mesh-container-resources
+    template: ../../../local/policies/templates/labcontainerresources.yaml
+    constraint: ../../../local/policies/constraints/container-resources.yaml
+    cases:
+      - name: post-injection-pod
+        object: pod-managed-mesh.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: no
+  - name: managed-mesh-required-probes
+    template: ../../../local/policies/templates/labrequiredprobes.yaml
+    constraint: ../../../local/policies/constraints/required-probes.yaml
+    cases:
+      - name: post-injection-pod
+        object: pod-managed-mesh.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: no
+  - name: managed-mesh-required-labels
+    template: ../../../local/policies/templates/labrequiredlabels.yaml
+    constraint: ../../../local/policies/constraints/required-labels.yaml
+    cases:
+      - name: post-injection-pod
+        object: pod-managed-mesh.yaml
+        inventory:
+          - namespace-dx03v2.yaml
+        assertions:
+          - violations: no

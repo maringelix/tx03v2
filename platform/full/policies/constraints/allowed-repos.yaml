@@ -1,8 +1,8 @@
-# The cloud twin of platform/local/policies/constraints/allowed-repos.yaml: app images must come from
-# this lab's Artifact Registry repository, not the local registry. platform/install.sh replaces the
-# placeholder with contract key artifact-registry/repository.
+# Cloud-only image gate: API/web need exact contract Artifact Registry digests. The named Google
+# mesh containers may use only the exact official managed proxy image. The local policy is unchanged.
+# platform/install.sh replaces the repository with contract key artifact-registry/repository.
 apiVersion: constraints.gatekeeper.sh/v1beta1
-kind: LabAllowedRepos
+kind: LabGcpAllowedImages
 metadata:
   name: allowed-repos
 spec:
@@ -15,5 +15,4 @@ spec:
       matchLabels:
         policy.lab/enforce: "true"
   parameters:
-    repos:
-      - "__ARTIFACT_REGISTRY_REPOSITORY__/"
+    repository: "__ARTIFACT_REGISTRY_REPOSITORY__"
