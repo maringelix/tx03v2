@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Dependency round of 2026-11-09: google provider 8.6.0 -> 8.9.0 in the `terraform/bootstrap` and
+  `terraform/envs/lab` lock files (Dependabot #21). The 8.7-8.9 deprecations (`remove_default_node_pool`,
+  Parallelstore) are not used, and 8.9.0 still has no parameter-level Parameter Manager IAM resource
+  (`docs/MAINTENANCE.md` section 5.3). TLS provider 4.4.1 -> 4.4.2 in `terraform/envs/local`, the
+  same lock entry as tx02v2. The capacity image `node:24-alpine3.24` moves to digest `a34ab6d7`
+  (Node.js 24.22.2), the digest of the dx build images. Nothing ran in Google Cloud.
+
 - Standardize public documentation, contributor/agent guidance and comments in English;
   rename runbooks to canonical English paths and preserve historical lessons and evidence.
   Consolidate the README, link the central onboarding guide, and align cost inputs,

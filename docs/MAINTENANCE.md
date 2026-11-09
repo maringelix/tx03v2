@@ -43,7 +43,7 @@ Dates are the recorded baseline, not a fresh guarantee. Confirm upstream schedul
 | GKE Gateway API | 1.5.0, GKE >=1.35.2-gke.1842000, default Autopilot | follows GKE | GKE GatewayClass capabilities documentation | coordinate DX schemas |
 | Cloud SQL PostgreSQL | 17 ENTERPRISE | community EOL 2029-11-08 | [PostgreSQL policy](https://www.postgresql.org/support/versioning/) | major upgrade/contract/DX PR before EOL; check Cloud SQL extended support |
 | Terraform | 1.16.5, minimum >=1.11 | no fixed date | [releases](https://releases.hashicorp.com/terraform/) | quarterly, 5.2 |
-| google provider | 8.6.0, ~>8.6 | no fixed date; usually annual major, ignored by Dependabot | registry.terraform.io | monthly, 5.3; reassess plan roles, 5.10 |
+| google provider | 8.9.0 (2026-11-09), ~>8.6 | no fixed date; usually annual major, ignored by Dependabot | registry.terraform.io | monthly, 5.3; reassess plan roles, 5.10 |
 | random provider | 3.9.1, ~>3.9 | no fixed date | registry.terraform.io | monthly |
 | tflint-ruleset-google | 0.40.0, 2026-09-23 | no published date | [releases](https://github.com/terraform-linters/tflint-ruleset-google/releases) | quarterly, 5.1 |
 | ESO | v2.12.0/chart OCI 2.12.0, external-secrets.io/v1 | recent releases maintained | [releases](https://github.com/external-secrets/external-secrets/releases) | quarterly with TX01/TX02, 5.5 |
